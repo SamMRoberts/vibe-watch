@@ -35,6 +35,44 @@ func TestAppShellFitsAdaptiveWidths(t *testing.T) {
 	}
 }
 
+func TestAppShellKeepsHeaderVisibleAfterDashboardLoads(t *testing.T) {
+	width, height := 90, 18
+	sessions := make([]*models.Session, 20)
+	for i := range sessions {
+		sessions[i] = &models.Session{
+			ID:          "session",
+			AgentType:   models.AgentCopilot,
+			ProjectPath: "/repo/project/with/a/long/path",
+			IsActive:    i == 0,
+			Messages:    []models.Message{{Role: "user", Content: "prompt"}},
+			LastUpdated: time.Now(),
+		}
+	}
+	dashboard := NewDashboardView(width, height)
+	dashboard.SetSessions(sessions, "")
+	app := &App{
+		view:      viewDashboard,
+		width:     width,
+		height:    height,
+		loading:   false,
+		sessions:  sessions,
+		dashboard: dashboard,
+	}
+
+	view := app.View()
+
+	if got := lipgloss.Height(view); got > height {
+		t.Fatalf("expected loaded shell height to fit terminal height %d, got %d:\n%s", height, got, view)
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], "vibe-watch") {
+		t.Fatalf("expected top shell header to remain visible after load, got:\n%s", view)
+	}
+	if !strings.Contains(view, "q quit") {
+		t.Fatalf("expected footer help to remain visible after load, got:\n%s", view)
+	}
+}
+
 func TestAppFooterUsesGeneratedHelp(t *testing.T) {
 	app := &App{view: viewDetail, width: 110, height: 30, detail: NewDetailView(110, 30)}
 	app.detail.SetSession(&models.Session{

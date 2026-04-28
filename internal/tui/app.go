@@ -340,10 +340,19 @@ func (a *App) View() string {
 		return "Loading..."
 	}
 
-	var sb strings.Builder
-	sb.WriteString(a.renderShellHeader() + "\n\n")
+	header := a.renderShellHeader()
+	footer := a.renderShellFooter()
+	contentHeight := a.height - lipgloss.Height(header) - lipgloss.Height(footer)
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	content := fitRenderedHeight(a.renderContent(), contentHeight)
 
-	// Content
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
+}
+
+func (a *App) renderContent() string {
+	var sb strings.Builder
 	switch a.view {
 	case viewDashboard:
 		if a.dashboard == nil {
@@ -370,21 +379,22 @@ func (a *App) View() string {
 			sb.WriteString(a.analytics.View())
 		}
 	}
-
-	// Pad to bottom
-	contentHeight := a.height - 2 // header + footer
-	currentLines := lipgloss.Height(sb.String())
-	paddingLines := contentHeight - currentLines
-	for i := 0; i < paddingLines; i++ {
-		sb.WriteString("\n")
-	}
-	if !strings.HasSuffix(sb.String(), "\n") {
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString(a.renderShellFooter())
-
 	return sb.String()
+}
+
+func fitRenderedHeight(rendered string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	rendered = strings.TrimRight(rendered, "\n")
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *App) renderShellHeader() string {
