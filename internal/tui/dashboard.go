@@ -23,14 +23,14 @@ type DashboardView struct {
 
 func NewDashboardView(width, height int) *DashboardView {
 	cols := []table.Column{
-		{Title: "Agent", Width: 12},
+		{Title: "Agent", Width: 18},
 		{Title: "Project", Width: 20},
 		{Title: "Msgs", Width: 6},
 		{Title: "In Tok", Width: 8},
 		{Title: "Out Tok", Width: 8},
 		{Title: "Cost", Width: 9},
 		{Title: "Duration", Width: 10},
-		{Title: "Status", Width: 8},
+		{Title: "Status", Width: 10},
 		{Title: "Last Updated", Width: 14},
 	}
 
@@ -43,10 +43,10 @@ func NewDashboardView(width, height int) *DashboardView {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(colorSecondary).
 		BorderBottom(true).
 		Bold(true).
-		Foreground(colorAccent)
+		Foreground(colorGlow)
 	s.Selected = s.Selected.
 		Foreground(colorText).
 		Background(colorPrimary).
@@ -90,11 +90,6 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			}
 		}
 
-		status := "○ Idle"
-		if s.IsActive {
-			status = "● Active"
-		}
-
 		lastUpdated := s.LastUpdated.Format("15:04:05")
 		if time.Since(s.LastUpdated) > 24*time.Hour {
 			lastUpdated = s.LastUpdated.Format("Jan 02")
@@ -106,14 +101,14 @@ func (d *DashboardView) updateTable(agentFilter string) {
 		}
 
 		rows = append(rows, table.Row{
-			string(s.AgentType),
+			agentBadge(string(s.AgentType)),
 			proj,
 			fmt.Sprintf("%d", s.MessageCount()),
 			fmt.Sprintf("%d", s.TotalInputTokens()),
 			fmt.Sprintf("%d", s.TotalOutputTokens()),
-			fmt.Sprintf("$%.4f", s.EstimatedCost()),
+			styleWarning.Render(fmt.Sprintf("$%.4f", s.EstimatedCost())),
 			models.FormatDuration(s.Duration()),
-			status,
+			statusPill(s.IsActive),
 			lastUpdated,
 		})
 	}
@@ -141,42 +136,31 @@ func (d *DashboardView) View(agentFilter string) string {
 	}
 
 	stats := lipgloss.JoinHorizontal(lipgloss.Top,
-		styleCard.Width(18).Render(
-			styleMuted.Render("Sessions")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", len(d.sessions))),
-		),
+		metricCard("Sessions", fmt.Sprintf("%d", len(d.sessions)), "☷", styleAccent),
 		"  ",
-		styleCard.Width(18).Render(
-			styleMuted.Render("Active")+"\n"+
-				styleSuccess.Render(fmt.Sprintf("%d", activeCount)),
-		),
+		metricCard("Active", fmt.Sprintf("%d", activeCount), "✦", styleSuccess),
 		"  ",
-		styleCard.Width(22).Render(
-			styleMuted.Render("Total Tokens")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", totalTokens)),
-		),
+		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
 		"  ",
-		styleCard.Width(22).Render(
-			styleMuted.Render("Total Cost")+"\n"+
-				styleWarning.Render(fmt.Sprintf("$%.4f", totalCost)),
-		),
+		metricCard("Total Cost", fmt.Sprintf("$%.4f", totalCost), "◉", styleWarning),
 	)
 
+	sb.WriteString(styleMuted.Render("╭─ live session telemetry") + "\n")
 	sb.WriteString(stats)
-	sb.WriteString("\n\n")
+	sb.WriteString("\n" + styleMuted.Render("╰─ tabular view") + "\n\n")
 
 	if d.filterMode {
-		sb.WriteString(styleMuted.Render("Filter: ") + d.filterInput + "█\n\n")
+		sb.WriteString(stylePanel.Width(d.width-6).Render(styleAccent.Render("🔎 Filter: ")+d.filterInput+styleGlowCursor()) + "\n\n")
 	}
 
 	if len(d.sessions) == 0 {
 		empty := styleCard.
-			Width(d.width - 4).
+			Width(d.width-4).
 			Align(lipgloss.Center).
 			Padding(3, 0).
 			Render(
 				styleMuted.Render("No sessions found.\n\n") +
-					styleSubtitle.Render("Run Claude Code, Codex CLI, Copilot CLI, or Amazon Q\nto see sessions appear here."),
+					styleSubtitle.Render("✦ Run Claude Code, Codex CLI, Copilot CLI, or Amazon Q\nto see sessions appear here."),
 			)
 		sb.WriteString(empty)
 	} else {

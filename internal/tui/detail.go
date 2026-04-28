@@ -55,9 +55,8 @@ func (d *DetailView) renderContent() {
 	var sb strings.Builder
 
 	// Header
-	agentSty := agentStyle(string(s.AgentType))
 	header := lipgloss.JoinHorizontal(lipgloss.Top,
-		agentSty.Render(string(s.AgentType)),
+		agentBadge(string(s.AgentType)),
 		styleMuted.Render("  ·  "),
 		styleText(s.ProjectPath),
 	)
@@ -69,39 +68,23 @@ func (d *DetailView) renderContent() {
 	}
 	sb.WriteString(styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n")
 
-	status := styleSuccess.Render("● Active")
-	if !s.IsActive {
-		status = styleMuted.Render("○ Idle")
-	}
-	sb.WriteString(status + "\n\n")
+	sb.WriteString(statusPill(s.IsActive) + "\n\n")
 
 	// Token usage panel
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		styleCard.Width(22).Render(
-			styleMuted.Render("Input Tokens")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", s.TotalInputTokens())),
-		),
+		metricCard("Input Tokens", fmt.Sprintf("%d", s.TotalInputTokens()), "↘", styleAccent),
 		"  ",
-		styleCard.Width(22).Render(
-			styleMuted.Render("Output Tokens")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", s.TotalOutputTokens())),
-		),
+		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
 		"  ",
-		styleCard.Width(22).Render(
-			styleMuted.Render("Cache Reads")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", s.TotalTokens.CacheReads)),
-		),
+		metricCard("Cache Reads", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
 		"  ",
-		styleCard.Width(22).Render(
-			styleMuted.Render("Est. Cost")+"\n"+
-				styleWarning.Render(fmt.Sprintf("$%.4f", s.EstimatedCost())),
-		),
+		metricCard("Est. Cost", fmt.Sprintf("$%.4f", s.EstimatedCost()), "◉", styleWarning),
 	)
 	sb.WriteString(tokenPanel + "\n\n")
-	sb.WriteString(styleBorder.Width(d.width-6).Render("") + "\n\n")
+	sb.WriteString(divider(d.width-6) + "\n\n")
 
 	// Messages
-	sb.WriteString(styleAccent.Render(fmt.Sprintf("Messages (%d)", len(s.Messages))) + "\n\n")
+	sb.WriteString(styleAccent.Render(fmt.Sprintf("╭─ Messages (%d)", len(s.Messages))) + "\n\n")
 
 	if len(s.Messages) == 0 {
 		sb.WriteString(styleMuted.Render("No messages found in this session.\n"))
@@ -115,7 +98,7 @@ func (d *DetailView) renderContent() {
 		case "assistant":
 			roleLabel = styleAssistantMsg.Render("◆ Assistant")
 		default:
-			roleLabel = styleMuted.Render("  " + msg.Role)
+			roleLabel = styleMuted.Render("● " + msg.Role)
 		}
 
 		tsStr := ""
@@ -123,7 +106,7 @@ func (d *DetailView) renderContent() {
 			tsStr = styleMuted.Render("  " + msg.Timestamp.Format("15:04:05"))
 		}
 
-		sb.WriteString(fmt.Sprintf("%d. %s%s\n", i+1, roleLabel, tsStr))
+		sb.WriteString(fmt.Sprintf("%s %s%s\n", styleMuted.Render(fmt.Sprintf("%02d", i+1)), roleLabel, tsStr))
 
 		content := msg.Content
 		if len(content) > 500 {
@@ -135,11 +118,11 @@ func (d *DetailView) renderContent() {
 
 		lines := strings.Split(content, "\n")
 		for _, line := range lines {
-			sb.WriteString("   " + styleMessageContent.Render(line) + "\n")
+			sb.WriteString(styleMuted.Render("   │ ") + styleMessageContent.Render(line) + "\n")
 		}
 
 		if msg.Tokens.InputTokens > 0 || msg.Tokens.OutputTokens > 0 {
-			sb.WriteString(styleMuted.Render(fmt.Sprintf("   [in: %d, out: %d]\n", msg.Tokens.InputTokens, msg.Tokens.OutputTokens)))
+			sb.WriteString(styleMuted.Render(fmt.Sprintf("   ╰─ tokens in:%d out:%d\n", msg.Tokens.InputTokens, msg.Tokens.OutputTokens)))
 		}
 		sb.WriteString("\n")
 	}

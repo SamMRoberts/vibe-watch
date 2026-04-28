@@ -248,23 +248,23 @@ func (a *App) View() string {
 
 	// Header bar
 	title := styleTitle.Render("⚡ vibe-watch")
-	subtitle := styleMuted.Render("Agentic Session Monitor")
+	subtitle := styleMuted.Render("◆ Agentic Session Monitor")
 
-	tabDash := styleTab.Render("Dashboard")
-	tabAnalytics := styleTab.Render("Analytics")
+	tabDash := styleTab.Render("☷ Dashboard")
+	tabAnalytics := styleTab.Render("▣ Analytics")
 
 	switch a.view {
 	case viewDashboard:
-		tabDash = styleActiveTab.Render("Dashboard")
+		tabDash = styleActiveTab.Render("☷ Dashboard")
 	case viewAnalytics:
-		tabAnalytics = styleActiveTab.Render("Analytics")
+		tabAnalytics = styleActiveTab.Render("▣ Analytics")
 	case viewDetail:
-		tabDash = styleActiveTab.Render("Detail")
+		tabDash = styleActiveTab.Render("◈ Detail")
 	}
 
 	refreshStr := ""
 	if !a.lastRefresh.IsZero() {
-		refreshStr = styleMuted.Render(fmt.Sprintf("  refreshed %ds ago", int(time.Since(a.lastRefresh).Seconds())))
+		refreshStr = styleMuted.Render(fmt.Sprintf("⟳ %ds ago", int(time.Since(a.lastRefresh).Seconds())))
 	}
 
 	headerLeft := lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", subtitle)
@@ -279,6 +279,8 @@ func (a *App) View() string {
 
 	header := lipgloss.NewStyle().
 		Background(colorSurface).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(colorPrimary).
 		Padding(0, 1).
 		Width(a.width).
 		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, headerLeft, headerMiddle, headerRight))
@@ -292,7 +294,7 @@ func (a *App) View() string {
 			sb.WriteString(styleMuted.Render("Initializing..."))
 		} else {
 			if a.loading {
-				sb.WriteString(styleMuted.Render("  Loading sessions..."))
+				sb.WriteString(stylePanel.Width(a.width - 6).Render(styleAccent.Render("✦ Loading sessions...")))
 			} else {
 				sb.WriteString(a.dashboard.View(a.agentFilter))
 			}
@@ -308,9 +310,9 @@ func (a *App) View() string {
 	}
 
 	// Footer help
-	helpText := styleMuted.Render("  q quit  tab/shift+tab views  ↑↓ navigate  enter select  esc back  r refresh  / filter")
+	helpText := styleMuted.Render("  q quit  │  tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  esc back  ↑↓ scroll  pgup/pgdn page")
+		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ scroll  │  pgup/pgdn page")
 	}
 	if a.lastErr != nil {
 		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))
@@ -326,6 +328,9 @@ func (a *App) View() string {
 
 	footer := lipgloss.NewStyle().
 		Background(colorSurface).
+		Foreground(colorMuted).
+		Border(lipgloss.NormalBorder(), true, false, false, false).
+		BorderForeground(colorPrimary).
 		Width(a.width).
 		Render(helpText)
 
