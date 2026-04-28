@@ -183,6 +183,45 @@ func TestDetailGroupsToolStartAndCompletion(t *testing.T) {
 	}
 }
 
+func TestDetailTimelineAddsBreathingRoomBetweenRows(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "assistant response"},
+			{Role: "tool", Content: "tool output"},
+		},
+	})
+
+	if got := detail.rowLineOffsets[1]; got != 2 {
+		t.Fatalf("expected a blank spacer line before second activity, got row offset %d", got)
+	}
+	if got := detail.rowLineOffsets[2]; got != 4 {
+		t.Fatalf("expected consistent spacer line before third activity, got row offset %d", got)
+	}
+}
+
+func TestDetailGroupedActionStaysVisuallyTight(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+			{Role: "assistant", Content: "done"},
+		},
+	})
+
+	group := detail.rows[1]
+	rendered := detail.renderActionGroupRow(group)
+	if strings.Count(rendered, "\n") != 1 {
+		t.Fatalf("expected grouped start/completion to stay adjacent, got:\n%s", rendered)
+	}
+	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 3 {
+		t.Fatalf("expected one close child line plus one spacer before next group, got offset delta %d", got)
+	}
+}
+
 func TestDetailShowsPendingToolAction(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{

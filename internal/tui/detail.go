@@ -340,6 +340,9 @@ func (d *DetailView) renderContent() {
 	for i, row := range d.rows {
 		d.rowLineOffsets[i] = line
 		write(d.renderTimelineRow(i, row) + "\n")
+		if i < len(d.rows)-1 {
+			write("\n")
+		}
 	}
 
 	d.setContent(header, content.String())
@@ -458,10 +461,11 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		tokenBadge = "  " + tokenBadge
 	}
 	return fmt.Sprintf(
-		"%s %s %-16s %s%s",
+		"%s %s %-14s %s %s%s",
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		styleMuted.Render(ts),
 		role,
+		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
 		tokenBadge,
 	)
@@ -488,15 +492,20 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	}
 
 	firstLine := fmt.Sprintf(
-		"%s %s %s %-16s %s",
+		"%s %s %s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		styleMuted.Render(ts),
 		role,
+		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
 	)
 
-	child := styleMuted.Render("   ╰─ " + pendingActionText(start))
+	child := fmt.Sprintf(
+		"%s %s",
+		styleMuted.Render("    ╰─"),
+		styleMuted.Render(pendingActionText(start)),
+	)
 	if hasEnd {
 		endTime := "--:--:--"
 		if !end.Timestamp.IsZero() {
@@ -507,9 +516,10 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 			endSummary = "(empty)"
 		}
 		child = fmt.Sprintf(
-			"%s %s %s",
-			styleMuted.Render("   ╰─"),
+			"%s %s %s %s",
+			styleMuted.Render("    ╰─"),
 			actionStateStyle(state).Render(actionStateIcon(state)+" "+endTime),
+			styleMuted.Render("│"),
 			styleMessageContent.Render(endSummary),
 		)
 	}
@@ -686,21 +696,21 @@ func wrapContentLine(line string, width int) []string {
 func timelineRoleLabel(role string) string {
 	switch role {
 	case "user":
-		return styleUserMsg.Render("▶ User")
+		return styleUserMsg.Render("▶ USER")
 	case "assistant":
-		return styleAssistantMsg.Render("◆ Assistant")
+		return styleAssistantMsg.Render("◆ ASSIST")
 	case "tool":
-		return styleAccent.Render("▣ Tool")
+		return styleAccent.Render("▣ TOOL")
 	case "subagent":
-		return styleAccent.Render("◈ Subagent")
+		return styleInfo.Render("◈ AGENT")
 	case "session":
-		return styleMuted.Render("◇ Session")
+		return styleMuted.Render("◇ SESSION")
 	case "error":
-		return styleError.Render("⚠ Error")
+		return styleError.Render("⚠ ERROR")
 	case "system":
-		return styleMuted.Render("● System")
+		return styleMuted.Render("● SYSTEM")
 	default:
-		return styleMuted.Render("● " + role)
+		return styleMuted.Render("● " + strings.ToUpper(role))
 	}
 }
 
