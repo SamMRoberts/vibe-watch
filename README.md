@@ -23,7 +23,7 @@ Run it from your repository in a **separate terminal** alongside your AI coding 
 | **Claude Code** | `~/.claude/projects/` (JSONL) |
 | **Codex CLI** | `~/.codex/sessions/` (JSON) |
 | **GitHub Copilot CLI** | `~/.copilot/session-state/` |
-| **GitHub Copilot Chat for VS Code** | `~/Library/Application Support/Code/User/globalStorage/` |
+| **GitHub Copilot Chat for VS Code** | `~/Library/Application Support/Code/User/workspaceStorage/` |
 | **Amazon Q Developer** | `~/.aws/amazonq/` |
 
 ## Installation
