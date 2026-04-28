@@ -264,7 +264,7 @@ func (a *App) View() string {
 
 	refreshStr := ""
 	if !a.lastRefresh.IsZero() {
-		refreshStr = styleMuted.Render(fmt.Sprintf("⟳ %ds ago", int(time.Since(a.lastRefresh).Seconds())))
+		refreshStr = styleMuted.Render(fmt.Sprintf("refreshed %ds ago", int(time.Since(a.lastRefresh).Seconds())))
 	}
 
 	headerLeft := lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", subtitle)

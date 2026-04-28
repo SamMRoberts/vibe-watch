@@ -126,6 +126,9 @@ func (d *DetailView) renderContent() {
 		}
 		sb.WriteString("\n")
 	}
+	if len(s.Messages) > 0 {
+		sb.WriteString(styleAccent.Render("╰─ end messages") + "\n")
+	}
 
 	d.viewport.SetContent(sb.String())
 }

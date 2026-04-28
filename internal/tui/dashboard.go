@@ -150,7 +150,7 @@ func (d *DashboardView) View(agentFilter string) string {
 	sb.WriteString("\n" + styleMuted.Render("╰─ tabular view") + "\n\n")
 
 	if d.filterMode {
-		sb.WriteString(stylePanel.Width(d.width-6).Render(styleAccent.Render("🔎 Filter: ")+d.filterInput+styleGlowCursor()) + "\n\n")
+		sb.WriteString(stylePanel.Width(d.width-6).Render(styleAccent.Render("Filter: ")+d.filterInput+styleGlowCursor()) + "\n\n")
 	}
 
 	if len(d.sessions) == 0 {

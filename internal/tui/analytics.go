@@ -10,6 +10,8 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
+const maxDividerWidth = 74
+
 type AnalyticsView struct {
 	sessions []*models.Session
 	width    int
@@ -63,7 +65,7 @@ func (a *AnalyticsView) View() string {
 
 	// Sessions by agent bar chart
 	sb.WriteString(styleAccent.Render("╭─ Sessions by Agent") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, 74)) + "\n\n")
+	sb.WriteString(divider(minInt(a.width-4, maxDividerWidth)) + "\n\n")
 
 	agentNames := []string{"Claude Code", "Codex CLI", "Copilot CLI", "Amazon Q"}
 	maxCount := 0
@@ -112,7 +114,7 @@ func (a *AnalyticsView) View() string {
 
 	// Top projects
 	sb.WriteString(styleAccent.Render("╭─ Most Active Projects") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, 74)) + "\n\n")
+	sb.WriteString(divider(minInt(a.width-4, maxDividerWidth)) + "\n\n")
 
 	type projEntry struct {
 		name  string
@@ -146,7 +148,7 @@ func (a *AnalyticsView) View() string {
 
 	// Token breakdown
 	sb.WriteString(styleAccent.Render("╭─ Token Usage by Agent") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, 74)) + "\n\n")
+	sb.WriteString(divider(minInt(a.width-4, maxDividerWidth)) + "\n\n")
 	for _, agentName := range agentNames {
 		tok := agentTokens[agentName]
 		if tok == 0 {

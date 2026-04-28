@@ -172,7 +172,6 @@ func statusPill(active bool) string {
 func styleGlowCursor() string {
 	return lipgloss.NewStyle().
 		Foreground(colorGlow).
-		Blink(true).
 		Render("█")
 }
 
