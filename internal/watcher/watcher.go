@@ -19,6 +19,7 @@ type Watcher struct {
 	sessions []*models.Session
 	updates  chan UpdateMsg
 	quit     chan struct{}
+	stopOnce sync.Once
 }
 
 func New(registry *agents.Registry, interval time.Duration) *Watcher {
@@ -53,7 +54,7 @@ func (w *Watcher) Start() {
 }
 
 func (w *Watcher) Stop() {
-	close(w.quit)
+	w.stopOnce.Do(func() { close(w.quit) })
 }
 
 func (w *Watcher) Updates() <-chan UpdateMsg {
