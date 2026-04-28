@@ -161,6 +161,25 @@ func TestDetailUserRowsShowThreadTokenLoadIndicators(t *testing.T) {
 	}
 }
 
+func TestDetailTimelineOmitsLeftMessageNumbers(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "alpha prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+			{Role: "assistant", Content: "omega response"},
+		},
+	})
+
+	view := detail.View()
+	for _, removed := range []string{"001", "002", "003", "004"} {
+		if strings.Contains(view, removed) {
+			t.Fatalf("expected detail timeline to omit left message number %q, got:\n%s", removed, view)
+		}
+	}
+}
+
 func TestThreadTokenUsageIncludesCacheTokens(t *testing.T) {
 	messages := []models.Message{
 		{Role: "user", Content: "prompt", Tokens: models.TokenUsage{InputTokens: 100}},

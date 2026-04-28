@@ -459,7 +459,7 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 			role = styleUserMsg.Render("[-] PROMPT")
 		}
 	}
-	summaryWidth := d.width - 50
+	summaryWidth := d.width - 46
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
@@ -476,8 +476,7 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		tokenBadge = "  " + tokenBadge
 	}
 	line := fmt.Sprintf(
-		"%s %s %-10s %s %-14s %s %s%s",
-		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
+		"%s %-10s %s %-14s %s %s%s",
 		styleMuted.Render(ts),
 		leftTokenBadge,
 		prefix,
@@ -500,16 +499,15 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	role := timelineRoleLabel(start.Role)
 	prefix := threadPrefix(row, start.Role)
 
-	summaryWidth := d.width - 64
+	summaryWidth := d.width - 60
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
 	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %s %s %-17s %-14s %s %s",
+		"%s %s %-17s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
-		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		prefix,
 		styleMuted.Render(actionLifecycleTimeRange(start, end, hasEnd)),
 		role,
@@ -525,7 +523,7 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	if lifecycleIndicatorState(state) == statusFailed {
 		detailStyle = styleError
 	}
-	return firstLine + "\n" + detailStyle.Render("      ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
+	return firstLine + "\n" + detailStyle.Render("    ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
