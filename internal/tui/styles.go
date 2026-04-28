@@ -222,13 +222,6 @@ func metricChip(label, value, icon string, valueStyle lipgloss.Style) string {
 		Render(styleMuted.Render(icon+" "+label+": ") + valueStyle.Render(value))
 }
 
-func statusPill(active bool) string {
-	if active {
-		return pill("● ACTIVE", colorSuccess, colorBackground, true)
-	}
-	return pill("○ IDLE", colorSurfaceAlt, colorMuted, false)
-}
-
 func semanticPill(label string, bg lipgloss.Color) string {
 	return pill(label, bg, colorBackground, true)
 }

@@ -535,7 +535,7 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 
 	return header + "\n" +
 		styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n" +
-		statusPill(s.IsActive) + " " + followPill(d.follow, s.IsActive) + "\n\n" +
+		detailStatusLine(s, d.follow) + "\n\n" +
 		tokenPanel + "\n" +
 		divider(d.width-6)
 }
@@ -572,6 +572,8 @@ func (d *DetailView) eventHeader(index int, msg models.Message) string {
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
 		metricChip("Role", msg.Role, "●", styleAccent),
 		" ",
+		d.focusedStatusChip(index, msg),
+		" ",
 		metricChip("Input", fmt.Sprintf("%d", msg.Tokens.InputTokens), "↘", styleAccent),
 		" ",
 		metricChip("Output", fmt.Sprintf("%d", msg.Tokens.OutputTokens), "↗", styleAccent),
@@ -582,6 +584,37 @@ func (d *DetailView) eventHeader(index int, msg models.Message) string {
 		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
 		tokenPanel + "\n" +
 		divider(d.width-6)
+}
+
+func detailStatusLine(session *models.Session, follow bool) string {
+	parts := []string{statusChip(sessionStatus(session))}
+	if session != nil && session.IsActive {
+		if follow {
+			parts = append(parts, statusChip(statusFollow))
+		} else {
+			parts = append(parts, statusChip(statusPaused))
+		}
+	}
+	if session != nil {
+		if summary := activityStatusSummaryChips(activityStatusCounts(session.Messages)); summary != "" {
+			parts = append(parts, summary)
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithSpaces(parts)...)
+}
+
+func (d *DetailView) focusedStatusChip(index int, msg models.Message) string {
+	if !isActionStart(msg) {
+		spec := indicatorSpec(sessionStatus(d.session))
+		return metricChip("Status", spec.Label, spec.Icon, spec.Style)
+	}
+	end, hasEnd := messageAt(d.session.Messages, -1)
+	if endIndex, ok := matchingActionEnd(d.session.Messages, index); ok {
+		end, hasEnd = d.session.Messages[endIndex], true
+	}
+	state := lifecycleIndicatorState(groupedActionState(msg, end, hasEnd))
+	spec := indicatorSpec(state)
+	return metricChip("Status", spec.Label, spec.Icon, spec.Style)
 }
 
 func (d *DetailView) setContent(header, content string) {
@@ -732,40 +765,17 @@ func groupedActionState(start, end models.Message, hasEnd bool) string {
 }
 
 func actionStateIcon(state string) string {
-	switch state {
-	case models.ActivityLifecycleCompleted:
-		return "✓"
-	case models.ActivityLifecycleFailed:
-		return "⚠"
-	case models.ActivityLifecycleRequested:
-		return "◌"
-	default:
-		return "⏳"
-	}
+	return indicatorSpec(lifecycleIndicatorState(state)).Icon
 }
 
 func actionStateStyle(state string) lipgloss.Style {
-	switch state {
-	case models.ActivityLifecycleCompleted:
-		return styleSuccess
-	case models.ActivityLifecycleFailed:
-		return styleError
-	case models.ActivityLifecycleRequested:
-		return styleInfo
-	default:
-		return styleWarning
-	}
+	return indicatorSpec(lifecycleIndicatorState(state)).Style
 }
 
 func actionLifecycleSummary(start, end models.Message, hasEnd bool) string {
 	label := actionLifecycleLabel(start)
 	state := groupedActionState(start, end, hasEnd)
-	stateText := "running"
-	if state == models.ActivityLifecycleRequested {
-		stateText = "requested"
-	} else if state == models.ActivityLifecycleCompleted || state == models.ActivityLifecycleFailed {
-		stateText = state
-	}
+	stateText := lowerStatusLabel(indicatorSpec(lifecycleIndicatorState(state)).Label)
 
 	parts := []string{label, stateText}
 	if duration := actionLifecycleDuration(start, end, hasEnd); duration != "" {
@@ -890,16 +900,6 @@ func summarizeActivityContent(content string, width int) string {
 		return content
 	}
 	return string(runes[:width-1]) + "…"
-}
-
-func followPill(follow, active bool) string {
-	if !active {
-		return quietPill("follow idle")
-	}
-	if follow {
-		return semanticPill("FOLLOW", colorPrimary)
-	}
-	return semanticPill("PAUSED", colorWarning)
 }
 
 func detailInputTokens(session *models.Session) string {

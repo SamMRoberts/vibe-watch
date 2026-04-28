@@ -81,11 +81,34 @@ func TestDashboardNarrowRowsShowStateAndUpdated(t *testing.T) {
 	if got := row[7]; got == "" || strings.Contains(got, "\x1b") {
 		t.Fatalf("expected plain non-empty narrow updated time, got %q", got)
 	}
-	if got := row[6]; got != "live" {
+	if got := row[6]; got != "act" {
 		t.Fatalf("expected compact active state, got %q", got)
 	}
 	if got := row[7]; got != "10:15" {
 		t.Fatalf("expected compact updated time, got %q", got)
+	}
+}
+
+func TestDashboardRowsShowPlainFailedState(t *testing.T) {
+	session := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/vibe-watch",
+		IsActive:    true,
+		Messages: []models.Message{
+			{Role: "error", Content: "boom"},
+		},
+	}
+
+	dashboard := NewDashboardView(90, 24)
+	dashboard.SetSessions([]*models.Session{session}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if got := rows[0][6]; got != "⚠ failed" || strings.Contains(got, "\x1b") {
+		t.Fatalf("expected plain failed state, got %q", got)
 	}
 }
 

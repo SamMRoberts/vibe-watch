@@ -93,7 +93,7 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			sessionInputTokens(s),
 			compactInt(s.TotalOutputTokens()),
 			formatTableDuration(s.Duration()),
-			statusText(s.IsActive, stateWidth),
+			statusText(s, stateWidth),
 			formatLastUpdated(s.LastUpdated, updatedWidth),
 		})
 	}
@@ -110,7 +110,7 @@ func dashboardColumns(width int) []table.Column {
 		contentBudget = 0
 	}
 
-	agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth := 12, 4, 6, 6, 7, 6, 8
+	agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth := 12, 4, 6, 6, 7, 8, 8
 	fixedWidth := agentWidth + msgWidth + inputWidth + outputWidth + durationWidth + stateWidth + updatedWidth
 	if contentBudget < fixedWidth+8 {
 		agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth = 8, 3, 4, 4, 5, 4, 5
@@ -161,14 +161,8 @@ func agentLabel(agent string, width int) string {
 	return label
 }
 
-func statusText(active bool, width int) string {
-	if active {
-		if width < 6 {
-			return "live"
-		}
-		return "active"
-	}
-	return "idle"
+func statusText(session *models.Session, width int) string {
+	return plainStatusText(sessionStatus(session), width)
 }
 
 func formatLastUpdated(lastUpdated time.Time, width int) string {

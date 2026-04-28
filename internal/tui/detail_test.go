@@ -172,7 +172,7 @@ func TestDetailGroupsToolStartAndCompletion(t *testing.T) {
 	}
 
 	view := detail.View()
-	groupPos := strings.Index(view, "bash · completed")
+	groupPos := strings.Index(view, "bash · done")
 	betweenPos := strings.Index(view, "assistant between action events")
 	if groupPos < 0 || betweenPos < 0 {
 		t.Fatalf("expected grouped and surrounding activity, got:\n%s", view)
@@ -236,7 +236,7 @@ func TestDetailLifecycleRowShowsUsefulCompletionDetail(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "bash · completed") || !strings.Contains(view, "telemetry: resultLength:12") {
+	if !strings.Contains(view, "bash · done") || !strings.Contains(view, "telemetry: resultLength:12") {
 		t.Fatalf("expected compact lifecycle summary with useful telemetry detail, got:\n%s", view)
 	}
 	if strings.Contains(view, "model: gpt-5.5") || strings.Contains(view, "Tool completed: bash") {
@@ -257,11 +257,26 @@ func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "bash · running") || !strings.Contains(view, "→…") {
+	if !strings.Contains(view, "⏳") || !strings.Contains(view, "bash · running") || !strings.Contains(view, "→…") {
 		t.Fatalf("expected running lifecycle row, got:\n%s", view)
 	}
 	if strings.Contains(view, "Started tool: bash") {
 		t.Fatalf("expected running lifecycle row to avoid raw start wording, got:\n%s", view)
+	}
+}
+
+func TestDetailShowsRequestedToolLifecycle(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("User requested tool: bash", models.ActivityLifecycleRequested, "tool-1"),
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "◌") || !strings.Contains(view, "bash · requested") {
+		t.Fatalf("expected requested lifecycle indicator, got:\n%s", view)
 	}
 }
 
@@ -276,11 +291,34 @@ func TestDetailShowsFailedToolLifecycleDetail(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "bash · failed") || !strings.Contains(view, "permission denied") {
+	if !strings.Contains(view, "⚠") || !strings.Contains(view, "bash · failed") || !strings.Contains(view, "permission denied") {
 		t.Fatalf("expected failed lifecycle row with error detail, got:\n%s", view)
 	}
 	if strings.Contains(view, "Tool failed: bash") || strings.Contains(view, "error: permission denied") {
 		t.Fatalf("expected failed lifecycle row to suppress duplicate failure prefix, got:\n%s", view)
+	}
+}
+
+func TestDetailHeaderShowsStatusIndicatorsAndLifecycleCounts(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "running-tool"),
+			toolLifecycleMessage("Started tool: view", models.ActivityLifecycleStarted, "done-tool"),
+			toolLifecycleMessage("Tool completed: view", models.ActivityLifecycleCompleted, "done-tool"),
+			toolLifecycleMessage("Started tool: gh", models.ActivityLifecycleStarted, "failed-tool"),
+			toolLifecycleMessage("Tool failed: gh\nerror: denied", models.ActivityLifecycleFailed, "failed-tool"),
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{"FAILED", "FOLLOW", "RUNNING 1", "DONE 1", "FAILED 1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected detail header status indicator %q, got:\n%s", want, view)
+		}
 	}
 }
 
@@ -318,7 +356,7 @@ func TestDetailOpenGroupedActionShowsStartAndCompletion(t *testing.T) {
 		t.Fatalf("expected grouped action to open focused detail")
 	}
 	view := detail.ThreadView()
-	for _, want := range []string{"Started tool: bash", "Grouped completion", "Tool completed: bash"} {
+	for _, want := range []string{"Status", "DONE", "Started tool: bash", "Grouped completion", "Tool completed: bash"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected focused grouped action detail with %q, got:\n%s", want, view)
 		}

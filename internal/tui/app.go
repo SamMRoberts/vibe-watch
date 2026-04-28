@@ -467,9 +467,13 @@ func (a *App) renderCompactViewTab() string {
 
 func (a *App) renderHeaderStatus() string {
 	active := 0
+	failed := 0
 	for _, s := range a.sessions {
 		if s.IsActive {
 			active++
+		}
+		if sessionHasFailures(s) {
+			failed++
 		}
 	}
 	if a.width < 90 {
@@ -477,12 +481,15 @@ func (a *App) renderHeaderStatus() string {
 	}
 	parts := []string{quietPill(fmt.Sprintf("%d sessions", len(a.sessions)))}
 	if active > 0 {
-		parts = append(parts, semanticPill(fmt.Sprintf("● %d live", active), colorSuccess))
+		parts = append(parts, statusCountChip(statusActive, active))
+	}
+	if failed > 0 {
+		parts = append(parts, statusCountChip(statusFailed, failed))
 	}
 	if !a.lastRefresh.IsZero() {
 		parts = append(parts, styleMuted.Render(fmt.Sprintf("refreshed %ds", int(time.Since(a.lastRefresh).Seconds()))))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
+	return lipgloss.JoinHorizontal(lipgloss.Center, joinWithSpaces(parts)...)
 }
 
 func (a *App) renderShellFooter() string {
