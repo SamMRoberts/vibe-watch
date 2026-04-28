@@ -40,15 +40,69 @@ type copilotMessageData struct {
 	OutputTokens          int                    `json:"outputTokens"`
 	ToolRequests          []copilotToolRequest   `json:"toolRequests"`
 	ModelMetrics          map[string]modelMetric `json:"modelMetrics"`
+	CurrentModel          string                 `json:"currentModel"`
 	CurrentTokens         int                    `json:"currentTokens"`
 	SystemTokens          int                    `json:"systemTokens"`
 	ConversationTokens    int                    `json:"conversationTokens"`
 	ToolDefinitionsTokens int                    `json:"toolDefinitionsTokens"`
+	TotalApiDurationMs    int                    `json:"totalApiDurationMs"`
+	TotalPremiumRequests  int                    `json:"totalPremiumRequests"`
+	ShutdownType          string                 `json:"shutdownType"`
+	ToolCallID            string                 `json:"toolCallId"`
+	ParentToolCallID      string                 `json:"parentToolCallId"`
+	ToolName              string                 `json:"toolName"`
+	MCPServerName         string                 `json:"mcpServerName"`
+	MCPToolName           string                 `json:"mcpToolName"`
+	Success               *bool                  `json:"success"`
+	Error                 json.RawMessage        `json:"error"`
+	Model                 string                 `json:"model"`
+	ToolTelemetry         map[string]any         `json:"toolTelemetry"`
+	AgentName             string                 `json:"agentName"`
+	AgentDisplayName      string                 `json:"agentDisplayName"`
+	DurationMs            int                    `json:"durationMs"`
+	TotalTokens           int                    `json:"totalTokens"`
+	TotalToolCalls        int                    `json:"totalToolCalls"`
+	NewModel              string                 `json:"newModel"`
+	PreviousModel         string                 `json:"previousModel"`
+	NewMode               string                 `json:"newMode"`
+	PreviousMode          string                 `json:"previousMode"`
+	ReasoningEffort       string                 `json:"reasoningEffort"`
+	Operation             string                 `json:"operation"`
+	InfoType              string                 `json:"infoType"`
+	Message               string                 `json:"message"`
+	Summary               string                 `json:"summary"`
+	ErrorType             string                 `json:"errorType"`
+	Reason                string                 `json:"reason"`
+	Name                  string                 `json:"name"`
+	CodeChanges           copilotCodeChanges     `json:"codeChanges"`
+	CheckpointNumber      int                    `json:"checkpointNumber"`
+	PreCompactionTokens   int                    `json:"preCompactionTokens"`
+	CompactionTokensUsed  struct {
+		Input       int `json:"input"`
+		Output      int `json:"output"`
+		CachedInput int `json:"cachedInput"`
+	} `json:"compactionTokensUsed"`
+	Context struct {
+		CWD        string `json:"cwd"`
+		GitRoot    string `json:"gitRoot"`
+		Repository string `json:"repository"`
+		Branch     string `json:"branch"`
+	} `json:"context"`
+	CWD        string `json:"cwd"`
+	GitRoot    string `json:"gitRoot"`
+	Repository string `json:"repository"`
+	Branch     string `json:"branch"`
 }
 
 type copilotToolRequest struct {
 	Name             string `json:"name"`
 	IntentionSummary string `json:"intentionSummary"`
+}
+
+type copilotCodeChanges struct {
+	LinesAdded    int      `json:"linesAdded"`
+	LinesRemoved  int      `json:"linesRemoved"`
+	FilesModified []string `json:"filesModified"`
 }
 
 type modelMetric struct {
@@ -57,6 +111,7 @@ type modelMetric struct {
 		OutputTokens     int `json:"outputTokens"`
 		CacheReadTokens  int `json:"cacheReadTokens"`
 		CacheWriteTokens int `json:"cacheWriteTokens"`
+		ReasoningTokens  int `json:"reasoningTokens"`
 	} `json:"usage"`
 }
 
@@ -137,6 +192,7 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	toolNames := make(map[string]string)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -192,6 +248,15 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 			session.TotalTokens.OutputTokens += data.OutputTokens
 		case "session.shutdown":
 			applyCopilotMetrics(session, data)
+			if activity, ok := copilotActivityMessage(event.Type, data, toolNames); ok {
+				activity.Timestamp = timestamp
+				session.Messages = append(session.Messages, activity)
+			}
+		default:
+			if activity, ok := copilotActivityMessage(event.Type, data, toolNames); ok {
+				activity.Timestamp = timestamp
+				session.Messages = append(session.Messages, activity)
+			}
 		}
 	}
 
@@ -317,6 +382,303 @@ func summarizeToolRequests(requests []copilotToolRequest) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func copilotActivityMessage(eventType string, data copilotMessageData, toolNames map[string]string) (models.Message, bool) {
+	role, content := copilotActivity(eventType, data, toolNames)
+	if content == "" {
+		return models.Message{}, false
+	}
+	return models.Message{Role: role, Content: content}, true
+}
+
+func copilotActivity(eventType string, data copilotMessageData, toolNames map[string]string) (string, string) {
+	switch eventType {
+	case "tool.execution_start":
+		label := copilotToolLabel(data)
+		if data.ToolCallID != "" {
+			toolNames[data.ToolCallID] = label
+		}
+		if data.ParentToolCallID != "" {
+			return "tool", fmt.Sprintf("Started tool: %s\nparent: %s", label, data.ParentToolCallID)
+		}
+		return "tool", "Started tool: " + label
+	case "tool.user_requested":
+		label := copilotToolLabel(data)
+		if data.ToolCallID != "" {
+			toolNames[data.ToolCallID] = label
+		}
+		return "tool", "User requested tool: " + label
+	case "tool.execution_complete":
+		return "tool", copilotToolCompletion(data, toolNames)
+	case "subagent.started":
+		return "subagent", fmt.Sprintf("Started subagent: %s", copilotAgentLabel(data))
+	case "subagent.completed":
+		return "subagent", fmt.Sprintf(
+			"Completed subagent: %s\nmodel: %s\nduration: %s\ntokens: %d\ntool calls: %d",
+			copilotAgentLabel(data),
+			emptyDash(data.Model),
+			models.FormatDuration(time.Duration(data.DurationMs)*time.Millisecond),
+			data.TotalTokens,
+			data.TotalToolCalls,
+		)
+	case "subagent.failed":
+		content := fmt.Sprintf(
+			"Failed subagent: %s\nmodel: %s\nduration: %s\ntokens: %d\ntool calls: %d",
+			copilotAgentLabel(data),
+			emptyDash(data.Model),
+			models.FormatDuration(time.Duration(data.DurationMs)*time.Millisecond),
+			data.TotalTokens,
+			data.TotalToolCalls,
+		)
+		if errText := copilotErrorText(data.Error); errText != "" {
+			content += "\nerror: " + errText
+		}
+		return "subagent", content
+	case "subagent.selected":
+		return "subagent", fmt.Sprintf("Selected subagent: %s", copilotAgentLabel(data))
+	case "subagent.deselected":
+		return "subagent", "Deselected subagent"
+	case "session.model_change":
+		return "session", fmt.Sprintf("Model changed: %s -> %s", emptyDash(data.PreviousModel), emptyDash(data.NewModel))
+	case "session.mode_changed":
+		return "session", fmt.Sprintf("Mode changed: %s -> %s", emptyDash(data.PreviousMode), emptyDash(data.NewMode))
+	case "session.plan_changed":
+		return "session", "Plan changed: " + emptyDash(data.Operation)
+	case "session.task_complete":
+		return "session", copilotTaskComplete(data)
+	case "session.info":
+		return "session", copilotInfo(data)
+	case "session.error":
+		content := "Session error: " + emptyDash(data.ErrorType)
+		if data.Message != "" {
+			content += "\n" + data.Message
+		}
+		return "error", content
+	case "session.context_changed":
+		return "session", copilotContextChanged(data)
+	case "session.shutdown":
+		return "session", copilotShutdownSummary(data)
+	case "session.compaction_start":
+		return "session", fmt.Sprintf(
+			"Started context compaction\nsystem tokens: %d\nconversation tokens: %d\ntool definition tokens: %d",
+			data.SystemTokens,
+			data.ConversationTokens,
+			data.ToolDefinitionsTokens,
+		)
+	case "session.compaction_complete":
+		return "session", fmt.Sprintf(
+			"Completed context compaction #%d\npre-compaction tokens: %d\ncompaction tokens input:%d output:%d cached:%d",
+			data.CheckpointNumber,
+			data.PreCompactionTokens,
+			data.CompactionTokensUsed.Input,
+			data.CompactionTokensUsed.Output,
+			data.CompactionTokensUsed.CachedInput,
+		)
+	case "abort":
+		return "error", "Aborted: " + emptyDash(data.Reason)
+	case "system.notification":
+		return "system", "System notification"
+	case "skill.invoked":
+		return "session", "Skill invoked: " + emptyDash(data.Name)
+	}
+	return "", ""
+}
+
+func copilotShutdownSummary(data copilotMessageData) string {
+	parts := []string{"Session shutdown: " + emptyDash(data.ShutdownType)}
+	if data.CurrentModel != "" {
+		parts = append(parts, "model: "+data.CurrentModel)
+	}
+	if data.CurrentTokens > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"context tokens: current:%d system:%d conversation:%d tools:%d",
+			data.CurrentTokens,
+			data.SystemTokens,
+			data.ConversationTokens,
+			data.ToolDefinitionsTokens,
+		))
+	}
+	reasoning := copilotReasoningTokens(data)
+	if reasoning > 0 {
+		parts = append(parts, fmt.Sprintf("reasoning tokens: %d", reasoning))
+	}
+	if data.TotalPremiumRequests > 0 {
+		parts = append(parts, fmt.Sprintf("premium requests: %d", data.TotalPremiumRequests))
+	}
+	if data.TotalApiDurationMs > 0 {
+		parts = append(parts, "API duration: "+models.FormatDuration(time.Duration(data.TotalApiDurationMs)*time.Millisecond))
+	}
+	if data.CodeChanges.LinesAdded > 0 || data.CodeChanges.LinesRemoved > 0 || len(data.CodeChanges.FilesModified) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"code changes: +%d -%d files:%d",
+			data.CodeChanges.LinesAdded,
+			data.CodeChanges.LinesRemoved,
+			len(data.CodeChanges.FilesModified),
+		))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func copilotReasoningTokens(data copilotMessageData) int {
+	total := 0
+	for _, metric := range data.ModelMetrics {
+		total += metric.Usage.ReasoningTokens
+	}
+	return total
+}
+
+func copilotToolCompletion(data copilotMessageData, toolNames map[string]string) string {
+	label := toolNames[data.ToolCallID]
+	if label == "" {
+		label = copilotToolLabel(data)
+	}
+
+	status := "completed"
+	if data.Success != nil && !*data.Success {
+		status = "failed"
+	}
+
+	parts := []string{fmt.Sprintf("Tool %s: %s", status, label)}
+	if data.Model != "" {
+		parts = append(parts, "model: "+data.Model)
+	}
+	if errText := copilotErrorText(data.Error); errText != "" {
+		parts = append(parts, "error: "+errText)
+	}
+	if metrics := copilotTelemetrySummary(data.ToolTelemetry); metrics != "" {
+		parts = append(parts, metrics)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func copilotToolLabel(data copilotMessageData) string {
+	if data.MCPServerName != "" && data.MCPToolName != "" {
+		return data.MCPServerName + "." + data.MCPToolName
+	}
+	if data.ToolName != "" {
+		return data.ToolName
+	}
+	if data.ToolCallID != "" {
+		return data.ToolCallID
+	}
+	return "unknown"
+}
+
+func copilotAgentLabel(data copilotMessageData) string {
+	if data.AgentDisplayName != "" {
+		return data.AgentDisplayName
+	}
+	return emptyDash(data.AgentName)
+}
+
+func copilotTaskComplete(data copilotMessageData) string {
+	status := "Task complete"
+	if data.Success != nil && !*data.Success {
+		status = "Task incomplete"
+	}
+	if data.Message != "" {
+		return status + "\n" + data.Message
+	}
+	if data.Summary != "" {
+		return status + "\n" + data.Summary
+	}
+	if data.Content != "" {
+		return status + "\n" + data.Content
+	}
+	return status
+}
+
+func copilotInfo(data copilotMessageData) string {
+	if data.Message == "" {
+		return "Session info: " + emptyDash(data.InfoType)
+	}
+	return fmt.Sprintf("Session info: %s\n%s", emptyDash(data.InfoType), data.Message)
+}
+
+func copilotContextChanged(data copilotMessageData) string {
+	cwd := firstNonEmpty(data.GitRoot, data.Context.GitRoot, data.CWD, data.Context.CWD)
+	repo := firstNonEmpty(data.Repository, data.Context.Repository)
+	branch := firstNonEmpty(data.Branch, data.Context.Branch)
+	parts := []string{"Context changed"}
+	if repo != "" {
+		parts = append(parts, "repository: "+repo)
+	}
+	if branch != "" {
+		parts = append(parts, "branch: "+branch)
+	}
+	if cwd != "" {
+		parts = append(parts, "path: "+cwd)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func copilotErrorText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return string(raw)
+	}
+	for _, key := range []string{"message", "type", "error"} {
+		if value, ok := obj[key].(string); ok && value != "" {
+			return value
+		}
+	}
+	return string(raw)
+}
+
+func copilotTelemetrySummary(telemetry map[string]any) string {
+	if len(telemetry) == 0 {
+		return ""
+	}
+	metrics, _ := telemetry["metrics"].(map[string]any)
+	if len(metrics) == 0 {
+		return ""
+	}
+	keys := []string{
+		"linesAdded",
+		"linesRemoved",
+		"rowsReturned",
+		"rowsAffected",
+		"file_count",
+		"resultLength",
+		"resultForLlmLength",
+		"result_length",
+		"elapsed_seconds",
+		"total_turns",
+	}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value, ok := metrics[key]; ok {
+			parts = append(parts, fmt.Sprintf("%s:%v", key, value))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "telemetry: " + strings.Join(parts, " ")
+}
+
+func emptyDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func applyCopilotMetrics(session *models.Session, data copilotMessageData) {

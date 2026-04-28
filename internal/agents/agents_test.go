@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,14 +183,17 @@ updated_at: 2026-04-14T21:08:03.055Z
 	if s.ProjectPath != "/tmp/project" {
 		t.Errorf("expected project path from git_root, got %q", s.ProjectPath)
 	}
-	if len(s.Messages) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(s.Messages))
+	if len(s.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(s.Messages))
 	}
 	if s.Messages[0].Role != "user" || s.Messages[0].Content != "hello copilot" {
 		t.Errorf("unexpected user message: %#v", s.Messages[0])
 	}
 	if s.Messages[1].Role != "assistant" || s.Messages[1].Content != "hello human" {
 		t.Errorf("unexpected assistant message: %#v", s.Messages[1])
+	}
+	if s.Messages[2].Role != "session" || !strings.Contains(s.Messages[2].Content, "Session shutdown") {
+		t.Errorf("unexpected shutdown activity: %#v", s.Messages[2])
 	}
 	if s.TotalTokens.InputTokens != 100 {
 		t.Errorf("expected 100 input tokens, got %d", s.TotalTokens.InputTokens)
@@ -202,6 +206,144 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 	if s.TotalTokens.CacheWrites != 10 {
 		t.Errorf("expected 10 cache writes, got %d", s.TotalTokens.CacheWrites)
+	}
+}
+
+func TestCopilotDetectorParsesActivityEvents(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "activity")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-activity
+cwd: /tmp/project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "user.message",
+			"timestamp": "2026-04-14T21:07:48.374Z",
+			"data": map[string]interface{}{
+				"content": "first prompt",
+			},
+		},
+		{
+			"type":      "tool.execution_start",
+			"timestamp": "2026-04-14T21:07:49.000Z",
+			"data": map[string]interface{}{
+				"toolCallId": "tool-1",
+				"toolName":   "bash",
+			},
+		},
+		{
+			"type":      "tool.execution_complete",
+			"timestamp": "2026-04-14T21:07:50.000Z",
+			"data": map[string]interface{}{
+				"toolCallId": "tool-1",
+				"success":    false,
+				"model":      "gpt-5.5",
+				"error":      "permission denied",
+				"toolTelemetry": map[string]interface{}{
+					"metrics": map[string]interface{}{
+						"resultLength": 12,
+					},
+				},
+			},
+		},
+		{
+			"type":      "subagent.completed",
+			"timestamp": "2026-04-14T21:07:51.000Z",
+			"data": map[string]interface{}{
+				"agentDisplayName": "Reviewer",
+				"model":            "claude-haiku-4.5",
+				"durationMs":       1200,
+				"totalTokens":      3456,
+				"totalToolCalls":   7,
+			},
+		},
+		{
+			"type":      "session.model_change",
+			"timestamp": "2026-04-14T21:07:52.000Z",
+			"data": map[string]interface{}{
+				"previousModel": "gpt-5.4",
+				"newModel":      "gpt-5.5",
+			},
+		},
+		{
+			"type":      "session.mode_changed",
+			"timestamp": "2026-04-14T21:07:53.000Z",
+			"data": map[string]interface{}{
+				"previousMode": "plan",
+				"newMode":      "autopilot",
+			},
+		},
+		{
+			"type":      "session.task_complete",
+			"timestamp": "2026-04-14T21:07:54.000Z",
+			"data": map[string]interface{}{
+				"success": true,
+				"summary": "done",
+			},
+		},
+		{
+			"type":      "session.error",
+			"timestamp": "2026-04-14T21:07:55.000Z",
+			"data": map[string]interface{}{
+				"errorType": "runtime",
+				"message":   "boom",
+			},
+		},
+		{
+			"type":      "user.message",
+			"timestamp": "2026-04-14T21:08:00.000Z",
+			"data": map[string]interface{}{
+				"content": "second prompt",
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if len(messages) != 9 {
+		t.Fatalf("expected 9 messages/activity entries, got %d: %#v", len(messages), messages)
+	}
+	expectedRoles := []string{"user", "tool", "tool", "subagent", "session", "session", "session", "error", "user"}
+	for i, role := range expectedRoles {
+		if messages[i].Role != role {
+			t.Fatalf("message %d role = %q, want %q", i, messages[i].Role, role)
+		}
+	}
+	if !strings.Contains(messages[2].Content, "Tool failed: bash") ||
+		!strings.Contains(messages[2].Content, "permission denied") ||
+		!strings.Contains(messages[2].Content, "resultLength:12") {
+		t.Fatalf("expected useful tool completion content, got %q", messages[2].Content)
+	}
+	if !strings.Contains(messages[3].Content, "Completed subagent: Reviewer") ||
+		!strings.Contains(messages[3].Content, "tokens: 3456") {
+		t.Fatalf("expected subagent telemetry, got %q", messages[3].Content)
+	}
+	if !strings.Contains(messages[4].Content, "gpt-5.4 -> gpt-5.5") {
+		t.Fatalf("expected model change content, got %q", messages[4].Content)
+	}
+	if !strings.Contains(messages[6].Content, "done") {
+		t.Fatalf("expected task summary, got %q", messages[6].Content)
 	}
 }
 
@@ -255,6 +397,9 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 	if got := sessions[0].TotalTokens.OutputTokens; got != 12 {
 		t.Fatalf("expected assistant output tokens to be preserved, got %d", got)
+	}
+	if got := sessions[0].Messages[len(sessions[0].Messages)-1].Content; !strings.Contains(got, "context tokens: current:12345") {
+		t.Fatalf("expected shutdown context token summary, got %q", got)
 	}
 }
 

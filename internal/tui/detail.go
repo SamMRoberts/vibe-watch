@@ -165,6 +165,16 @@ func (d *DetailView) renderContent() {
 			roleLabel = d.userRoleLabel(i)
 		case "assistant":
 			roleLabel = styleAssistantMsg.Render("◆ Assistant")
+		case "tool":
+			roleLabel = styleAccent.Render("▣ Tool")
+		case "subagent":
+			roleLabel = styleAccent.Render("◈ Subagent")
+		case "session":
+			roleLabel = styleMuted.Render("◇ Session")
+		case "error":
+			roleLabel = styleError.Render("⚠ Error")
+		case "system":
+			roleLabel = styleMuted.Render("● System")
 		default:
 			roleLabel = styleMuted.Render("● " + msg.Role)
 		}
@@ -319,6 +329,16 @@ func renderVerboseMessage(index int, msg models.Message, contentWidth int) strin
 		roleLabel = styleUserMsg.Render("▶ User prompt")
 	case "assistant":
 		roleLabel = styleAssistantMsg.Render("◆ Assistant activity")
+	case "tool":
+		roleLabel = styleAccent.Render("▣ Tool activity")
+	case "subagent":
+		roleLabel = styleAccent.Render("◈ Subagent activity")
+	case "session":
+		roleLabel = styleMuted.Render("◇ Session activity")
+	case "error":
+		roleLabel = styleError.Render("⚠ Error activity")
+	case "system":
+		roleLabel = styleMuted.Render("● System activity")
 	}
 
 	timestamp := ""
