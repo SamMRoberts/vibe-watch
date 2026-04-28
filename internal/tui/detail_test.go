@@ -295,9 +295,8 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 	view := detail.View()
 	for _, want := range []string{
 		"╭─",
-		"│ ╭─",
-		"│ │",
-		"│ ╰─ assistant",
+		"│  ├─",
+		"│  │",
 		"╰─ prompt complete",
 		"bash · done",
 	} {

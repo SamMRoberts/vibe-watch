@@ -347,22 +347,12 @@ func (d *DetailView) renderContent() {
 	}
 
 	promptOpen := false
-	assistantOpen := false
 	for i, row := range d.rows {
 		if rowStartsUserContainer(d.session, row) {
-			if assistantOpen {
-				write(renderAssistantContainerClose() + "\n")
-				assistantOpen = false
-			}
 			if promptOpen {
 				write(renderPromptContainerClose(false) + "\n\n")
 			}
 			promptOpen = true
-		} else if rowStartsAssistantContainer(d.session, row) {
-			if assistantOpen {
-				write(renderAssistantContainerClose() + "\n")
-			}
-			assistantOpen = true
 		}
 
 		d.rowLineOffsets[i] = line
@@ -370,14 +360,7 @@ func (d *DetailView) renderContent() {
 		if row.kind == activityRowCollapsed && promptOpen {
 			write(renderPromptContainerClose(false) + "\n")
 			promptOpen = false
-			assistantOpen = false
 		}
-		if i < len(d.rows)-1 && !rowContinuesContainer(d.session, row, d.rows[i+1]) {
-			write("\n")
-		}
-	}
-	if assistantOpen {
-		write(renderAssistantContainerClose() + "\n")
 	}
 	if promptOpen {
 		write(renderPromptContainerClose(d.session.IsActive) + "\n")
@@ -506,10 +489,10 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		tokenBadge = "  " + tokenBadge
 	}
 	line := fmt.Sprintf(
-		"%s %-10s %s %-14s %s %s%s",
+		"%s %s %-10s %-14s %s %s%s",
+		prefix,
 		styleMuted.Render(ts),
 		leftTokenBadge,
-		prefix,
 		role,
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
@@ -538,8 +521,8 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 
 	firstLine := fmt.Sprintf(
 		"%s %s %-8s %-14s %s %s",
-		actionStateStyle(state).Render(icon),
 		prefix,
+		actionStateStyle(state).Render(icon),
 		styleMuted.Render(actionLifecycleStartTime(start)),
 		role,
 		styleMuted.Render("│"),
@@ -555,13 +538,13 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	if lifecycleIndicatorState(state) == statusFailed {
 		detailStyle = styleError
 	}
-	return firstLine + "\n" + detailStyle.Render("    ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
+	return firstLine + "\n" + detailStyle.Render("│     ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
 	return fmt.Sprintf(
 		"%s %s %d activity entries folded %s",
-		threadPrefix(row, "assistant"),
+		styleMuted.Render("│  ╰─"),
 		styleMuted.Render("╰─◇"),
 		row.collapsedCount,
 		styleMuted.Render("(space to expand)"),
@@ -604,22 +587,18 @@ func threadPrefix(row activityRow, role string) string {
 	}
 	if row.threadStart >= 0 {
 		if role == "assistant" {
-			return styleMuted.Render("│ ") + styleAssistantMsg.Render("╭─")
+			return styleMuted.Render("│  ") + styleAssistantMsg.Render("├─")
 		}
-		return styleMuted.Render("├─")
+		return styleMuted.Render("│  │")
 	}
 	return styleMuted.Render("  ")
 }
 
 func actionThreadPrefix(row activityRow) string {
 	if row.threadStart >= 0 {
-		return styleMuted.Render("│ │")
+		return styleMuted.Render("│  │")
 	}
 	return styleMuted.Render("├─")
-}
-
-func renderAssistantContainerClose() string {
-	return styleMuted.Render("│ ╰─ assistant")
 }
 
 func renderPromptContainerClose(active bool) string {
@@ -1233,26 +1212,6 @@ func rowStartsUserContainer(session *models.Session, row activityRow) bool {
 		return false
 	}
 	return session.Messages[row.messageIndex].Role == "user"
-}
-
-func rowStartsAssistantContainer(session *models.Session, row activityRow) bool {
-	if session == nil || row.kind != activityRowMessage || !isMessageIndex(session, row.messageIndex) {
-		return false
-	}
-	return row.threadStart >= 0 && session.Messages[row.messageIndex].Role == "assistant"
-}
-
-func rowContinuesContainer(session *models.Session, current, next activityRow) bool {
-	if session == nil {
-		return false
-	}
-	if rowStartsUserContainer(session, next) {
-		return false
-	}
-	if current.threadStart >= 0 && next.threadStart == current.threadStart {
-		return true
-	}
-	return rowStartsAssistantContainer(session, next)
 }
 
 type actionGroupIndex struct {
