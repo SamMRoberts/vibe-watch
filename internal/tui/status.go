@@ -104,21 +104,21 @@ func lowerStatusLabel(label string) string {
 }
 
 func sessionStatus(session *models.Session) string {
-	if sessionHasFailures(session) {
-		return statusFailed
-	}
 	if session != nil && session.IsActive {
 		return statusActive
+	}
+	if sessionTerminalFailed(session) {
+		return statusFailed
 	}
 	return statusIdle
 }
 
-func sessionHasFailures(session *models.Session) bool {
+func sessionTerminalFailed(session *models.Session) bool {
 	if session == nil {
 		return false
 	}
 	for _, msg := range session.Messages {
-		if msg.Role == "error" || msg.Meta.Lifecycle == models.ActivityLifecycleFailed {
+		if msg.Meta.Kind == models.ActivityKindSession && msg.Meta.Lifecycle == models.ActivityLifecycleFailed {
 			return true
 		}
 	}

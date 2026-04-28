@@ -89,14 +89,36 @@ func TestDashboardNarrowRowsShowStateAndUpdated(t *testing.T) {
 	}
 }
 
-func TestDashboardRowsShowPlainFailedState(t *testing.T) {
+func TestDashboardRowsKeepActiveStateWhenActivityFails(t *testing.T) {
 	session := &models.Session{
 		ID:          "session-1",
 		AgentType:   models.AgentCopilot,
 		ProjectPath: "/repo/vibe-watch",
 		IsActive:    true,
 		Messages: []models.Message{
-			{Role: "error", Content: "boom"},
+			toolLifecycleMessage("Tool failed: bash", models.ActivityLifecycleFailed, "tool-1"),
+		},
+	}
+
+	dashboard := NewDashboardView(90, 24)
+	dashboard.SetSessions([]*models.Session{session}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if got := rows[0][6]; got != "● active" || strings.Contains(got, "\x1b") {
+		t.Fatalf("expected active state despite failed activity, got %q", got)
+	}
+}
+
+func TestDashboardRowsShowTerminalFailedState(t *testing.T) {
+	session := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/vibe-watch",
+		Messages: []models.Message{
+			sessionLifecycleMessage("Task incomplete", models.ActivityLifecycleFailed),
 		},
 	}
 
@@ -108,7 +130,7 @@ func TestDashboardRowsShowPlainFailedState(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	if got := rows[0][6]; got != "⚠ failed" || strings.Contains(got, "\x1b") {
-		t.Fatalf("expected plain failed state, got %q", got)
+		t.Fatalf("expected terminal failed state, got %q", got)
 	}
 }
 

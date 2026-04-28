@@ -315,10 +315,47 @@ func TestDetailHeaderShowsStatusIndicatorsAndLifecycleCounts(t *testing.T) {
 	})
 
 	view := detail.View()
-	for _, want := range []string{"FAILED", "FOLLOW", "RUNNING 1", "DONE 1", "FAILED 1"} {
+	for _, want := range []string{"ACTIVE", "FOLLOW", "RUNNING 1", "DONE 1", "FAILED 1"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected detail header status indicator %q, got:\n%s", want, view)
 		}
+	}
+}
+
+func TestInactiveSessionWithFailedActivityRemainsIdle(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool failed: bash\nerror: denied", models.ActivityLifecycleFailed, "tool-1"),
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{"IDLE", "FAILED 1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected inactive session status %q with failed activity count, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "⚠ FAILED  ") {
+		t.Fatalf("expected session status to remain idle, got:\n%s", view)
+	}
+}
+
+func TestInactiveSessionWithTerminalFailureShowsFailed(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		Messages: []models.Message{
+			sessionLifecycleMessage("Task incomplete", models.ActivityLifecycleFailed),
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "FAILED") {
+		t.Fatalf("expected terminal failed session status, got:\n%s", view)
 	}
 }
 
@@ -524,6 +561,18 @@ func toolLifecycleMessage(content, lifecycle, id string) models.Message {
 			Lifecycle: lifecycle,
 			ID:        id,
 			Label:     "bash",
+		},
+	}
+}
+
+func sessionLifecycleMessage(content, lifecycle string) models.Message {
+	return models.Message{
+		Role:    "session",
+		Content: content,
+		Meta: models.ActivityMeta{
+			Kind:      models.ActivityKindSession,
+			Lifecycle: lifecycle,
+			Label:     "task",
 		},
 	}
 }

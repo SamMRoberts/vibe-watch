@@ -345,6 +345,10 @@ updated_at: 2026-04-14T21:08:03.055Z
 	if !strings.Contains(messages[6].Content, "done") {
 		t.Fatalf("expected task summary, got %q", messages[6].Content)
 	}
+	if messages[6].Meta.Kind != models.ActivityKindSession ||
+		messages[6].Meta.Lifecycle != models.ActivityLifecycleCompleted {
+		t.Fatalf("expected task completion metadata, got %#v", messages[6].Meta)
+	}
 }
 
 func TestCopilotDetectorPreservesToolLifecycleMetadata(t *testing.T) {
@@ -419,6 +423,63 @@ updated_at: 2026-04-14T21:08:03.055Z
 		complete.InteractionID != "turn-1" ||
 		complete.Label != "bash" {
 		t.Fatalf("unexpected completion metadata: %#v", complete)
+	}
+}
+
+func TestCopilotDetectorMarksTerminalSessionFailureMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "terminal-failure")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-terminal-failure
+cwd: /tmp/project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "session.task_complete",
+			"timestamp": "2026-04-14T21:07:49.000Z",
+			"data": map[string]interface{}{
+				"success": false,
+				"summary": "blocked",
+			},
+		},
+		{
+			"type":      "abort",
+			"timestamp": "2026-04-14T21:07:50.000Z",
+			"data": map[string]interface{}{
+				"reason": "cancelled",
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 terminal messages, got %d: %#v", len(messages), messages)
+	}
+	for i, msg := range messages {
+		if msg.Meta.Kind != models.ActivityKindSession || msg.Meta.Lifecycle != models.ActivityLifecycleFailed {
+			t.Fatalf("message %d expected terminal failure metadata, got %#v", i, msg.Meta)
+		}
 	}
 }
 

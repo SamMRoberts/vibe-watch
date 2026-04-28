@@ -90,6 +90,37 @@ func TestAppFooterUsesGeneratedHelp(t *testing.T) {
 	}
 }
 
+func TestAppHeaderFailedCountUsesTerminalFailuresOnly(t *testing.T) {
+	app := &App{
+		width: 120,
+		sessions: []*models.Session{
+			{
+				ID:       "active-with-failed-step",
+				IsActive: true,
+				Messages: []models.Message{
+					toolLifecycleMessage("Tool failed: bash", models.ActivityLifecycleFailed, "tool-1"),
+				},
+			},
+			{
+				ID: "terminal-failed",
+				Messages: []models.Message{
+					sessionLifecycleMessage("Task incomplete", models.ActivityLifecycleFailed),
+				},
+			},
+		},
+	}
+
+	status := app.renderHeaderStatus()
+	for _, want := range []string{"● ACTIVE 1", "⚠ FAILED 1"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("expected shell status %q, got %q", want, status)
+		}
+	}
+	if strings.Contains(status, "⚠ FAILED 2") {
+		t.Fatalf("expected failed activity in active session not to count as failed session, got %q", status)
+	}
+}
+
 func TestUpdateViewsRefreshesSelectedDetailSession(t *testing.T) {
 	oldSession := &models.Session{
 		ID:          "session-1",

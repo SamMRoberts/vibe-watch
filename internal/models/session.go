@@ -25,6 +25,7 @@ type TokenUsage struct {
 const (
 	ActivityKindTool     = "tool"
 	ActivityKindSubagent = "subagent"
+	ActivityKindSession  = "session"
 
 	ActivityLifecycleRequested = "requested"
 	ActivityLifecycleStarted   = "started"

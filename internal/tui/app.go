@@ -472,7 +472,7 @@ func (a *App) renderHeaderStatus() string {
 		if s.IsActive {
 			active++
 		}
-		if sessionHasFailures(s) {
+		if sessionTerminalFailed(s) {
 			failed++
 		}
 	}

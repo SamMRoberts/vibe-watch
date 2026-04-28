@@ -456,6 +456,22 @@ func copilotActivityMeta(eventType string, data copilotMessageData, toolNames ma
 		return copilotSubagentMeta(data, models.ActivityLifecycleCompleted)
 	case "subagent.failed":
 		return copilotSubagentMeta(data, models.ActivityLifecycleFailed)
+	case "session.task_complete":
+		lifecycle := models.ActivityLifecycleCompleted
+		if data.Success != nil && !*data.Success {
+			lifecycle = models.ActivityLifecycleFailed
+		}
+		return models.ActivityMeta{
+			Kind:      models.ActivityKindSession,
+			Lifecycle: lifecycle,
+			Label:     "task",
+		}
+	case "abort":
+		return models.ActivityMeta{
+			Kind:      models.ActivityKindSession,
+			Lifecycle: models.ActivityLifecycleFailed,
+			Label:     "abort",
+		}
 	}
 	return models.ActivityMeta{}
 }
