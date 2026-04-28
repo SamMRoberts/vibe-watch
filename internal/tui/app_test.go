@@ -318,6 +318,35 @@ func TestBracketKeysJumpBetweenUserPrompts(t *testing.T) {
 	}
 }
 
+func TestCollapseAllKeyTogglesAllPromptThreads(t *testing.T) {
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "first prompt"},
+			{Role: "assistant", Content: "first activity"},
+			{Role: "user", Content: "second prompt"},
+			{Role: "assistant", Content: "second activity"},
+		},
+	})
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	updated := model.(*App)
+	collapsed := updated.detail.View()
+	if strings.Contains(collapsed, "first activity") || strings.Contains(collapsed, "second activity") {
+		t.Fatalf("expected c to collapse all prompt threads, got:\n%s", collapsed)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	updated = model.(*App)
+	expanded := updated.detail.View()
+	if !strings.Contains(expanded, "first activity") || !strings.Contains(expanded, "second activity") {
+		t.Fatalf("expected c to expand all prompt threads on second press, got:\n%s", expanded)
+	}
+}
+
 func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	app := &App{
 		view:   viewPromptDetail,

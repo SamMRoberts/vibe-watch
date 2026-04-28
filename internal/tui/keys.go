@@ -103,7 +103,7 @@ var keys = keyMap{
 	),
 	CollapseAll: key.NewBinding(
 		key.WithKeys("c"),
-		key.WithHelp("c", "collapse all"),
+		key.WithHelp("c", "toggle all"),
 	),
 	Follow: key.NewBinding(
 		key.WithKeys("f"),

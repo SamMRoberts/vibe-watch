@@ -246,6 +246,46 @@ func (d *DetailView) CollapseAllThreads() {
 	d.scrollSelectedRowIntoView()
 }
 
+func (d *DetailView) ToggleAllThreadsCollapsed() {
+	if d.session == nil {
+		return
+	}
+	if d.allThreadsCollapsed() {
+		d.collapsedThreads = make(map[int]bool)
+	} else {
+		if d.collapsedThreads == nil {
+			d.collapsedThreads = make(map[int]bool)
+		}
+		for i, msg := range d.session.Messages {
+			if msg.Role == "user" && relatedAssistantCount(d.session.Messages, i) > 0 {
+				d.collapsedThreads[i] = true
+			}
+		}
+	}
+	d.pauseFollow()
+	d.rebuildRows()
+	d.ensureSelectedRow()
+	d.renderContent()
+	d.scrollSelectedRowIntoView()
+}
+
+func (d *DetailView) allThreadsCollapsed() bool {
+	if d.session == nil {
+		return false
+	}
+	foundCollapsible := false
+	for i, msg := range d.session.Messages {
+		if msg.Role != "user" || relatedAssistantCount(d.session.Messages, i) == 0 {
+			continue
+		}
+		foundCollapsible = true
+		if d.collapsedThreads == nil || !d.collapsedThreads[i] {
+			return false
+		}
+	}
+	return foundCollapsible
+}
+
 func (d *DetailView) OpenSelectedDetail() bool {
 	row, ok := d.selectedActivityRow()
 	if !ok || d.session == nil {

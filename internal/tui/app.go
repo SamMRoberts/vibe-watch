@@ -205,7 +205,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.CollapseAll):
 			if a.view == viewDetail && a.detail != nil {
-				a.detail.CollapseAllThreads()
+				a.detail.ToggleAllThreadsCollapsed()
 			}
 
 		case key.Matches(msg, keys.Follow):

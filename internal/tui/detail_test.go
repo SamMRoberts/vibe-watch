@@ -80,6 +80,36 @@ func TestDetailCollapseAllThreads(t *testing.T) {
 	}
 }
 
+func TestDetailToggleAllThreadsCollapsed(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "first prompt"},
+			{Role: "assistant", Content: "first response"},
+			{Role: "user", Content: "second prompt"},
+			{Role: "assistant", Content: "second response"},
+		},
+	})
+
+	detail.ToggleAllThreadsCollapsed()
+	collapsed := detail.View()
+	if strings.Contains(collapsed, "first response") || strings.Contains(collapsed, "second response") {
+		t.Fatalf("expected toggle to collapse all threads, got:\n%s", collapsed)
+	}
+	if strings.Count(collapsed, "activity entries folded") != 2 {
+		t.Fatalf("expected all collapsible threads to be folded, got:\n%s", collapsed)
+	}
+
+	detail.ToggleAllThreadsCollapsed()
+	expanded := detail.View()
+	if !strings.Contains(expanded, "first response") || !strings.Contains(expanded, "second response") {
+		t.Fatalf("expected second toggle to expand all threads, got:\n%s", expanded)
+	}
+	if strings.Contains(expanded, "activity entries folded") {
+		t.Fatalf("expected expanded threads to hide folded summaries, got:\n%s", expanded)
+	}
+}
+
 func TestDetailSelectNextRowNavigatesActivityRows(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
