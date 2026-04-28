@@ -13,6 +13,11 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
+const (
+	dashboardGroupColumnTitle   = "Date/Agent"
+	dashboardSessionColumnTitle = "Session"
+)
+
 type DashboardView struct {
 	table       table.Model
 	sessions    []*models.Session
@@ -73,27 +78,146 @@ func (d *DashboardView) updateTable(agentFilter string) {
 		return dashboardSessionLess(filtered[i], filtered[j])
 	})
 
-	groupCount := dashboardGroupCount(filtered)
+	groupRows := len(filtered) > 1
+	lastDate := ""
 	lastGroup := ""
 	for i, s := range filtered {
+		date := dashboardGroupDate(s)
 		group := dashboardGroupKey(s)
-		if groupCount > 1 && group != lastGroup {
-			runCount := 1
-			for j := i + 1; j < len(filtered) && dashboardGroupKey(filtered[j]) == group; j++ {
-				runCount++
-			}
-			rows = append(rows, d.dashboardGroupRow(s, runCount))
+		if groupRows && date != lastDate {
+			rows = append(rows, d.dashboardDateRow(s, dashboardDateRunCount(filtered, i)))
+			rowSessions = append(rowSessions, nil)
+			lastDate = date
+			lastGroup = ""
+		}
+		if groupRows && group != lastGroup {
+			runCount := dashboardAgentRunCount(filtered, i)
+			lastAgentInDate := i+runCount >= len(filtered) || dashboardGroupDate(filtered[i+runCount]) != date
+			rows = append(rows, d.dashboardAgentRow(s, runCount, lastAgentInDate))
 			rowSessions = append(rowSessions, nil)
 			lastGroup = group
 		}
 
-		rows = append(rows, d.dashboardSessionRow(s))
+		lastSessionInAgent := true
+		if groupRows && i+1 < len(filtered) {
+			lastSessionInAgent = dashboardGroupKey(filtered[i+1]) != group
+		}
+		rows = append(rows, d.dashboardSessionRow(s, groupRows, lastSessionInAgent))
 		rowSessions = append(rowSessions, s)
 	}
 
 	d.table.SetRows(rows)
 	d.rowSessions = rowSessions
 	d.ensureCursorOnSession(1)
+}
+
+func dashboardDateRunCount(sessions []*models.Session, start int) int {
+	if start < 0 || start >= len(sessions) {
+		return 0
+	}
+	date := dashboardGroupDate(sessions[start])
+	count := 0
+	for i := start; i < len(sessions) && dashboardGroupDate(sessions[i]) == date; i++ {
+		count++
+	}
+	return count
+}
+
+func dashboardAgentRunCount(sessions []*models.Session, start int) int {
+	if start < 0 || start >= len(sessions) {
+		return 0
+	}
+	group := dashboardGroupKey(sessions[start])
+	count := 0
+	for i := start; i < len(sessions) && dashboardGroupKey(sessions[i]) == group; i++ {
+		count++
+	}
+	return count
+}
+
+func sessionCountLabel(count int) string {
+	if count == 1 {
+		return "1 session"
+	}
+	return fmt.Sprintf("%d sessions", count)
+}
+
+func (d *DashboardView) dashboardSessionRow(s *models.Session, grouped, lastInAgent bool) table.Row {
+	sessionWidth := dashboardColumnWidth(d.table.Columns(), dashboardSessionColumnTitle)
+	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
+	stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
+	updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
+	agentCell := agentLabel(string(s.AgentType), agentWidth)
+	if grouped {
+		agentCell = sessionBranchLabel(string(s.AgentType), agentWidth, lastInAgent)
+	}
+	return table.Row{
+		agentCell,
+		truncateStart(s.ProjectPath, sessionWidth),
+		compactInt(s.MessageCount()),
+		sessionInputTokens(s),
+		compactInt(s.TotalOutputTokens()),
+		formatTableDuration(s.Duration()),
+		statusText(s, stateWidth),
+		formatLastUpdated(s.LastUpdated, updatedWidth),
+	}
+}
+
+func (d *DashboardView) dashboardDateRow(s *models.Session, count int) table.Row {
+	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
+	sessionWidth := dashboardColumnWidth(d.table.Columns(), dashboardSessionColumnTitle)
+	return table.Row{
+		truncateEnd(dashboardGroupDate(s), agentWidth),
+		truncateEnd(sessionCountLabel(count), sessionWidth),
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+	}
+}
+
+func (d *DashboardView) dashboardAgentRow(s *models.Session, count int, lastInDate bool) table.Row {
+	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
+	sessionWidth := dashboardColumnWidth(d.table.Columns(), dashboardSessionColumnTitle)
+	return table.Row{
+		agentBranchLabel(string(s.AgentType), agentWidth, lastInDate),
+		truncateEnd(sessionCountLabel(count), sessionWidth),
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+	}
+}
+
+func agentBranchLabel(agent string, width int, lastInDate bool) string {
+	prefix := "├─ "
+	if lastInDate {
+		prefix = "└─ "
+	}
+	return prefixedAgentLabel(prefix, agent, width)
+}
+
+func sessionBranchLabel(agent string, width int, lastInAgent bool) string {
+	prefix := "  ├ "
+	if lastInAgent {
+		prefix = "  └ "
+	}
+	return prefixedAgentLabel(prefix, agent, width)
+}
+
+func prefixedAgentLabel(prefix, agent string, width int) string {
+	if width <= 0 {
+		return prefix + agentLabel(agent, 0)
+	}
+	available := width - lipgloss.Width(prefix)
+	if available < 1 {
+		return truncateEnd(prefix, width)
+	}
+	return truncateEnd(prefix+agentLabel(agent, available), width)
 }
 
 func (d *DashboardView) filteredSessions(agentFilter string) []*models.Session {
@@ -120,46 +244,6 @@ func (d *DashboardView) filteredSessions(agentFilter string) []*models.Session {
 		out = append(out, s)
 	}
 	return out
-}
-
-func (d *DashboardView) dashboardSessionRow(s *models.Session) table.Row {
-	projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
-	agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
-	stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
-	updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
-	return table.Row{
-		agentLabel(string(s.AgentType), agentWidth),
-		truncateStart(s.ProjectPath, projectWidth),
-		compactInt(s.MessageCount()),
-		sessionInputTokens(s),
-		compactInt(s.TotalOutputTokens()),
-		formatTableDuration(s.Duration()),
-		statusText(s, stateWidth),
-		formatLastUpdated(s.LastUpdated, updatedWidth),
-	}
-}
-
-func (d *DashboardView) dashboardGroupRow(s *models.Session, count int) table.Row {
-	agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
-	projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
-	return table.Row{
-		truncateEnd(dashboardGroupDate(s), agentWidth),
-		truncateEnd(fmt.Sprintf("%s · %d sessions", string(s.AgentType), count), projectWidth),
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-	}
-}
-
-func dashboardGroupCount(sessions []*models.Session) int {
-	seen := make(map[string]bool)
-	for _, session := range sessions {
-		seen[dashboardGroupKey(session)] = true
-	}
-	return len(seen)
 }
 
 func dashboardSessionLess(a, b *models.Session) bool {
@@ -227,8 +311,8 @@ func dashboardColumns(width int) []table.Column {
 	}
 
 	return []table.Column{
-		{Title: "Agent", Width: agentWidth},
-		{Title: "Project", Width: projectWidth},
+		{Title: dashboardGroupColumnTitle, Width: agentWidth},
+		{Title: dashboardSessionColumnTitle, Width: projectWidth},
 		{Title: "Msg", Width: msgWidth},
 		{Title: "In", Width: inputWidth},
 		{Title: "Out", Width: outputWidth},

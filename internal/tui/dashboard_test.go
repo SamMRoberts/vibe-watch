@@ -56,7 +56,7 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 	}
 }
 
-func TestDashboardGroupsAllSessionsByDateAndAgent(t *testing.T) {
+func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {
 	dayOne := time.Date(2026, 4, 28, 10, 15, 0, 0, time.Local)
 	dayTwo := time.Date(2026, 4, 27, 9, 0, 0, 0, time.Local)
 	copilot := &models.Session{
@@ -82,30 +82,39 @@ func TestDashboardGroupsAllSessionsByDateAndAgent(t *testing.T) {
 	dashboard.SetSessions([]*models.Session{codex, copilot, claude}, "")
 
 	rows := dashboard.table.Rows()
-	if len(rows) != 6 {
-		t.Fatalf("expected group headers plus all sessions, got %d rows: %#v", len(rows), rows)
+	if len(rows) != 8 {
+		t.Fatalf("expected date, agent, and session rows, got %d rows: %#v", len(rows), rows)
 	}
-	if rows[0][0] != "Apr 28, 2026" || !strings.Contains(rows[0][1], "Claude Code") {
-		t.Fatalf("expected first group to be Apr 28 Claude, got %#v", rows[0])
+	if rows[0][0] != "Apr 28, 2026" || rows[0][1] != "2 sessions" {
+		t.Fatalf("expected first date group to be Apr 28 with 2 sessions, got %#v", rows[0])
 	}
-	if dashboard.rowSessions[0] != nil || dashboard.rowSessions[1] != claude {
-		t.Fatalf("expected group header to be non-selectable and first session to be Claude, got %#v", dashboard.rowSessions[:2])
+	if !strings.Contains(rows[1][0], "Claude") || rows[1][1] != "1 session" {
+		t.Fatalf("expected Claude agent group under Apr 28, got %#v", rows[1])
+	}
+	if !strings.Contains(rows[2][0], "Claude") || dashboard.rowSessions[2] != claude {
+		t.Fatalf("expected Claude session row after date and agent headers, got row %#v sessions %#v", rows[2], dashboard.rowSessions[:3])
+	}
+	if dashboard.rowSessions[0] != nil || dashboard.rowSessions[1] != nil {
+		t.Fatalf("expected date and agent headers to be non-selectable, got %#v", dashboard.rowSessions[:2])
 	}
 	if dashboard.SelectedSession() != claude {
-		t.Fatalf("expected initial selection to skip the group header, got %#v", dashboard.SelectedSession())
+		t.Fatalf("expected initial selection to skip hierarchy headers, got %#v", dashboard.SelectedSession())
 	}
-	if rows[2][0] != "Apr 28, 2026" || !strings.Contains(rows[2][1], "Copilot CLI") {
-		t.Fatalf("expected second group to be Apr 28 Copilot, got %#v", rows[2])
+	if !strings.Contains(rows[3][0], "Copilot") || rows[3][1] != "1 session" {
+		t.Fatalf("expected Copilot agent group under Apr 28, got %#v", rows[3])
 	}
-	if rows[4][0] != "Apr 27, 2026" || !strings.Contains(rows[4][1], "Codex CLI") {
-		t.Fatalf("expected third group to be Apr 27 Codex, got %#v", rows[4])
+	if rows[5][0] != "Apr 27, 2026" || rows[5][1] != "1 session" {
+		t.Fatalf("expected second date group to be Apr 27 with 1 session, got %#v", rows[5])
 	}
-	if dashboard.rowSessions[3] != copilot || dashboard.rowSessions[5] != codex {
+	if !strings.Contains(rows[6][0], "Codex") || rows[6][1] != "1 session" {
+		t.Fatalf("expected Codex agent group under Apr 27, got %#v", rows[6])
+	}
+	if dashboard.rowSessions[4] != copilot || dashboard.rowSessions[7] != codex {
 		t.Fatalf("expected all sessions to remain selectable across repositories, got %#v", dashboard.rowSessions)
 	}
 	dashboard.MoveDown()
 	if dashboard.SelectedSession() != copilot {
-		t.Fatalf("expected moving down to skip the next group header, got %#v", dashboard.SelectedSession())
+		t.Fatalf("expected moving down to skip the next agent header, got %#v", dashboard.SelectedSession())
 	}
 }
 
