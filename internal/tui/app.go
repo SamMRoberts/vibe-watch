@@ -211,8 +211,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Follow):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.ToggleFollow()
-			} else if a.view == viewPromptDetail && a.detail != nil {
-				a.detail.PageDown()
 			}
 
 		case key.Matches(msg, keys.PageUp):

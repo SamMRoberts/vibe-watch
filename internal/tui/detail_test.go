@@ -481,6 +481,57 @@ func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 	}
 }
 
+func TestDetailHeaderShowsCacheReadAndWriteTokens(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		TotalTokens: models.TokenUsage{
+			CacheReads:  391168,
+			CacheWrites: 84,
+		},
+		Messages: []models.Message{{Role: "user", Content: "prompt"}},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "Cache") || !strings.Contains(view, "391168/84") {
+		t.Fatalf("expected cache read/write summary in detail header, got:\n%s", view)
+	}
+}
+
+func TestDetailFocusedEventShowsMetadataBlock(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		ProjectPath: "/repo/project",
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{
+				Role:    "tool",
+				Content: "ran command",
+				Tokens:  models.TokenUsage{InputTokens: 10, OutputTokens: 20, CacheReads: 30, CacheWrites: 40},
+				Meta: models.ActivityMeta{
+					Kind:          models.ActivityKindTool,
+					Lifecycle:     models.ActivityLifecycleCompleted,
+					ID:            "tool-1",
+					ParentID:      "prompt-1",
+					InteractionID: "turn-1",
+					Label:         "view",
+				},
+			},
+		},
+	})
+	detail.SelectNextRow()
+
+	if !detail.OpenSelectedDetail() {
+		t.Fatalf("expected focused detail to open")
+	}
+	view := detail.ThreadView()
+	for _, want := range []string{"row 002", "tool completed view", "id tool-1", "parent prompt-1", "interaction turn-1", "cache-write:40"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected focused metadata %q, got:\n%s", want, view)
+		}
+	}
+}
+
 func TestDetailHeaderStaysVisibleAfterScrolling(t *testing.T) {
 	detail := NewDetailView(120, 22)
 	detail.SetSession(&models.Session{
@@ -706,7 +757,7 @@ func TestRefreshDetailSessionRespectsPausedFollow(t *testing.T) {
 	detail.SelectPreviousRow()
 
 	// Simulate app.refreshDetailSession() logic
-	shouldFollow := detail.Following()    // false
+	shouldFollow := detail.Following()            // false
 	userPausedFollow := detail.UserPausedFollow() // true
 	detail.SetSession(initialSession)
 

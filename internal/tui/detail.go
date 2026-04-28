@@ -414,9 +414,11 @@ func (d *DetailView) renderFocusedEventBody(index int) string {
 	}
 
 	var content strings.Builder
+	content.WriteString(d.renderFocusedEventMeta(index))
 	content.WriteString(renderVerboseMessage(index, d.session.Messages[index], d.width-10))
 	if endIndex, ok := matchingActionEnd(d.session.Messages, index); ok {
 		content.WriteString(styleMuted.Render("Grouped completion\n"))
+		content.WriteString(d.renderFocusedEventMeta(endIndex))
 		content.WriteString(renderVerboseMessage(endIndex, d.session.Messages[endIndex], d.width-10))
 		return content.String()
 	}
@@ -438,7 +440,7 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 		rendered = d.renderMessageRow(row)
 	}
 	if selected {
-		return styleSelected.Render("▌ " + rendered)
+		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
 	}
 	return styleMuted.Render("  ") + rendered
 }
@@ -450,14 +452,15 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		ts = msg.Timestamp.Format("15:04:05")
 	}
 	role := timelineRoleLabel(msg.Role)
+	prefix := threadPrefix(row, msg.Role)
 	if msg.Role == "user" && relatedAssistantCount(d.session.Messages, row.messageIndex) > 0 {
 		if d.collapsedThreads[row.messageIndex] {
-			role = styleUserMsg.Render("[+] User")
+			role = styleUserMsg.Render("[+] PROMPT")
 		} else {
-			role = styleUserMsg.Render("[-] User")
+			role = styleUserMsg.Render("[-] PROMPT")
 		}
 	}
-	summaryWidth := d.width - 44
+	summaryWidth := d.width - 50
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
@@ -469,15 +472,20 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 	if tokenBadge != "" {
 		tokenBadge = "  " + tokenBadge
 	}
-	return fmt.Sprintf(
-		"%s %s %-14s %s %s%s",
+	line := fmt.Sprintf(
+		"%s %s %s %-14s %s %s%s",
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		styleMuted.Render(ts),
+		prefix,
 		role,
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
 		tokenBadge,
 	)
+	if msg.Role == "user" {
+		return styleUserMsg.Render(line)
+	}
+	return line
 }
 
 func (d *DetailView) renderActionGroupRow(row activityRow) string {
@@ -486,17 +494,19 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	state := groupedActionState(start, end, hasEnd)
 	icon := actionStateIcon(state)
 	role := timelineRoleLabel(start.Role)
+	prefix := threadPrefix(row, start.Role)
 
-	summaryWidth := d.width - 58
+	summaryWidth := d.width - 64
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
 	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %s %-17s %-14s %s %s",
+		"%s %s %s %-17s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
+		prefix,
 		styleMuted.Render(actionLifecycleTimeRange(start, end, hasEnd)),
 		role,
 		styleMuted.Render("│"),
@@ -507,24 +517,133 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	if detail == "" {
 		return firstLine
 	}
-	return firstLine + "\n" + styleMuted.Render("    ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
+	detailStyle := styleMuted
+	if lifecycleIndicatorState(state) == statusFailed {
+		detailStyle = styleError
+	}
+	return firstLine + "\n" + detailStyle.Render("      ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
 	return fmt.Sprintf(
 		"%s %s %d activity entries folded %s",
-		styleMuted.Render("   "),
+		threadPrefix(row, "assistant"),
 		styleMuted.Render("╰─◇"),
 		row.collapsedCount,
 		styleMuted.Render("(space to expand)"),
 	)
 }
 
+func (d *DetailView) renderSelectedRowContext(row activityRow) string {
+	if d.session == nil {
+		return ""
+	}
+	switch row.kind {
+	case activityRowCollapsed:
+		return styleMuted.Render("  · enter opens folded prompt")
+	case activityRowActionGroup:
+		start, ok := messageAt(d.session.Messages, row.messageIndex)
+		if !ok {
+			return ""
+		}
+		end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+		state := lifecycleIndicatorState(groupedActionState(start, end, hasEnd))
+		return styleMuted.Render("  · enter opens " + lowerStatusLabel(indicatorSpec(state).Label) + " activity")
+	default:
+		msg, ok := messageAt(d.session.Messages, row.messageIndex)
+		if !ok {
+			return ""
+		}
+		if msg.Role == "user" {
+			return styleMuted.Render("  · enter opens prompt thread")
+		}
+		if msg.Meta.Kind != "" {
+			return styleMuted.Render("  · " + activityKindLabel(msg) + " details")
+		}
+		return styleMuted.Render("  · enter opens activity")
+	}
+}
+
+func threadPrefix(row activityRow, role string) string {
+	if role == "user" {
+		return styleUserMsg.Render("╭─")
+	}
+	if row.threadStart >= 0 {
+		return styleMuted.Render("├─")
+	}
+	return styleMuted.Render("  ")
+}
+
+func detailCacheTokens(tokens models.TokenUsage) string {
+	switch {
+	case tokens.CacheReads > 0 && tokens.CacheWrites > 0:
+		return fmt.Sprintf("%d/%d", tokens.CacheReads, tokens.CacheWrites)
+	case tokens.CacheReads > 0:
+		return fmt.Sprintf("%d", tokens.CacheReads)
+	case tokens.CacheWrites > 0:
+		return fmt.Sprintf("w:%d", tokens.CacheWrites)
+	default:
+		return "0"
+	}
+}
+
+func (d *DetailView) renderFocusedEventMeta(index int) string {
+	msg, ok := messageAt(d.session.Messages, index)
+	if !ok {
+		return ""
+	}
+	parts := []string{
+		"row " + fmt.Sprintf("%03d", index+1),
+		"role " + msg.Role,
+	}
+	if !msg.Timestamp.IsZero() {
+		parts = append(parts, "time "+msg.Timestamp.Format("2006-01-02 15:04:05"))
+	}
+	if label := activityKindLabel(msg); label != "" {
+		parts = append(parts, label)
+	}
+	if msg.Meta.ID != "" {
+		parts = append(parts, "id "+msg.Meta.ID)
+	}
+	if msg.Meta.ParentID != "" {
+		parts = append(parts, "parent "+msg.Meta.ParentID)
+	}
+	if msg.Meta.InteractionID != "" {
+		parts = append(parts, "interaction "+msg.Meta.InteractionID)
+	}
+	tokens := fmt.Sprintf(
+		"tokens in:%d out:%d cache-read:%d cache-write:%d",
+		msg.Tokens.InputTokens,
+		msg.Tokens.OutputTokens,
+		msg.Tokens.CacheReads,
+		msg.Tokens.CacheWrites,
+	)
+	return styleMuted.Render(strings.Join(parts, "  · ")) + "\n" + styleMuted.Render(tokens) + "\n\n"
+}
+
+func activityKindLabel(msg models.Message) string {
+	if msg.Meta.Kind == "" {
+		return ""
+	}
+	parts := []string{msg.Meta.Kind}
+	if msg.Meta.Lifecycle != "" {
+		parts = append(parts, msg.Meta.Lifecycle)
+	}
+	if msg.Meta.Label != "" {
+		parts = append(parts, msg.Meta.Label)
+	}
+	return strings.Join(parts, " ")
+}
+
 func (d *DetailView) sessionHeader(s *models.Session) string {
-	header := lipgloss.JoinHorizontal(lipgloss.Top,
+	projectWidth := d.width - 34
+	if projectWidth < 12 {
+		projectWidth = 12
+	}
+	title := lipgloss.JoinHorizontal(lipgloss.Top,
 		agentBadge(string(s.AgentType)),
 		styleMuted.Render("  ·  "),
-		styleText(s.ProjectPath),
+		styleText(truncateEnd(s.ProjectPath, projectWidth)),
 	)
 
 	startStr := "unknown"
@@ -532,21 +651,54 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 		startStr = s.StartTime.Format("2006-01-02 15:04:05")
 	}
 
-	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
-		" ",
-		metricChip("Input", detailInputTokens(s), "↘", styleAccent),
-		" ",
-		metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
-		" ",
-		metricChip("Cache", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
+	summaryCards := detailSummaryMetrics(s, d.width)
+
+	statusLine := lipgloss.JoinHorizontal(lipgloss.Top,
+		detailStatusLine(s, d.follow),
+		styleMuted.Render("  ·  "),
+		styleMuted.Render(fmt.Sprintf("started %s", startStr)),
+		styleMuted.Render("  ·  "),
+		styleMuted.Render("duration "+models.FormatDuration(s.Duration())),
 	)
 
-	return header + "\n" +
-		styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n" +
-		detailStatusLine(s, d.follow) + "\n\n" +
-		tokenPanel + "\n" +
+	return title + "\n" +
+		statusLine + "\n\n" +
+		summaryCards + "\n" +
 		divider(d.width-6)
+}
+
+func detailSummaryMetrics(s *models.Session, width int) string {
+	if width < 72 {
+		first := lipgloss.JoinHorizontal(lipgloss.Top,
+			metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
+			" ",
+			metricChip("Input", detailInputTokens(s), "↘", styleAccent),
+		)
+		second := lipgloss.JoinHorizontal(lipgloss.Top,
+			metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
+			" ",
+			metricChip("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent),
+		)
+		return first + "\n" + second
+	}
+
+	available := width - 6
+	cardWidth := (available - 3) / 4
+	if cardWidth < 12 {
+		cardWidth = 12
+	}
+	if cardWidth > 20 {
+		cardWidth = 20
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCardWidth("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent, cardWidth),
+		" ",
+		metricCardWidth("Input", detailInputTokens(s), "↘", styleAccent, cardWidth),
+		" ",
+		metricCardWidth("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent, cardWidth),
+		" ",
+		metricCardWidth("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent, cardWidth),
+	)
 }
 
 func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.TokenUsage) string {
@@ -563,7 +715,7 @@ func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.T
 		" ",
 		metricChip("Output", fmt.Sprintf("%d", threadTokens.OutputTokens), "↗", styleAccent),
 		" ",
-		metricChip("Cache", fmt.Sprintf("%d", threadTokens.CacheReads), "◌", styleAccent),
+		metricChip("Cache", detailCacheTokens(threadTokens), "◌", styleAccent),
 	)
 
 	return header + "\n" +
@@ -587,7 +739,7 @@ func (d *DetailView) eventHeader(index int, msg models.Message) string {
 		" ",
 		metricChip("Output", fmt.Sprintf("%d", msg.Tokens.OutputTokens), "↗", styleAccent),
 		" ",
-		metricChip("Cache", fmt.Sprintf("%d", msg.Tokens.CacheReads), "◌", styleAccent),
+		metricChip("Cache", detailCacheTokens(msg.Tokens), "◌", styleAccent),
 	)
 	return header + "\n" +
 		styleMuted.Render(d.session.ProjectPath) + "\n\n" +

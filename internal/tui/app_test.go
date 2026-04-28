@@ -344,6 +344,30 @@ func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	}
 }
 
+func TestFollowKeyDoesNotScrollFocusedDetail(t *testing.T) {
+	app := &App{
+		view:   viewPromptDetail,
+		detail: NewDetailView(100, 18),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: strings.Repeat("long activity ", 80)},
+		},
+	})
+	if !app.detail.OpenSelectedThread() {
+		t.Fatalf("expected prompt detail to open")
+	}
+	before := app.detail.viewport.YOffset
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated := model.(*App)
+
+	if updated.detail.viewport.YOffset != before {
+		t.Fatalf("expected f not to scroll focused detail, got offset %d want %d", updated.detail.viewport.YOffset, before)
+	}
+}
+
 func TestUpdateViewsKeepsFocusedEventContentWhileFollowing(t *testing.T) {
 	oldSession := &models.Session{
 		ID:        "session-1",
