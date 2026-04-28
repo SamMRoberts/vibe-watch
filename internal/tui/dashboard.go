@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,21 +23,11 @@ type DashboardView struct {
 }
 
 func NewDashboardView(width, height int) *DashboardView {
-	cols := []table.Column{
-		{Title: "Agent", Width: 18},
-		{Title: "Project", Width: 20},
-		{Title: "Msgs", Width: 6},
-		{Title: "In Tok", Width: 8},
-		{Title: "Out Tok", Width: 8},
-		{Title: "Duration", Width: 10},
-		{Title: "Status", Width: 10},
-		{Title: "Last Updated", Width: 14},
-	}
-
 	t := table.New(
-		table.WithColumns(cols),
+		table.WithColumns(dashboardColumns(width)),
 		table.WithFocused(true),
 		table.WithHeight(height-8),
+		table.WithWidth(tableWidth(width)),
 	)
 
 	s := table.DefaultStyles()
@@ -62,6 +53,8 @@ func NewDashboardView(width, height int) *DashboardView {
 func (d *DashboardView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
+	d.table.SetColumns(dashboardColumns(width))
+	d.table.SetWidth(tableWidth(width))
 	d.table.SetHeight(height - 8)
 }
 
@@ -89,29 +82,119 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			}
 		}
 
-		lastUpdated := s.LastUpdated.Format("15:04:05")
-		if time.Since(s.LastUpdated) > 24*time.Hour {
-			lastUpdated = s.LastUpdated.Format("Jan 02")
-		}
-
-		proj := s.ProjectPath
-		if len(proj) > 19 {
-			proj = "..." + proj[len(proj)-16:]
-		}
+		projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
 
 		rows = append(rows, table.Row{
-			agentBadge(string(s.AgentType)),
-			proj,
-			fmt.Sprintf("%d", s.MessageCount()),
-			fmt.Sprintf("%d", s.TotalInputTokens()),
-			fmt.Sprintf("%d", s.TotalOutputTokens()),
-			models.FormatDuration(s.Duration()),
-			statusPill(s.IsActive),
-			lastUpdated,
+			agentLabel(string(s.AgentType)),
+			truncateStart(s.ProjectPath, projectWidth),
+			compactInt(s.MessageCount()),
+			compactInt(s.TotalInputTokens()),
+			compactInt(s.TotalOutputTokens()),
+			formatTableDuration(s.Duration()),
+			statusText(s.IsActive),
+			formatLastUpdated(s.LastUpdated),
 		})
 	}
 
 	d.table.SetRows(rows)
+}
+
+func dashboardColumns(width int) []table.Column {
+	const columnCount = 8
+
+	available := tableWidth(width)
+	contentBudget := available - columnCount*2
+	if contentBudget < 0 {
+		contentBudget = 0
+	}
+
+	agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth := 12, 4, 6, 6, 7, 6, 8
+	fixedWidth := agentWidth + msgWidth + inputWidth + outputWidth + durationWidth + stateWidth + updatedWidth
+	if contentBudget < fixedWidth+8 {
+		agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth = 8, 3, 4, 4, 5, 4, 5
+		fixedWidth = agentWidth + msgWidth + inputWidth + outputWidth + durationWidth + stateWidth + updatedWidth
+	}
+
+	projectWidth := contentBudget - fixedWidth
+	if projectWidth < 4 {
+		projectWidth = 4
+	}
+
+	return []table.Column{
+		{Title: "Agent", Width: agentWidth},
+		{Title: "Project", Width: projectWidth},
+		{Title: "Msg", Width: msgWidth},
+		{Title: "In", Width: inputWidth},
+		{Title: "Out", Width: outputWidth},
+		{Title: "Dur", Width: durationWidth},
+		{Title: "State", Width: stateWidth},
+		{Title: "Updated", Width: updatedWidth},
+	}
+}
+
+func dashboardColumnWidth(columns []table.Column, title string) int {
+	for _, column := range columns {
+		if column.Title == title {
+			return column.Width
+		}
+	}
+	return 0
+}
+
+func tableWidth(width int) int {
+	if width <= 4 {
+		return width
+	}
+	return width - 4
+}
+
+func agentLabel(agent string) string {
+	return agent
+}
+
+func statusText(active bool) string {
+	if active {
+		return "active"
+	}
+	return "idle"
+}
+
+func formatLastUpdated(lastUpdated time.Time) string {
+	if lastUpdated.IsZero() {
+		return "-"
+	}
+	if time.Since(lastUpdated) > 24*time.Hour {
+		return lastUpdated.Format("Jan 02")
+	}
+	return lastUpdated.Format("15:04:05")
+}
+
+func formatTableDuration(duration time.Duration) string {
+	if duration <= 0 {
+		return "-"
+	}
+	return models.FormatDuration(duration)
+}
+
+func compactInt(value int) string {
+	if value < 1_000 {
+		return strconv.Itoa(value)
+	}
+	if value < 1_000_000 {
+		return fmt.Sprintf("%.1fk", float64(value)/1_000)
+	}
+	return fmt.Sprintf("%.1fm", float64(value)/1_000_000)
+}
+
+func truncateStart(value string, width int) string {
+	if width <= 0 || lipgloss.Width(value) <= width {
+		return value
+	}
+	runes := []rune(value)
+	if width <= 3 {
+		return string(runes[len(runes)-width:])
+	}
+	return "..." + string(runes[len(runes)-(width-3):])
 }
 
 func (d *DashboardView) SelectedIndex() int {
