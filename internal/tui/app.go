@@ -234,9 +234,40 @@ func (a *App) updateViews() {
 	if a.dashboard != nil {
 		a.dashboard.SetSessions(a.sessions, a.agentFilter)
 	}
+	if a.detail != nil {
+		a.refreshDetailSession()
+	}
 	if a.analytics != nil {
 		a.analytics.SetSessions(a.sessions)
 	}
+}
+
+func (a *App) refreshDetailSession() {
+	if a.detail.session == nil {
+		return
+	}
+	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
+		a.detail.SetSession(updated)
+	}
+}
+
+func findMatchingSession(target *models.Session, sessions []*models.Session) *models.Session {
+	for _, session := range sessions {
+		if sameSession(target, session) {
+			return session
+		}
+	}
+	return nil
+}
+
+func sameSession(a, b *models.Session) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.ID != "" && b.ID == a.ID {
+		return a.AgentType == "" || b.AgentType == a.AgentType
+	}
+	return a.LogPath != "" && b.LogPath == a.LogPath
 }
 
 func (a *App) View() string {
