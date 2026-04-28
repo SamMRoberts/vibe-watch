@@ -468,6 +468,9 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		summary = "(empty)"
 	}
 	tokenBadge := timelineTokenBadge(msg.Tokens)
+	if msg.Role == "user" {
+		tokenBadge = d.threadTokenBadge(row.messageIndex)
+	}
 	if tokenBadge != "" {
 		tokenBadge = "  " + tokenBadge
 	}
@@ -1044,6 +1047,61 @@ func timelineTokenBadge(tokens models.TokenUsage) string {
 		return ""
 	}
 	return styleMuted.Render(strings.Join(parts, " "))
+}
+
+type tokenLoadSpec struct {
+	Label string
+	Icon  string
+	Style lipgloss.Style
+}
+
+func (d *DetailView) threadTokenBadge(userIndex int) string {
+	if d.session == nil {
+		return ""
+	}
+	_, _, ok := selectedThreadRange(d.session.Messages, userIndex)
+	if !ok {
+		return ""
+	}
+	tokens := threadTokenUsage(d.session.Messages, userIndex)
+	total := tokenUsageTotal(tokens)
+	if total == 0 {
+		return ""
+	}
+	spec := tokenLoadIndicator(total)
+	return spec.Style.Render(fmt.Sprintf("%s tok %s %s", spec.Icon, spec.Label, compactInt(total)))
+}
+
+func threadTokenUsage(messages []models.Message, userIndex int) models.TokenUsage {
+	start, end, ok := selectedThreadRange(messages, userIndex)
+	if !ok {
+		return models.TokenUsage{}
+	}
+	var tokens models.TokenUsage
+	for _, msg := range messages[start:end] {
+		tokens.InputTokens += msg.Tokens.InputTokens
+		tokens.OutputTokens += msg.Tokens.OutputTokens
+		tokens.CacheReads += msg.Tokens.CacheReads
+		tokens.CacheWrites += msg.Tokens.CacheWrites
+	}
+	return tokens
+}
+
+func tokenUsageTotal(tokens models.TokenUsage) int {
+	return tokens.InputTokens + tokens.OutputTokens + tokens.CacheReads + tokens.CacheWrites
+}
+
+func tokenLoadIndicator(total int) tokenLoadSpec {
+	switch {
+	case total >= 60_000:
+		return tokenLoadSpec{"way high", "⚠", styleError}
+	case total >= 30_000:
+		return tokenLoadSpec{"high", "◆", lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)}
+	case total >= 10_000:
+		return tokenLoadSpec{"kinda high", "◐", styleWarning}
+	default:
+		return tokenLoadSpec{"efficient", "◌", styleSuccess}
+	}
 }
 
 func summarizeActivityContent(content string, width int) string {

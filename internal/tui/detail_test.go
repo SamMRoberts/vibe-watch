@@ -127,6 +127,58 @@ func TestDetailPromptJumpSelectsUserRows(t *testing.T) {
 	}
 }
 
+func TestDetailUserRowsShowThreadTokenLoadIndicators(t *testing.T) {
+	detail := NewDetailView(160, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "small prompt", Tokens: models.TokenUsage{InputTokens: 500}},
+			{Role: "assistant", Content: "small response", Tokens: models.TokenUsage{OutputTokens: 2_500}},
+			{Role: "user", Content: "medium prompt", Tokens: models.TokenUsage{InputTokens: 8_000}},
+			{Role: "assistant", Content: "medium response", Tokens: models.TokenUsage{OutputTokens: 7_000}},
+			{Role: "user", Content: "large prompt", Tokens: models.TokenUsage{InputTokens: 20_000}},
+			{Role: "assistant", Content: "large response", Tokens: models.TokenUsage{OutputTokens: 20_000}},
+			{Role: "user", Content: "extreme prompt", Tokens: models.TokenUsage{InputTokens: 50_000}},
+			{Role: "assistant", Content: "extreme response", Tokens: models.TokenUsage{OutputTokens: 20_000}},
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{
+		"tok efficient 3.0k",
+		"tok kinda high 15.0k",
+		"tok high 40.0k",
+		"tok way high 70.0k",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected thread token indicator %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestThreadTokenUsageIncludesCacheTokens(t *testing.T) {
+	messages := []models.Message{
+		{Role: "user", Content: "prompt", Tokens: models.TokenUsage{InputTokens: 100}},
+		{Role: "assistant", Content: "response", Tokens: models.TokenUsage{OutputTokens: 200, CacheReads: 300, CacheWrites: 400}},
+	}
+
+	tokens := threadTokenUsage(messages, 0)
+	if got := tokenUsageTotal(tokens); got != 1_000 {
+		t.Fatalf("expected thread token total to include cache reads/writes, got %d", got)
+	}
+	if spec := tokenLoadIndicator(9_999); spec.Label != "efficient" {
+		t.Fatalf("expected efficient indicator below 10k, got %#v", spec)
+	}
+	if spec := tokenLoadIndicator(10_000); spec.Label != "kinda high" {
+		t.Fatalf("expected kinda high indicator at 10k, got %#v", spec)
+	}
+	if spec := tokenLoadIndicator(30_000); spec.Label != "high" {
+		t.Fatalf("expected high indicator at 30k, got %#v", spec)
+	}
+	if spec := tokenLoadIndicator(60_000); spec.Label != "way high" {
+		t.Fatalf("expected way high indicator at 60k, got %#v", spec)
+	}
+}
+
 func TestDetailOpenSelectedDetailShowsSingleEvent(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
