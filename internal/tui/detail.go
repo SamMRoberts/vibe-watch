@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/tree"
 
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
@@ -33,6 +34,12 @@ type activityRow struct {
 	endMessageIndex int
 	threadStart     int
 	collapsedCount  int
+}
+
+type timelineTreeNode struct {
+	rowIndex int
+	label    string
+	children []*timelineTreeNode
 }
 
 type DetailView struct {
@@ -346,24 +353,30 @@ func (d *DetailView) renderContent() {
 		write(styleMuted.Render("No activity found in this session.\n"))
 	}
 
-	promptOpen := false
-	for i, row := range d.rows {
-		if rowStartsUserContainer(d.session, row) {
-			if promptOpen {
-				write(renderPromptContainerClose(false) + "\n\n")
+	for i := 0; i < len(d.rows); {
+		row := d.rows[i]
+		if !rowStartsUserContainer(d.session, row) {
+			d.rowLineOffsets[i] = line
+			write(d.renderTimelineRow(i, row) + "\n")
+			if i < len(d.rows)-1 {
+				write("\n")
 			}
-			promptOpen = true
+			i++
+			continue
 		}
 
-		d.rowLineOffsets[i] = line
-		write(d.renderTimelineRow(i, row) + "\n")
-		if row.kind == activityRowCollapsed && promptOpen {
-			write(renderPromptContainerClose(false) + "\n")
-			promptOpen = false
+		end := i + 1
+		for end < len(d.rows) && !rowStartsUserContainer(d.session, d.rows[end]) {
+			end++
 		}
-	}
-	if promptOpen {
-		write(renderPromptContainerClose(d.session.IsActive) + "\n")
+		node := d.timelineTree(i, end)
+		d.recordTimelineTreeOffsets(node, line)
+		rendered := renderTimelineTree(node)
+		write(rendered + "\n")
+		if end < len(d.rows) {
+			write("\n")
+		}
+		i = end
 	}
 
 	d.setContent(header, content.String())
@@ -457,14 +470,132 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 	return styleMuted.Render("  ") + rendered
 }
 
+func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
+	root := &timelineTreeNode{
+		rowIndex: start,
+		label:    d.renderTimelineTreeLabel(start, d.rows[start]),
+	}
+	var currentAssistant *timelineTreeNode
+	for i := start + 1; i < end; i++ {
+		row := d.rows[i]
+		node := &timelineTreeNode{
+			rowIndex: i,
+			label:    d.renderTimelineTreeLabel(i, row),
+		}
+		if detail := d.timelineActionDetail(row); detail != "" {
+			node.children = append(node.children, &timelineTreeNode{
+				rowIndex: -1,
+				label:    styleMuted.Render(summarizeActivityContent(detail, d.width-24)),
+			})
+		}
+		if d.rowIsAssistantMessage(row) {
+			root.children = append(root.children, node)
+			currentAssistant = node
+			continue
+		}
+		if currentAssistant != nil && row.kind != activityRowCollapsed {
+			currentAssistant.children = append(currentAssistant.children, node)
+			continue
+		}
+		root.children = append(root.children, node)
+	}
+	return root
+}
+
+func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) string {
+	selected := rowIndex == d.selectedRow
+	var rendered string
+	switch row.kind {
+	case activityRowCollapsed:
+		rendered = d.renderCollapsedTreeLabel(row)
+	case activityRowActionGroup:
+		rendered = d.renderActionGroupTreeLabel(row)
+	default:
+		rendered = d.renderMessageTreeLabel(row)
+	}
+	if selected {
+		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
+	}
+	return rendered
+}
+
+func (d *DetailView) rowIsAssistantMessage(row activityRow) bool {
+	return row.kind == activityRowMessage &&
+		isMessageIndex(d.session, row.messageIndex) &&
+		d.session.Messages[row.messageIndex].Role == "assistant"
+}
+
+func (d *DetailView) timelineActionDetail(row activityRow) string {
+	if row.kind != activityRowActionGroup {
+		return ""
+	}
+	start := d.session.Messages[row.messageIndex]
+	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+	return actionLifecycleDetail(start, end, hasEnd)
+}
+
+func (d *DetailView) recordTimelineTreeOffsets(node *timelineTreeNode, line int) {
+	if node == nil {
+		return
+	}
+	if node.rowIndex >= 0 {
+		d.rowLineOffsets[node.rowIndex] = line
+	}
+	childLine := line + 1
+	for _, child := range node.children {
+		d.recordTimelineTreeOffsets(child, childLine)
+		childLine += timelineTreeLineCount(child)
+	}
+}
+
+func timelineTreeLineCount(node *timelineTreeNode) int {
+	if node == nil {
+		return 0
+	}
+	count := 1
+	for _, child := range node.children {
+		count += timelineTreeLineCount(child)
+	}
+	return count
+}
+
+func renderTimelineTree(node *timelineTreeNode) string {
+	if node == nil {
+		return ""
+	}
+	return timelineLipglossTree(node).
+		Enumerator(tree.RoundedEnumerator).
+		EnumeratorStyle(lipgloss.NewStyle().Foreground(colorSubtle).MarginRight(1)).
+		RootStyle(lipgloss.NewStyle().Foreground(colorCopilot).Bold(true)).
+		ItemStyle(lipgloss.NewStyle().Foreground(colorText)).
+		String()
+}
+
+func timelineLipglossTree(node *timelineTreeNode) *tree.Tree {
+	t := tree.Root(node.label)
+	for _, child := range node.children {
+		t.Child(timelineLipglossTree(child))
+	}
+	return t
+}
+
 func (d *DetailView) renderMessageRow(row activityRow) string {
+	msg := d.session.Messages[row.messageIndex]
+	line := d.renderMessageTreeLabel(row)
+	prefix := threadPrefix(row, msg.Role)
+	if msg.Role == "user" {
+		return styleUserMsg.Render(prefix + " " + line)
+	}
+	return prefix + " " + line
+}
+
+func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	msg := d.session.Messages[row.messageIndex]
 	ts := "--:--:--"
 	if !msg.Timestamp.IsZero() {
 		ts = msg.Timestamp.Format("15:04:05")
 	}
 	role := timelineRoleLabel(msg.Role)
-	prefix := threadPrefix(row, msg.Role)
 	if msg.Role == "user" && relatedAssistantCount(d.session.Messages, row.messageIndex) > 0 {
 		if d.collapsedThreads[row.messageIndex] {
 			role = styleUserMsg.Render("[+] PROMPT")
@@ -489,8 +620,7 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		tokenBadge = "  " + tokenBadge
 	}
 	line := fmt.Sprintf(
-		"%s %s %-10s %-14s %s %s%s",
-		prefix,
+		"%s %-10s %-14s %s %s%s",
 		styleMuted.Render(ts),
 		leftTokenBadge,
 		role,
@@ -505,12 +635,26 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 }
 
 func (d *DetailView) renderActionGroupRow(row activityRow) string {
+	firstLine := d.renderActionGroupTreeLabel(row)
+	detail := d.timelineActionDetail(row)
+	if detail == "" {
+		return actionThreadPrefix(row) + " " + firstLine
+	}
+	detailStyle := styleMuted
+	start := d.session.Messages[row.messageIndex]
+	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+	if lifecycleIndicatorState(groupedActionState(start, end, hasEnd)) == statusFailed {
+		detailStyle = styleError
+	}
+	return actionThreadPrefix(row) + " " + firstLine + "\n" + detailStyle.Render("│     ╰─ "+summarizeActivityContent(detail, d.width-24))
+}
+
+func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	start := d.session.Messages[row.messageIndex]
 	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
 	state := groupedActionState(start, end, hasEnd)
 	icon := actionStateIcon(state)
 	role := timelineRoleLabel(start.Role)
-	prefix := actionThreadPrefix(row)
 	duration := actionLifecycleDuration(start, end, hasEnd, time.Now())
 
 	summaryWidth := d.width - 35 - lipgloss.Width(duration)
@@ -520,8 +664,7 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %s %-8s %-14s %s %s",
-		prefix,
+		"%s %-8s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
 		styleMuted.Render(actionLifecycleStartTime(start)),
 		role,
@@ -529,22 +672,16 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 		styleMessageContent.Render(summary),
 	)
 	firstLine = appendRightAligned(firstLine, styleMuted.Render(duration), d.width-2)
-
-	detail := actionLifecycleDetail(start, end, hasEnd)
-	if detail == "" {
-		return firstLine
-	}
-	detailStyle := styleMuted
-	if lifecycleIndicatorState(state) == statusFailed {
-		detailStyle = styleError
-	}
-	return firstLine + "\n" + detailStyle.Render("│     ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
+	return firstLine
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
+	return threadPrefix(row, "assistant") + " " + d.renderCollapsedTreeLabel(row)
+}
+
+func (d *DetailView) renderCollapsedTreeLabel(row activityRow) string {
 	return fmt.Sprintf(
-		"%s %s %d activity entries folded %s",
-		styleMuted.Render("│  ╰─"),
+		"%s %d activity entries folded %s",
 		styleMuted.Render("╰─◇"),
 		row.collapsedCount,
 		styleMuted.Render("(space to expand)"),
@@ -599,14 +736,6 @@ func actionThreadPrefix(row activityRow) string {
 		return styleMuted.Render("│  │")
 	}
 	return styleMuted.Render("├─")
-}
-
-func renderPromptContainerClose(active bool) string {
-	label := "╰─ prompt complete"
-	if active {
-		label = "╰─ prompt active"
-	}
-	return styleUserMsg.Render(label)
 }
 
 func detailCacheTokens(tokens models.TokenUsage) string {

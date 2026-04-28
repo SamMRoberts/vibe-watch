@@ -294,11 +294,9 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 
 	view := detail.View()
 	for _, want := range []string{
-		"╭─",
-		"│  ├─",
-		"│  │",
-		"╰─ prompt complete",
+		"╰── --:--:--",
 		"bash · done",
+		"assistant activity",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected nested container marker %q, got:\n%s", want, view)
