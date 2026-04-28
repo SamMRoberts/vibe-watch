@@ -147,12 +147,13 @@ func (d *DashboardView) View(agentFilter string) string {
 
 	sb.WriteString(styleMuted.Render("╭─ live session telemetry") + "\n")
 	sb.WriteString(stats)
-	sb.WriteString("\n" + styleMuted.Render("╰─ tabular view") + "\n\n")
+	sb.WriteString("\n\n")
 
 	if d.filterMode {
 		sb.WriteString(stylePanel.Width(d.width-6).Render(styleAccent.Render("Filter: ")+d.filterInput+styleGlowCursor()) + "\n\n")
 	}
 
+	sb.WriteString(styleMuted.Render("╰─ session table") + "\n")
 	if len(d.sessions) == 0 {
 		empty := styleCard.
 			Width(d.width-4).

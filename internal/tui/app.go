@@ -310,7 +310,7 @@ func (a *App) View() string {
 	}
 
 	// Footer help
-	helpText := styleMuted.Render("  q quit  │  tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
+	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
 		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ scroll  │  pgup/pgdn page")
 	}

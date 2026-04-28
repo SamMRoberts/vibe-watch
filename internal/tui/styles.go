@@ -179,5 +179,5 @@ func divider(width int) string {
 	if width < 1 {
 		width = 1
 	}
-	return styleDivider.Render("╍" + strings.Repeat("━", width-1))
+	return styleDivider.Render(strings.Repeat("━", width))
 }
