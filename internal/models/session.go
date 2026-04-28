@@ -8,10 +8,11 @@ import (
 type AgentType string
 
 const (
-	AgentClaude  AgentType = "Claude Code"
-	AgentCodex   AgentType = "Codex CLI"
-	AgentCopilot AgentType = "Copilot CLI"
-	AgentAmazonQ AgentType = "Amazon Q"
+	AgentClaude      AgentType = "Claude Code"
+	AgentCodex       AgentType = "Codex CLI"
+	AgentCopilot     AgentType = "Copilot CLI"
+	AgentCopilotChat AgentType = "Copilot Chat"
+	AgentAmazonQ     AgentType = "Amazon Q"
 )
 
 type TokenUsage struct {

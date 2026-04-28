@@ -42,7 +42,7 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	watchCmd.Flags().StringVar(&flagAgent, "agent", "", "Filter to specific agent (claude, codex, copilot, amazonq)")
+	watchCmd.Flags().StringVar(&flagAgent, "agent", "", "Filter to specific agent (claude, codex, copilot, chat, amazonq)")
 	watchCmd.Flags().IntVar(&flagRefresh, "refresh", 2, "Refresh interval in seconds")
 }
 

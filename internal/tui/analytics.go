@@ -68,7 +68,7 @@ func (a *AnalyticsView) View() string {
 	sb.WriteString(styleAccent.Render("╭─ Sessions by Agent") + "\n")
 	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
 
-	agentNames := []string{"Claude Code", "Codex CLI", "Copilot CLI", "Amazon Q"}
+	agentNames := []string{"Claude Code", "Codex CLI", "Copilot CLI", "Copilot Chat", "Amazon Q"}
 	maxCount := 0
 	for _, name := range agentNames {
 		if agentCounts[name] > maxCount {

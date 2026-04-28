@@ -161,7 +161,7 @@ func (d *DashboardView) View(agentFilter string) string {
 			Padding(3, 0).
 			Render(
 				styleMuted.Render("No sessions found.\n\n") +
-					styleSubtitle.Render("✦ Run Claude Code, Codex CLI, Copilot CLI, or Amazon Q\nto see sessions appear here."),
+					styleSubtitle.Render("✦ Run Claude Code, Codex CLI, Copilot CLI, Copilot Chat, or Amazon Q\nto see sessions appear here."),
 			)
 		sb.WriteString(empty)
 	} else {

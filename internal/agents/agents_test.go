@@ -245,14 +245,14 @@ func TestRegistryDetectAll(t *testing.T) {
 func TestRegistryDetectors(t *testing.T) {
 	r := agents.NewRegistry()
 	dets := r.Detectors()
-	if len(dets) != 4 {
-		t.Errorf("expected 4 detectors, got %d", len(dets))
+	if len(dets) != 5 {
+		t.Errorf("expected 5 detectors, got %d", len(dets))
 	}
 	names := map[string]bool{}
 	for _, d := range dets {
 		names[d.Name()] = true
 	}
-	for _, want := range []string{"Claude Code", "Codex CLI", "Copilot CLI", "Amazon Q"} {
+	for _, want := range []string{"Claude Code", "Codex CLI", "Copilot CLI", "Copilot Chat", "Amazon Q"} {
 		if !names[want] {
 			t.Errorf("missing detector for %q", want)
 		}

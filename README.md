@@ -1,6 +1,6 @@
 # ⚡ vibe-watch
 
-A graphical terminal UI (TUI) for monitoring and analyzing session data from agentic coding agents and CLIs — Claude Code, Codex CLI, GitHub Copilot CLI, and Amazon Q Developer CLI.
+A graphical terminal UI (TUI) for monitoring and analyzing session data from agentic coding agents and CLIs — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, and Amazon Q Developer CLI.
 
 Run it from your repository in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity, token usage, and cost estimates for the current repo.
 
@@ -12,7 +12,7 @@ Run it from your repository in a **separate terminal** alongside your AI coding 
 - **Dashboard view** — sortable table of current-repository sessions with token counts, cost, duration, and status
 - **Detail view** — full message history with token-level breakdowns per message
 - **Analytics view** — aggregate stats, agent comparisons, bar charts, top projects
-- **Multi-agent support** — Claude Code, Codex CLI, GitHub Copilot CLI, Amazon Q
+- **Multi-agent support** — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, Amazon Q
 - **Filtering** — filter sessions by agent type or project name
 - **No config required** — detects sessions automatically from standard log locations
 
@@ -22,7 +22,8 @@ Run it from your repository in a **separate terminal** alongside your AI coding 
 |---|---|
 | **Claude Code** | `~/.claude/projects/` (JSONL) |
 | **Codex CLI** | `~/.codex/sessions/` (JSON) |
-| **GitHub Copilot CLI** | `~/.config/github-copilot/logs/` |
+| **GitHub Copilot CLI** | `~/.copilot/session-state/` |
+| **GitHub Copilot Chat for VS Code** | `~/Library/Application Support/Code/User/globalStorage/` |
 | **Amazon Q Developer** | `~/.aws/amazonq/` |
 
 ## Installation
@@ -55,6 +56,7 @@ vibe-watch watch
 vibe-watch watch --agent claude
 vibe-watch watch --agent codex
 vibe-watch watch --agent copilot
+vibe-watch watch --agent chat
 vibe-watch watch --agent amazonq
 
 # Set refresh interval (default: 2 seconds)
@@ -98,7 +100,8 @@ vibe-watch/
     │   ├── detector.go            # AgentDetector interface & registry
     │   ├── claude.go              # Claude Code JSONL parser
     │   ├── codex.go               # Codex CLI JSON parser
-    │   ├── copilot.go             # GitHub Copilot CLI log scanner
+    │   ├── copilot.go             # GitHub Copilot CLI session scanner
+    │   ├── copilot_chat.go        # GitHub Copilot Chat for VS Code scanner
     │   └── amazonq.go             # Amazon Q log scanner
     ├── watcher/
     │   └── watcher.go             # Polling-based file watcher

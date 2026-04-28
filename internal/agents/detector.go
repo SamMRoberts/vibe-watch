@@ -19,6 +19,7 @@ func NewRegistry() *Registry {
 		NewClaudeDetector(),
 		NewCodexDetector(),
 		NewCopilotDetector(),
+		NewCopilotChatDetector(),
 		NewAmazonQDetector(),
 	}
 	return r

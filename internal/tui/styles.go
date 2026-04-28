@@ -7,23 +7,24 @@ import (
 )
 
 var (
-	colorBackground = lipgloss.Color("#071311")
-	colorSurface    = lipgloss.Color("#10201d")
-	colorSurfaceAlt = lipgloss.Color("#19332e")
-	colorPrimary    = lipgloss.Color("#2dd4bf")
-	colorSecondary  = lipgloss.Color("#f97316")
-	colorAccent     = lipgloss.Color("#e11d48")
-	colorGlow       = lipgloss.Color("#f4d35e")
-	colorText       = lipgloss.Color("#f7fee7")
-	colorMuted      = lipgloss.Color("#9fb8ad")
-	colorSubtle     = lipgloss.Color("#41645a")
-	colorSuccess    = lipgloss.Color("#84cc16")
-	colorWarning    = lipgloss.Color("#fbbf24")
-	colorError      = lipgloss.Color("#fb7185")
-	colorClaude     = lipgloss.Color("#ff9f6e")
-	colorCodex      = lipgloss.Color("#38bdf8")
-	colorCopilot    = lipgloss.Color("#c084fc")
-	colorAmazonQ    = lipgloss.Color("#facc15")
+	colorBackground  = lipgloss.Color("#071311")
+	colorSurface     = lipgloss.Color("#10201d")
+	colorSurfaceAlt  = lipgloss.Color("#19332e")
+	colorPrimary     = lipgloss.Color("#2dd4bf")
+	colorSecondary   = lipgloss.Color("#f97316")
+	colorAccent      = lipgloss.Color("#e11d48")
+	colorGlow        = lipgloss.Color("#f4d35e")
+	colorText        = lipgloss.Color("#f7fee7")
+	colorMuted       = lipgloss.Color("#9fb8ad")
+	colorSubtle      = lipgloss.Color("#41645a")
+	colorSuccess     = lipgloss.Color("#84cc16")
+	colorWarning     = lipgloss.Color("#fbbf24")
+	colorError       = lipgloss.Color("#fb7185")
+	colorClaude      = lipgloss.Color("#ff9f6e")
+	colorCodex       = lipgloss.Color("#38bdf8")
+	colorCopilot     = lipgloss.Color("#c084fc")
+	colorCopilotChat = lipgloss.Color("#2dd4bf")
+	colorAmazonQ     = lipgloss.Color("#facc15")
 )
 
 var (
@@ -110,10 +111,11 @@ var (
 				Foreground(colorText)
 
 	styleAgentBadge = map[string]lipgloss.Style{
-		"Claude Code": lipgloss.NewStyle().Foreground(colorClaude).Bold(true),
-		"Codex CLI":   lipgloss.NewStyle().Foreground(colorCodex).Bold(true),
-		"Copilot CLI": lipgloss.NewStyle().Foreground(colorCopilot).Bold(true),
-		"Amazon Q":    lipgloss.NewStyle().Foreground(colorAmazonQ).Bold(true),
+		"Claude Code":  lipgloss.NewStyle().Foreground(colorClaude).Bold(true),
+		"Codex CLI":    lipgloss.NewStyle().Foreground(colorCodex).Bold(true),
+		"Copilot CLI":  lipgloss.NewStyle().Foreground(colorCopilot).Bold(true),
+		"Copilot Chat": lipgloss.NewStyle().Foreground(colorCopilotChat).Bold(true),
+		"Amazon Q":     lipgloss.NewStyle().Foreground(colorAmazonQ).Bold(true),
 	}
 )
 
@@ -139,6 +141,8 @@ func agentIcon(agent string) string {
 		return "◆"
 	case "Copilot CLI":
 		return "◈"
+	case "Copilot Chat":
+		return "◇"
 	case "Amazon Q":
 		return "⬢"
 	default:
