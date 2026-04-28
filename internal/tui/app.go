@@ -169,6 +169,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.ToggleSelectedThread()
 			}
 
+		case msg.String() == "c":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.CollapseAllThreads()
+			}
+
 		case msg.String() == "pgup" || msg.String() == "b":
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.PageUp()
@@ -256,8 +261,9 @@ func (a *App) refreshDetailSession() {
 		return
 	}
 	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
+		wasAtBottom := a.detail.AtBottom()
 		a.detail.SetSession(updated)
-		if a.view == viewDetail && updated.IsActive {
+		if a.view == viewDetail && updated.IsActive && wasAtBottom {
 			a.detail.ScrollToBottom()
 		}
 	}
@@ -355,7 +361,7 @@ func (a *App) View() string {
 	// Footer help
 	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  space collapse  │  pgup/pgdn scroll")
+		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  space toggle  │  c collapse all  │  pgup/pgdn scroll")
 	}
 	if a.lastErr != nil {
 		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))

@@ -72,12 +72,46 @@ func TestUpdateViewsScrollsActiveDetailSessionToBottom(t *testing.T) {
 		detail:   NewDetailView(100, 20),
 	}
 	app.detail.SetSession(oldSession)
-	app.detail.viewport.GotoTop()
+	app.detail.viewport.GotoBottom()
 
 	app.updateViews()
 
 	if !app.detail.viewport.AtBottom() {
 		t.Fatalf("expected active detail viewport to auto-scroll to bottom")
+	}
+}
+
+func TestUpdateViewsDoesNotScrollActiveDetailSessionWhenUserScrolledUp(t *testing.T) {
+	oldSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages:  makeDetailMessages(40),
+	}
+	updatedSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages:  makeDetailMessages(60),
+	}
+
+	app := &App{
+		view:     viewDetail,
+		sessions: []*models.Session{updatedSession},
+		detail:   NewDetailView(100, 20),
+	}
+	app.detail.SetSession(oldSession)
+	app.detail.viewport.GotoBottom()
+	app.detail.PageUp()
+	previousOffset := app.detail.viewport.YOffset
+
+	app.updateViews()
+
+	if app.detail.viewport.AtBottom() {
+		t.Fatalf("expected active detail viewport to preserve scrolled-up position")
+	}
+	if app.detail.viewport.YOffset != previousOffset {
+		t.Fatalf("expected scrolled-up offset %d to be preserved, got %d", previousOffset, app.detail.viewport.YOffset)
 	}
 }
 

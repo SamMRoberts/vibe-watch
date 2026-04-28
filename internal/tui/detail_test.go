@@ -55,3 +55,26 @@ func TestDetailSelectNextUserAndCollapse(t *testing.T) {
 		t.Fatalf("expected second thread assistant response to be collapsed, got:\n%s", view)
 	}
 }
+
+func TestDetailCollapseAllThreads(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "first prompt"},
+			{Role: "assistant", Content: "first response"},
+			{Role: "user", Content: "second prompt"},
+			{Role: "assistant", Content: "second response"},
+			{Role: "assistant", Content: "third response"},
+		},
+	})
+
+	detail.CollapseAllThreads()
+	view := detail.View()
+
+	if strings.Contains(view, "first response") || strings.Contains(view, "second response") || strings.Contains(view, "third response") {
+		t.Fatalf("expected all assistant responses to be collapsed, got:\n%s", view)
+	}
+	if strings.Count(view, "assistant messages collapsed") != 2 {
+		t.Fatalf("expected both user threads to show collapsed summaries, got:\n%s", view)
+	}
+}

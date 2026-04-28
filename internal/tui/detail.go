@@ -94,6 +94,22 @@ func (d *DetailView) ToggleSelectedThread() {
 	d.scrollSelectedUserIntoView()
 }
 
+func (d *DetailView) CollapseAllThreads() {
+	if d.session == nil {
+		return
+	}
+	if d.collapsedThreads == nil {
+		d.collapsedThreads = make(map[int]bool)
+	}
+	for i, msg := range d.session.Messages {
+		if msg.Role == "user" && relatedAssistantCount(d.session.Messages, i) > 0 {
+			d.collapsedThreads[i] = true
+		}
+	}
+	d.renderContent()
+	d.scrollSelectedUserIntoView()
+}
+
 func (d *DetailView) renderContent() {
 	if d.session == nil {
 		d.viewport.SetContent(styleMuted.Render("No session selected"))
@@ -273,6 +289,10 @@ func (d *DetailView) PageUp() {
 	d.viewport.HalfViewUp()
 }
 
+func (d *DetailView) AtBottom() bool {
+	return d.viewport.AtBottom()
+}
+
 func (d *DetailView) View() string {
 	if d.session == nil {
 		return styleCard.
@@ -282,7 +302,7 @@ func (d *DetailView) View() string {
 			Render(styleMuted.Render("Select a session from the dashboard to view details.\n\nPress esc to go back."))
 	}
 
-	footer := styleMuted.Render(fmt.Sprintf("  %d%%  ↑/↓ user prompt  space collapse  pgup/pgdown scroll  esc back",
+	footer := styleMuted.Render(fmt.Sprintf("  %d%%  ↑/↓ user prompt  space toggle  c collapse all  pgup/pgdown scroll  esc back",
 		int(d.viewport.ScrollPercent()*100)))
 
 	return d.viewport.View() + "\n" + footer
