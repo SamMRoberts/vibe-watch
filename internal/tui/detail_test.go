@@ -273,11 +273,37 @@ func TestDetailTimelineAddsBreathingRoomBetweenRows(t *testing.T) {
 		},
 	})
 
-	if got := detail.rowLineOffsets[1]; got != 2 {
-		t.Fatalf("expected a blank spacer line before second activity, got row offset %d", got)
+	if got := detail.rowLineOffsets[1]; got != 1 {
+		t.Fatalf("expected second activity to stay inside prompt container, got row offset %d", got)
 	}
-	if got := detail.rowLineOffsets[2]; got != 4 {
-		t.Fatalf("expected consistent spacer line before third activity, got row offset %d", got)
+	if got := detail.rowLineOffsets[2]; got != 2 {
+		t.Fatalf("expected third activity to stay inside assistant container, got row offset %d", got)
+	}
+}
+
+func TestDetailTimelineRendersNestedContainers(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "assistant activity"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{
+		"╭─",
+		"│ ╭─",
+		"│ │",
+		"│ ╰─ assistant",
+		"╰─ prompt complete",
+		"bash · done",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected nested container marker %q, got:\n%s", want, view)
+		}
 	}
 }
 
@@ -297,8 +323,8 @@ func TestDetailGroupedActionStaysVisuallyTight(t *testing.T) {
 	if strings.Contains(rendered, "\n") {
 		t.Fatalf("expected grouped start/completion without extra detail to fit on one line, got:\n%s", rendered)
 	}
-	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 2 {
-		t.Fatalf("expected one lifecycle row plus one spacer before next group, got offset delta %d", got)
+	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 1 {
+		t.Fatalf("expected lifecycle row to stay inside prompt container before next group, got offset delta %d", got)
 	}
 }
 
@@ -320,8 +346,8 @@ func TestDetailLifecycleRowShowsUsefulCompletionDetail(t *testing.T) {
 	if strings.Contains(view, "model: gpt-5.5") || strings.Contains(view, "Tool completed: bash") {
 		t.Fatalf("expected lifecycle row to suppress low-signal duplicate detail, got:\n%s", view)
 	}
-	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 3 {
-		t.Fatalf("expected lifecycle detail line plus spacer before next group, got offset delta %d", got)
+	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 2 {
+		t.Fatalf("expected lifecycle detail line inside prompt container before next group, got offset delta %d", got)
 	}
 }
 

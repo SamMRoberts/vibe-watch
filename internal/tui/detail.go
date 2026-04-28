@@ -346,12 +346,41 @@ func (d *DetailView) renderContent() {
 		write(styleMuted.Render("No activity found in this session.\n"))
 	}
 
+	promptOpen := false
+	assistantOpen := false
 	for i, row := range d.rows {
+		if rowStartsUserContainer(d.session, row) {
+			if assistantOpen {
+				write(renderAssistantContainerClose() + "\n")
+				assistantOpen = false
+			}
+			if promptOpen {
+				write(renderPromptContainerClose(false) + "\n\n")
+			}
+			promptOpen = true
+		} else if rowStartsAssistantContainer(d.session, row) {
+			if assistantOpen {
+				write(renderAssistantContainerClose() + "\n")
+			}
+			assistantOpen = true
+		}
+
 		d.rowLineOffsets[i] = line
 		write(d.renderTimelineRow(i, row) + "\n")
-		if i < len(d.rows)-1 {
+		if row.kind == activityRowCollapsed && promptOpen {
+			write(renderPromptContainerClose(false) + "\n")
+			promptOpen = false
+			assistantOpen = false
+		}
+		if i < len(d.rows)-1 && !rowContinuesContainer(d.session, row, d.rows[i+1]) {
 			write("\n")
 		}
+	}
+	if assistantOpen {
+		write(renderAssistantContainerClose() + "\n")
+	}
+	if promptOpen {
+		write(renderPromptContainerClose(d.session.IsActive) + "\n")
 	}
 
 	d.setContent(header, content.String())
@@ -498,7 +527,7 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	state := groupedActionState(start, end, hasEnd)
 	icon := actionStateIcon(state)
 	role := timelineRoleLabel(start.Role)
-	prefix := threadPrefix(row, start.Role)
+	prefix := actionThreadPrefix(row)
 	duration := actionLifecycleDuration(start, end, hasEnd, time.Now())
 
 	summaryWidth := d.width - 35 - lipgloss.Width(duration)
@@ -574,9 +603,31 @@ func threadPrefix(row activityRow, role string) string {
 		return styleUserMsg.Render("╭─")
 	}
 	if row.threadStart >= 0 {
+		if role == "assistant" {
+			return styleMuted.Render("│ ") + styleAssistantMsg.Render("╭─")
+		}
 		return styleMuted.Render("├─")
 	}
 	return styleMuted.Render("  ")
+}
+
+func actionThreadPrefix(row activityRow) string {
+	if row.threadStart >= 0 {
+		return styleMuted.Render("│ │")
+	}
+	return styleMuted.Render("├─")
+}
+
+func renderAssistantContainerClose() string {
+	return styleMuted.Render("│ ╰─ assistant")
+}
+
+func renderPromptContainerClose(active bool) string {
+	label := "╰─ prompt complete"
+	if active {
+		label = "╰─ prompt active"
+	}
+	return styleUserMsg.Render(label)
 }
 
 func detailCacheTokens(tokens models.TokenUsage) string {
@@ -1175,6 +1226,33 @@ func buildActivityRows(messages []models.Message, collapsed map[int]bool) []acti
 		}
 	}
 	return rows
+}
+
+func rowStartsUserContainer(session *models.Session, row activityRow) bool {
+	if session == nil || row.kind != activityRowMessage || !isMessageIndex(session, row.messageIndex) {
+		return false
+	}
+	return session.Messages[row.messageIndex].Role == "user"
+}
+
+func rowStartsAssistantContainer(session *models.Session, row activityRow) bool {
+	if session == nil || row.kind != activityRowMessage || !isMessageIndex(session, row.messageIndex) {
+		return false
+	}
+	return row.threadStart >= 0 && session.Messages[row.messageIndex].Role == "assistant"
+}
+
+func rowContinuesContainer(session *models.Session, current, next activityRow) bool {
+	if session == nil {
+		return false
+	}
+	if rowStartsUserContainer(session, next) {
+		return false
+	}
+	if current.threadStart >= 0 && next.threadStart == current.threadStart {
+		return true
+	}
+	return rowStartsAssistantContainer(session, next)
 }
 
 type actionGroupIndex struct {
