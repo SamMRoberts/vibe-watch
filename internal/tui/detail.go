@@ -476,55 +476,29 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
 	state := groupedActionState(start, end, hasEnd)
 	icon := actionStateIcon(state)
-
-	ts := "--:--:--"
-	if !start.Timestamp.IsZero() {
-		ts = start.Timestamp.Format("15:04:05")
-	}
 	role := timelineRoleLabel(start.Role)
-	summaryWidth := d.width - 48
+
+	summaryWidth := d.width - 58
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
-	summary := summarizeActivityContent(start.Content, summaryWidth)
-	if summary == "" {
-		summary = "(empty)"
-	}
+	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %s %s %-14s %s %s",
+		"%s %s %-17s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
-		styleMuted.Render(ts),
+		styleMuted.Render(actionLifecycleTimeRange(start, end, hasEnd)),
 		role,
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
 	)
 
-	child := fmt.Sprintf(
-		"%s %s",
-		styleMuted.Render("    ╰─"),
-		styleMuted.Render(pendingActionText(start)),
-	)
-	if hasEnd {
-		endTime := "--:--:--"
-		if !end.Timestamp.IsZero() {
-			endTime = end.Timestamp.Format("15:04:05")
-		}
-		endSummary := summarizeActivityContent(end.Content, summaryWidth)
-		if endSummary == "" {
-			endSummary = "(empty)"
-		}
-		child = fmt.Sprintf(
-			"%s %s %s %s",
-			styleMuted.Render("    ╰─"),
-			actionStateStyle(state).Render(actionStateIcon(state)+" "+endTime),
-			styleMuted.Render("│"),
-			styleMessageContent.Render(endSummary),
-		)
+	detail := actionLifecycleDetail(start, end, hasEnd)
+	if detail == "" {
+		return firstLine
 	}
-
-	return firstLine + "\n" + child
+	return firstLine + "\n" + styleMuted.Render("    ╰─ "+summarizeActivityContent(detail, summaryWidth+12))
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
@@ -783,15 +757,106 @@ func actionStateStyle(state string) lipgloss.Style {
 	}
 }
 
-func pendingActionText(start models.Message) string {
-	label := start.Meta.Label
-	if label == "" {
-		label = summarizeActivityContent(start.Content, 40)
+func actionLifecycleSummary(start, end models.Message, hasEnd bool) string {
+	label := actionLifecycleLabel(start)
+	state := groupedActionState(start, end, hasEnd)
+	stateText := "running"
+	if state == models.ActivityLifecycleRequested {
+		stateText = "requested"
+	} else if state == models.ActivityLifecycleCompleted || state == models.ActivityLifecycleFailed {
+		stateText = state
 	}
-	if start.Meta.Lifecycle == models.ActivityLifecycleRequested {
-		return fmt.Sprintf("requested · waiting for %s", label)
+
+	parts := []string{label, stateText}
+	if duration := actionLifecycleDuration(start, end, hasEnd); duration != "" {
+		parts = append(parts, duration)
 	}
-	return fmt.Sprintf("in progress · waiting for %s", label)
+	return strings.Join(parts, " · ")
+}
+
+func actionLifecycleLabel(start models.Message) string {
+	if start.Meta.Label != "" {
+		return start.Meta.Label
+	}
+	content := summarizeActivityContent(start.Content, 48)
+	if content == "" {
+		return "action"
+	}
+	for _, prefix := range []string{"Started tool: ", "User requested tool: ", "Started subagent: "} {
+		if strings.HasPrefix(content, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(content, prefix))
+		}
+	}
+	return content
+}
+
+func actionLifecycleTimeRange(start, end models.Message, hasEnd bool) string {
+	startTime := "--:--:--"
+	if !start.Timestamp.IsZero() {
+		startTime = start.Timestamp.Format("15:04:05")
+	}
+	if !hasEnd {
+		return startTime + "→…"
+	}
+	if end.Timestamp.IsZero() {
+		return startTime + "→--:--:--"
+	}
+	return startTime + "→" + end.Timestamp.Format("15:04:05")
+}
+
+func actionLifecycleDuration(start, end models.Message, hasEnd bool) string {
+	if !hasEnd || start.Timestamp.IsZero() || end.Timestamp.IsZero() || end.Timestamp.Before(start.Timestamp) {
+		return ""
+	}
+	return models.FormatDuration(end.Timestamp.Sub(start.Timestamp))
+}
+
+func actionLifecycleDetail(start, end models.Message, hasEnd bool) string {
+	if hasEnd {
+		if detail := usefulLifecycleDetail(end.Content); detail != "" {
+			return detail
+		}
+	}
+	return usefulLifecycleDetail(start.Content)
+}
+
+func usefulLifecycleDetail(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isLifecycleSummaryLine(line) {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "error:") {
+			return strings.TrimSpace(line[len("error:"):])
+		}
+		if strings.HasPrefix(lower, "telemetry:") || strings.HasPrefix(lower, "parent:") {
+			return line
+		}
+	}
+	return ""
+}
+
+func isLifecycleSummaryLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, prefix := range []string{
+		"started tool:",
+		"user requested tool:",
+		"tool completed:",
+		"tool failed:",
+		"started subagent:",
+		"completed subagent:",
+		"failed subagent:",
+		"model:",
+		"duration:",
+		"tokens:",
+		"tool calls:",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func timelineTokenBadge(tokens models.TokenUsage) string {

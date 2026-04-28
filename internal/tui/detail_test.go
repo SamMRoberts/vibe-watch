@@ -172,14 +172,16 @@ func TestDetailGroupsToolStartAndCompletion(t *testing.T) {
 	}
 
 	view := detail.View()
-	startPos := strings.Index(view, "Started tool: bash")
-	completePos := strings.Index(view, "Tool completed: bash")
+	groupPos := strings.Index(view, "bash · completed")
 	betweenPos := strings.Index(view, "assistant between action events")
-	if startPos < 0 || completePos < 0 || betweenPos < 0 {
+	if groupPos < 0 || betweenPos < 0 {
 		t.Fatalf("expected grouped and surrounding activity, got:\n%s", view)
 	}
-	if !(startPos < completePos && completePos < betweenPos) {
-		t.Fatalf("expected completion directly after start before intervening activity, got:\n%s", view)
+	if strings.Contains(view, "Started tool: bash") || strings.Contains(view, "Tool completed: bash") {
+		t.Fatalf("expected lifecycle row to avoid duplicate raw start/complete wording, got:\n%s", view)
+	}
+	if !(groupPos < betweenPos) {
+		t.Fatalf("expected lifecycle summary before intervening activity, got:\n%s", view)
 	}
 }
 
@@ -214,15 +216,38 @@ func TestDetailGroupedActionStaysVisuallyTight(t *testing.T) {
 
 	group := detail.rows[1]
 	rendered := detail.renderActionGroupRow(group)
-	if strings.Count(rendered, "\n") != 1 {
-		t.Fatalf("expected grouped start/completion to stay adjacent, got:\n%s", rendered)
+	if strings.Contains(rendered, "\n") {
+		t.Fatalf("expected grouped start/completion without extra detail to fit on one line, got:\n%s", rendered)
 	}
-	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 3 {
-		t.Fatalf("expected one close child line plus one spacer before next group, got offset delta %d", got)
+	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 2 {
+		t.Fatalf("expected one lifecycle row plus one spacer before next group, got offset delta %d", got)
 	}
 }
 
-func TestDetailShowsPendingToolAction(t *testing.T) {
+func TestDetailLifecycleRowShowsUsefulCompletionDetail(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash\nmodel: gpt-5.5\ntelemetry: resultLength:12", models.ActivityLifecycleCompleted, "tool-1"),
+			{Role: "assistant", Content: "done"},
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "bash · completed") || !strings.Contains(view, "telemetry: resultLength:12") {
+		t.Fatalf("expected compact lifecycle summary with useful telemetry detail, got:\n%s", view)
+	}
+	if strings.Contains(view, "model: gpt-5.5") || strings.Contains(view, "Tool completed: bash") {
+		t.Fatalf("expected lifecycle row to suppress low-signal duplicate detail, got:\n%s", view)
+	}
+	if got := detail.rowLineOffsets[2] - detail.rowLineOffsets[1]; got != 3 {
+		t.Fatalf("expected lifecycle detail line plus spacer before next group, got offset delta %d", got)
+	}
+}
+
+func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
 		Messages: []models.Message{
@@ -232,8 +257,30 @@ func TestDetailShowsPendingToolAction(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "in progress") || !strings.Contains(view, "waiting for bash") {
-		t.Fatalf("expected pending action indicator, got:\n%s", view)
+	if !strings.Contains(view, "bash · running") || !strings.Contains(view, "→…") {
+		t.Fatalf("expected running lifecycle row, got:\n%s", view)
+	}
+	if strings.Contains(view, "Started tool: bash") {
+		t.Fatalf("expected running lifecycle row to avoid raw start wording, got:\n%s", view)
+	}
+}
+
+func TestDetailShowsFailedToolLifecycleDetail(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool failed: bash\nerror: permission denied", models.ActivityLifecycleFailed, "tool-1"),
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "bash · failed") || !strings.Contains(view, "permission denied") {
+		t.Fatalf("expected failed lifecycle row with error detail, got:\n%s", view)
+	}
+	if strings.Contains(view, "Tool failed: bash") || strings.Contains(view, "error: permission denied") {
+		t.Fatalf("expected failed lifecycle row to suppress duplicate failure prefix, got:\n%s", view)
 	}
 }
 
