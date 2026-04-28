@@ -93,6 +93,26 @@ func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 	}
 }
 
+func TestDetailHeaderStaysVisibleAfterScrolling(t *testing.T) {
+	detail := NewDetailView(120, 22)
+	detail.SetSession(&models.Session{
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/project",
+		IsActive:    true,
+		TotalTokens: models.TokenUsage{InputTokens: 123, OutputTokens: 456, CacheReads: 7},
+		Messages:    makeTestMessages(30),
+	})
+
+	detail.PageDown()
+	view := detail.View()
+
+	for _, want := range []string{"Copilot CLI", "/repo/project", "Input Tokens", "Output Tokens", "Cache Reads", "ACTIVE"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected fixed header to remain visible with %q, got:\n%s", want, view)
+		}
+	}
+}
+
 func TestDetailOpenSelectedThreadShowsRelatedActivityOnly(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
@@ -127,4 +147,19 @@ func TestDetailPromptDetailIsVerbose(t *testing.T) {
 	if strings.Count(rendered, "x") != len(longContent) {
 		t.Fatalf("expected prompt detail to render full assistant content")
 	}
+}
+
+func makeTestMessages(count int) []models.Message {
+	messages := make([]models.Message, 0, count)
+	for i := 0; i < count; i++ {
+		role := "assistant"
+		if i%3 == 0 {
+			role = "user"
+		}
+		messages = append(messages, models.Message{
+			Role:    role,
+			Content: "activity",
+		})
+	}
+	return messages
 }

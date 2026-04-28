@@ -13,6 +13,7 @@ import (
 type DetailView struct {
 	viewport         viewport.Model
 	session          *models.Session
+	header           string
 	collapsedThreads map[int]bool
 	selectedUser     int
 	userLineOffsets  map[int]int
@@ -134,48 +135,20 @@ func (d *DetailView) ShowSessionDetail() {
 
 func (d *DetailView) renderContent() {
 	if d.session == nil {
+		d.header = ""
 		d.viewport.SetContent(styleMuted.Render("No session selected"))
 		return
 	}
 
 	s := d.session
-	var sb strings.Builder
+	header := d.sessionHeader(s)
+	var content strings.Builder
 	line := 0
 	d.userLineOffsets = make(map[int]int)
 	write := func(text string) {
-		sb.WriteString(text)
+		content.WriteString(text)
 		line += strings.Count(text, "\n")
 	}
-
-	// Header
-	header := lipgloss.JoinHorizontal(lipgloss.Top,
-		agentBadge(string(s.AgentType)),
-		styleMuted.Render("  ·  "),
-		styleText(s.ProjectPath),
-	)
-	write(header + "\n")
-
-	startStr := "unknown"
-	if !s.StartTime.IsZero() {
-		startStr = s.StartTime.Format("2006-01-02 15:04:05")
-	}
-	write(styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n")
-
-	write(statusPill(s.IsActive) + "\n\n")
-
-	// Token usage panel
-	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Input Tokens", detailInputTokens(s), "↘", styleAccent),
-		"  ",
-		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
-		"  ",
-		metricCard("Cache Reads", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
-	)
-	write(tokenPanel + "\n\n")
-	write(divider(d.width-6) + "\n\n")
-
-	// Messages
-	write(styleAccent.Render(fmt.Sprintf("╭─ Messages (%d)", len(s.Messages))) + "\n\n")
 
 	if len(s.Messages) == 0 {
 		write(styleMuted.Render("No messages found in this session.\n"))
@@ -232,13 +205,13 @@ func (d *DetailView) renderContent() {
 		}
 		write("\n")
 	}
-	write(styleAccent.Render(fmt.Sprintf("╰─ Messages (%d)", len(s.Messages))) + "\n")
 
-	d.viewport.SetContent(sb.String())
+	d.setContent(header, content.String())
 }
 
 func (d *DetailView) renderThreadContent() {
 	if d.session == nil {
+		d.header = ""
 		d.viewport.SetContent(styleMuted.Render("No session selected"))
 		return
 	}
@@ -258,35 +231,84 @@ func (d *DetailView) renderThreadContent() {
 		threadTokens.CacheWrites += msg.Tokens.CacheWrites
 	}
 
-	var sb strings.Builder
+	header := d.threadHeader(start, len(threadMessages), threadTokens)
+	var content strings.Builder
+
+	for i, msg := range threadMessages {
+		absoluteIndex := start + i
+		content.WriteString(renderVerboseMessage(absoluteIndex, msg, d.width-10))
+	}
+	if len(threadMessages) == 1 {
+		content.WriteString(styleMuted.Render("No assistant activity has been recorded for this prompt yet.\n"))
+	}
+
+	d.setContent(header, content.String())
+}
+
+func (d *DetailView) sessionHeader(s *models.Session) string {
+	header := lipgloss.JoinHorizontal(lipgloss.Top,
+		agentBadge(string(s.AgentType)),
+		styleMuted.Render("  ·  "),
+		styleText(s.ProjectPath),
+	)
+
+	startStr := "unknown"
+	if !s.StartTime.IsZero() {
+		startStr = s.StartTime.Format("2006-01-02 15:04:05")
+	}
+
+	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCard("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
+		"  ",
+		metricCard("Input Tokens", detailInputTokens(s), "↘", styleAccent),
+		"  ",
+		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
+		"  ",
+		metricCard("Cache Reads", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
+	)
+
+	return header + "\n" +
+		styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n" +
+		statusPill(s.IsActive) + "\n\n" +
+		tokenPanel + "\n\n" +
+		divider(d.width-6)
+}
+
+func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.TokenUsage) string {
 	header := lipgloss.JoinHorizontal(lipgloss.Top,
 		agentBadge(string(d.session.AgentType)),
 		styleMuted.Render("  ·  "),
 		styleAccent.Render(fmt.Sprintf("Prompt detail %d", start+1)),
 	)
-	sb.WriteString(header + "\n")
-	sb.WriteString(styleMuted.Render(d.session.ProjectPath) + "\n\n")
 
-	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Messages", fmt.Sprintf("%d", len(threadMessages)), "☷", styleAccent),
+	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCard("Messages", fmt.Sprintf("%d", messageCount), "☷", styleAccent),
 		"  ",
 		metricCard("Input Tokens", fmt.Sprintf("%d", threadTokens.InputTokens), "↘", styleAccent),
 		"  ",
 		metricCard("Output Tokens", fmt.Sprintf("%d", threadTokens.OutputTokens), "↗", styleAccent),
 		"  ",
 		metricCard("Cache Reads", fmt.Sprintf("%d", threadTokens.CacheReads), "◌", styleAccent),
-	) + "\n\n")
-	sb.WriteString(divider(d.width-6) + "\n\n")
+	)
 
-	for i, msg := range threadMessages {
-		absoluteIndex := start + i
-		sb.WriteString(renderVerboseMessage(absoluteIndex, msg, d.width-10))
-	}
-	if len(threadMessages) == 1 {
-		sb.WriteString(styleMuted.Render("No assistant activity has been recorded for this prompt yet.\n"))
-	}
+	return header + "\n" +
+		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
+		tokenPanel + "\n\n" +
+		divider(d.width-6)
+}
 
-	d.viewport.SetContent(sb.String())
+func (d *DetailView) setContent(header, content string) {
+	d.header = header
+	d.viewport.Height = d.viewportHeight()
+	d.viewport.SetContent(content)
+}
+
+func (d *DetailView) viewportHeight() int {
+	height := d.height - 10 - lipgloss.Height(d.header)
+	if height < 3 {
+		return 3
+	}
+	return height
 }
 
 func renderVerboseMessage(index int, msg models.Message, contentWidth int) string {
@@ -445,7 +467,7 @@ func (d *DetailView) View() string {
 	footer := styleMuted.Render(fmt.Sprintf("  %d%%  ↑/↓ user prompt  space toggle  c collapse all  pgup/pgdown scroll  esc back",
 		int(d.viewport.ScrollPercent()*100)))
 
-	return d.viewport.View() + "\n" + footer
+	return d.header + "\n" + d.viewport.View() + "\n" + footer
 }
 
 func (d *DetailView) ThreadView() string {
@@ -456,7 +478,7 @@ func (d *DetailView) ThreadView() string {
 	footer := styleMuted.Render(fmt.Sprintf("  %d%%  verbose prompt detail  ↑↓/pgup/pgdown scroll  esc back",
 		int(d.viewport.ScrollPercent()*100)))
 
-	return d.viewport.View() + "\n" + footer
+	return d.header + "\n" + d.viewport.View() + "\n" + footer
 }
 
 func firstUserIndex(session *models.Session) int {
