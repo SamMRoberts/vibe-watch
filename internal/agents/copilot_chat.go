@@ -410,6 +410,12 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 	var lastUpdated time.Time
 	toolNames := make(map[string]string)
 	hiddenEventParents := make(map[string]string)
+	toolRequestParents := make(map[string]string)
+	endedTurns := make(map[string]bool)
+	turnEndEvents := make(map[string]string)
+	currentUserEventID := ""
+	activeTurnID := ""
+	activeTurnParentID := ""
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -444,15 +450,36 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 				hiddenEventParents[event.ID] = event.ParentID
 			}
 		case "user.message":
+			currentUserEventID = event.ID
+			activeTurnID = ""
+			activeTurnParentID = ""
 			messages = append(messages, models.Message{
 				Role:      "user",
 				Content:   data.Content,
 				Timestamp: timestamp,
-				Meta:      transcriptEventMeta(event, hiddenEventParents),
+				Meta:      transcriptEventMeta(event, resolveHiddenEventParent(event.ParentID, hiddenEventParents)),
 			})
-		case "assistant.turn_start", "assistant.turn_end":
+		case "assistant.turn_start":
 			if event.ID != "" {
-				hiddenEventParents[event.ID] = event.ParentID
+				parentID := resolveHiddenEventParent(event.ParentID, hiddenEventParents)
+				if parentTurnID := turnEndEvents[event.ParentID]; parentTurnID != "" && endedTurns[parentTurnID] {
+					parentID = currentUserEventID
+				}
+				hiddenEventParents[event.ID] = parentID
+				activeTurnID = data.TurnID
+				activeTurnParentID = parentID
+			}
+		case "assistant.turn_end":
+			if event.ID != "" {
+				hiddenEventParents[event.ID] = resolveHiddenEventParent(event.ParentID, hiddenEventParents)
+				turnEndEvents[event.ID] = data.TurnID
+			}
+			if data.TurnID != "" {
+				endedTurns[data.TurnID] = true
+			}
+			if activeTurnID == data.TurnID {
+				activeTurnID = ""
+				activeTurnParentID = ""
 			}
 		case "assistant.message":
 			content := data.Content
@@ -465,12 +492,23 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 				}
 				content += "reasoning: " + data.ReasoningText
 			}
+			parentID := resolveHiddenEventParent(event.ParentID, hiddenEventParents)
+			if activeTurnID != "" {
+				parentID = activeTurnParentID
+			}
 			messages = append(messages, models.Message{
 				Role:      "assistant",
 				Content:   content,
 				Timestamp: timestamp,
-				Meta:      transcriptEventMeta(event, hiddenEventParents),
+				Meta:      transcriptEventMeta(event, parentID),
 			})
+			if event.ID != "" {
+				for _, request := range data.ToolRequests {
+					if request.ToolCallID != "" {
+						toolRequestParents[request.ToolCallID] = event.ID
+					}
+				}
+			}
 		case "tool.execution_start", "tool.execution_complete":
 			activityData := copilotMessageData{
 				ToolCallID: data.ToolCallID,
@@ -483,6 +521,9 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 				activity.Timestamp = timestamp
 				activity.Meta.EventID = event.ID
 				activity.Meta.EventParentID = resolveHiddenEventParent(event.ParentID, hiddenEventParents)
+				if event.Type == "tool.execution_start" && toolRequestParents[data.ToolCallID] != "" {
+					activity.Meta.EventParentID = toolRequestParents[data.ToolCallID]
+				}
 				activity.Meta.RawParentID = event.ParentID
 				messages = append(messages, activity)
 			}
@@ -495,10 +536,10 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 	return messages, startTime, lastUpdated
 }
 
-func transcriptEventMeta(event copilotChatTranscriptEvent, hiddenParents map[string]string) models.ActivityMeta {
+func transcriptEventMeta(event copilotChatTranscriptEvent, parentID string) models.ActivityMeta {
 	return models.ActivityMeta{
 		EventID:       event.ID,
-		EventParentID: resolveHiddenEventParent(event.ParentID, hiddenParents),
+		EventParentID: parentID,
 		RawParentID:   event.ParentID,
 	}
 }

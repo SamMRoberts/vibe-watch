@@ -98,6 +98,7 @@ type copilotMessageData struct {
 }
 
 type copilotToolRequest struct {
+	ToolCallID       string `json:"toolCallId"`
 	Name             string `json:"name"`
 	IntentionSummary string `json:"intentionSummary"`
 }

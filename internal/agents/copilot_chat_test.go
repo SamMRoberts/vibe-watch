@@ -198,6 +198,42 @@ func TestParseCopilotChatWorkspaceMergesTranscriptAndChatSessionMetadata(t *test
 	}
 }
 
+func TestParseCopilotChatTranscriptBreaksCompletedTurnParentChains(t *testing.T) {
+	root := t.TempDir()
+	transcriptPath := filepath.Join(root, "session.jsonl")
+	transcript := strings.Join([]string{
+		`{"type":"session.start","id":"s","timestamp":"2026-04-28T20:00:00.000Z","data":{"sessionId":"session-a","startTime":"2026-04-28T20:00:00.000Z"}}`,
+		`{"type":"user.message","id":"u","parentId":"s","timestamp":"2026-04-28T20:00:01.000Z","data":{"content":"run checks"}}`,
+		`{"type":"assistant.turn_start","id":"turn-1-start","parentId":"u","timestamp":"2026-04-28T20:00:02.000Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.message","id":"a1","parentId":"turn-1-start","timestamp":"2026-04-28T20:00:03.000Z","data":{"messageId":"m1","content":"I will run focused tests","toolRequests":[{"toolCallId":"tool-1","name":"run_in_terminal","type":"function"}]}}`,
+		`{"type":"assistant.turn_end","id":"turn-1-end","parentId":"a1","timestamp":"2026-04-28T20:00:04.000Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.turn_start","id":"turn-2-start","parentId":"turn-1-end","timestamp":"2026-04-28T20:00:05.000Z","data":{"turnId":"2"}}`,
+		`{"type":"tool.execution_start","id":"tool-1-start","parentId":"turn-2-start","timestamp":"2026-04-28T20:00:06.000Z","data":{"toolCallId":"tool-1","toolName":"run_in_terminal"}}`,
+		`{"type":"tool.execution_complete","id":"tool-1-end","parentId":"tool-1-start","timestamp":"2026-04-28T20:00:07.000Z","data":{"toolCallId":"tool-1","success":true}}`,
+		`{"type":"assistant.message","id":"a2","parentId":"tool-1-end","timestamp":"2026-04-28T20:00:08.000Z","data":{"messageId":"m2","content":"Focused tests pass; now run the full suite","toolRequests":[{"toolCallId":"tool-2","name":"run_in_terminal","type":"function"}]}}`,
+		`{"type":"assistant.turn_end","id":"turn-2-end","parentId":"a2","timestamp":"2026-04-28T20:00:09.000Z","data":{"turnId":"2"}}`,
+		`{"type":"assistant.turn_start","id":"turn-3-start","parentId":"turn-2-end","timestamp":"2026-04-28T20:00:10.000Z","data":{"turnId":"3"}}`,
+		`{"type":"tool.execution_start","id":"tool-2-start","parentId":"turn-3-start","timestamp":"2026-04-28T20:00:11.000Z","data":{"toolCallId":"tool-2","toolName":"run_in_terminal"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(transcriptPath, []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, _, _ := parseCopilotChatTranscript(transcriptPath)
+	if len(messages) != 6 {
+		t.Fatalf("expected visible user, assistant, and tool messages, got %d: %#v", len(messages), messages)
+	}
+	if messages[2].Meta.EventID != "tool-1-start" || messages[2].Meta.EventParentID != "a1" || messages[2].Meta.RawParentID != "turn-2-start" {
+		t.Fatalf("expected first tool to link to requesting assistant across turn boundary, got %#v", messages[2].Meta)
+	}
+	if messages[4].Meta.EventID != "a2" || messages[4].Meta.EventParentID != "u" || messages[4].Meta.RawParentID != "tool-1-end" {
+		t.Fatalf("expected assistant message after completed tool turn to start a new assistant turn under the user, got %#v", messages[4].Meta)
+	}
+	if messages[5].Meta.EventID != "tool-2-start" || messages[5].Meta.EventParentID != "a2" || messages[5].Meta.RawParentID != "turn-3-start" {
+		t.Fatalf("expected next tool to link to the new requesting assistant, got %#v", messages[5].Meta)
+	}
+}
+
 func TestParseCopilotChatTranscriptMapsSemanticFields(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "GitHub.copilot-chat", "transcripts"), 0o755); err != nil {
