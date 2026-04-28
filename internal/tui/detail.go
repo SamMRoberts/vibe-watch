@@ -551,7 +551,7 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 	case activityRowActionGroup:
 		rendered = d.renderActionGroupRow(row)
 	default:
-		rendered = d.renderMessageRow(row)
+		rendered = d.renderMessageRow(rowIndex, row)
 	}
 	if selected {
 		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
@@ -612,7 +612,7 @@ func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) stri
 	case activityRowActionGroup:
 		rendered = d.renderActionGroupTreeLabel(row)
 	default:
-		rendered = d.renderMessageTreeLabel(row)
+		rendered = d.renderMessageTreeLabel(rowIndex, row)
 	}
 	if selected {
 		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
@@ -803,9 +803,9 @@ func timelineLipglossTree(node *timelineTreeNode) *tree.Tree {
 	return t
 }
 
-func (d *DetailView) renderMessageRow(row activityRow) string {
+func (d *DetailView) renderMessageRow(rowIndex int, row activityRow) string {
 	msg := d.session.Messages[row.messageIndex]
-	line := d.renderMessageTreeLabel(row)
+	line := d.renderMessageTreeLabel(rowIndex, row)
 	prefix := threadPrefix(row, msg.Role)
 	if msg.Role == "user" {
 		return styleUserMsg.Render(prefix + " " + line)
@@ -813,9 +813,9 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 	return prefix + " " + line
 }
 
-func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
+func (d *DetailView) renderMessageTreeLabel(rowIndex int, row activityRow) string {
 	msg := d.session.Messages[row.messageIndex]
-	role := d.timelineRoleLabel(msg.Role)
+	role := d.timelineMessageRoleLabel(rowIndex, row)
 	if msg.Role == "user" && relatedAssistantCount(d.session.Messages, row.messageIndex) > 0 {
 		if d.collapsedThreads[row.messageIndex] {
 			role = styleUserMsg.Render("[+] PROMPT")
@@ -828,10 +828,8 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	if summary == "" {
 		summary = "(empty)"
 	}
-	leftTokenBadge := ""
 	tokenBadge := timelineTokenBadge(msg.Tokens)
 	if msg.Role == "user" {
-		leftTokenBadge = d.threadTokenBadge(row.messageIndex)
 		tokenBadge = ""
 	} else if tokenBadge != "" && d.detailLevel != timelineDetailCompact {
 		tokenBadge = "  " + tokenBadge
@@ -840,8 +838,10 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	if d.showTimestamps {
 		fields = append(fields, styleMuted.Render(d.messageTimestamp(msg)))
 	}
+	if msg.Role == "user" {
+		fields = append(fields, fmt.Sprintf("%-10s", d.threadTokenBadge(row.messageIndex)))
+	}
 	fields = append(fields,
-		fmt.Sprintf("%-10s", leftTokenBadge),
 		fmt.Sprintf("%-14s", role),
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary)+tokenBadge,
@@ -1374,6 +1374,74 @@ func (d *DetailView) actionStateIcon(state string) string {
 	default:
 		return indicatorSpec(lifecycleIndicatorState(state)).Icon
 	}
+}
+
+func (d *DetailView) timelineMessageRoleLabel(rowIndex int, row activityRow) string {
+	msg := d.session.Messages[row.messageIndex]
+	if msg.Role == "assistant" {
+		return styleAssistantMsg.Render(d.assistantStateIcon(rowIndex) + " ASSIST")
+	}
+	return d.timelineRoleLabel(msg.Role)
+}
+
+func (d *DetailView) assistantStateIcon(rowIndex int) string {
+	switch d.assistantRowState(rowIndex) {
+	case statusRequested:
+		return "◇"
+	case statusRunning:
+		return d.spinnerFrame()
+	case statusFailed:
+		return "✖"
+	default:
+		return "✔"
+	}
+}
+
+func (d *DetailView) assistantRowState(rowIndex int) string {
+	if d.session == nil || rowIndex < 0 || rowIndex >= len(d.rows) {
+		return statusDone
+	}
+	row := d.rows[rowIndex]
+	msg, ok := messageAt(d.session.Messages, row.messageIndex)
+	if !ok {
+		return statusDone
+	}
+	if msg.Meta.Lifecycle != "" {
+		return lifecycleIndicatorState(msg.Meta.Lifecycle)
+	}
+
+	seenRequested := false
+	for i := rowIndex + 1; i < len(d.rows); i++ {
+		child := d.rows[i]
+		if rowStartsUserContainer(d.session, child) || d.rowIsAssistantMessage(child) {
+			break
+		}
+		if child.kind != activityRowActionGroup {
+			continue
+		}
+		state := d.actionGroupIndicatorState(child)
+		switch state {
+		case statusFailed:
+			return statusFailed
+		case statusRunning:
+			return statusRunning
+		case statusRequested:
+			seenRequested = true
+		}
+	}
+	if seenRequested {
+		return statusRequested
+	}
+	if strings.TrimSpace(msg.Content) == "" && d.session.IsActive && rowIndex == len(d.rows)-1 {
+		return statusRunning
+	}
+	return statusDone
+}
+
+func (d *DetailView) actionGroupIndicatorState(row activityRow) string {
+	start := d.session.Messages[row.messageIndex]
+	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+	return lifecycleIndicatorState(groupedActionState(start, end, hasEnd))
 }
 
 func actionStateStyle(state string) lipgloss.Style {

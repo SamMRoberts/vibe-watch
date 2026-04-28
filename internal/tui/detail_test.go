@@ -415,7 +415,7 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 
 	view := detail.View()
 	for _, want := range []string{
-		"⠋ ASSIST",
+		"✔ ASSIST",
 		"⚙ TOOL",
 		"╰─",
 		"bash · done",
@@ -427,6 +427,49 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 	}
 	if strings.Contains(view, "--:--:--") {
 		t.Fatalf("expected timestamps hidden by default in nested timeline, got:\n%s", view)
+	}
+}
+
+func TestDetailAssistantTimelineStateReflectsChildActions(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "completed assistant action"},
+			toolLifecycleMessage("Started tool: done", models.ActivityLifecycleStarted, "done-tool"),
+			toolLifecycleMessage("Tool completed: done", models.ActivityLifecycleCompleted, "done-tool"),
+			{Role: "assistant", Content: "running assistant action"},
+			toolLifecycleMessage("Started tool: running", models.ActivityLifecycleStarted, "running-tool"),
+			{Role: "assistant", Content: "failed assistant action"},
+			toolLifecycleMessage("Started tool: failed", models.ActivityLifecycleStarted, "failed-tool"),
+			toolLifecycleMessage("Tool failed: failed", models.ActivityLifecycleFailed, "failed-tool"),
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{"✔ ASSIST", "⠋ ASSIST", "✖ ASSIST"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected assistant status marker %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestDetailAssistantTimelineDoesNotReservePromptTokenColumn(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt", Tokens: models.TokenUsage{InputTokens: 1200}},
+			{Role: "assistant", Content: "assistant activity"},
+		},
+	})
+
+	treeView := renderTimelineTree(detail.timelineTree(0, len(detail.rows)))
+	assistantLine := lineContaining(treeView, "ASSIST")
+	if assistantLine == "" {
+		t.Fatalf("expected assistant timeline row, got:\n%s", treeView)
+	}
+	if !strings.Contains(assistantLine, "╰─ ✔ ASSIST") && !strings.Contains(assistantLine, "├─ ✔ ASSIST") {
+		t.Fatalf("expected assistant line to sit close to its branch, got %q in:\n%s", assistantLine, treeView)
 	}
 }
 
