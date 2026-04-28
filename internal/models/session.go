@@ -40,6 +40,9 @@ type ActivityMeta struct {
 	ParentID      string
 	InteractionID string
 	Label         string
+	EventID       string
+	EventParentID string
+	RawParentID   string
 }
 
 type Message struct {

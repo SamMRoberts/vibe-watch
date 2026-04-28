@@ -123,7 +123,8 @@ func TestParseCopilotChatWorkspaceMergesTranscriptAndChatSessionMetadata(t *test
 	transcript := strings.Join([]string{
 		`{"type":"session.start","id":"s","parentId":"","timestamp":"2026-04-28T20:00:00.000Z","data":{"sessionId":"session-a","producer":"copilot-agent","startTime":"2026-04-28T20:00:00.000Z"}}`,
 		`{"type":"user.message","id":"u","parentId":"s","timestamp":"2026-04-28T20:00:01.000Z","data":{"content":"hello vscode","attachments":[]}}`,
-		`{"type":"assistant.message","id":"a","parentId":"u","timestamp":"2026-04-28T20:00:02.000Z","data":{"messageId":"m1","content":"I will inspect files","toolRequests":[{"toolCallId":"tool-1","name":"read_file","type":"function"}]}}`,
+		`{"type":"assistant.turn_start","id":"turn-1","parentId":"u","timestamp":"2026-04-28T20:00:01.500Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.message","id":"a","parentId":"turn-1","timestamp":"2026-04-28T20:00:02.000Z","data":{"messageId":"m1","content":"I will inspect files","toolRequests":[{"toolCallId":"tool-1","name":"read_file","type":"function"}]}}`,
 		`{"type":"tool.execution_start","id":"t1","parentId":"a","timestamp":"2026-04-28T20:00:03.000Z","data":{"toolCallId":"tool-1","toolName":"read_file","arguments":{"filePath":"internal/tui/detail.go"}}}`,
 		`{"type":"tool.execution_complete","id":"t2","parentId":"t1","timestamp":"2026-04-28T20:00:04.000Z","data":{"toolCallId":"tool-1","success":true}}`,
 	}, "\n") + "\n"
@@ -162,18 +163,30 @@ func TestParseCopilotChatWorkspaceMergesTranscriptAndChatSessionMetadata(t *test
 	if session.Messages[0].Role != "user" || session.Messages[0].Content != "hello vscode" {
 		t.Fatalf("unexpected user message: %#v", session.Messages[0])
 	}
+	if session.Messages[0].Meta.EventID != "u" || session.Messages[0].Meta.EventParentID != "" || session.Messages[0].Meta.RawParentID != "s" {
+		t.Fatalf("expected user event metadata with hidden session parent resolved, got %#v", session.Messages[0].Meta)
+	}
+	if session.Messages[1].Meta.EventID != "a" || session.Messages[1].Meta.EventParentID != "u" || session.Messages[1].Meta.RawParentID != "turn-1" {
+		t.Fatalf("expected assistant event metadata bridged through turn, got %#v", session.Messages[1].Meta)
+	}
 	start := session.Messages[2]
 	if start.Meta.Kind != models.ActivityKindTool ||
 		start.Meta.Lifecycle != models.ActivityLifecycleStarted ||
 		start.Meta.ID != "tool-1" ||
-		start.Meta.Label != "read_file" {
+		start.Meta.Label != "read_file" ||
+		start.Meta.EventID != "t1" ||
+		start.Meta.EventParentID != "a" ||
+		start.Meta.RawParentID != "a" {
 		t.Fatalf("unexpected start metadata: %#v", start.Meta)
 	}
 	complete := session.Messages[3]
 	if complete.Meta.Kind != models.ActivityKindTool ||
 		complete.Meta.Lifecycle != models.ActivityLifecycleCompleted ||
 		complete.Meta.ID != "tool-1" ||
-		complete.Meta.Label != "read_file" {
+		complete.Meta.Label != "read_file" ||
+		complete.Meta.EventID != "t2" ||
+		complete.Meta.EventParentID != "t1" ||
+		complete.Meta.RawParentID != "t1" {
 		t.Fatalf("unexpected completion metadata: %#v", complete.Meta)
 	}
 	summary := session.Messages[len(session.Messages)-1]

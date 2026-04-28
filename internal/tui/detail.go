@@ -560,47 +560,105 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 }
 
 func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
-	root := &timelineTreeNode{
-		rowIndex: start,
-		label:    d.renderTimelineTreeLabel(start, d.rows[start]),
+	root := d.newTimelineTreeNode(start, d.rows[start])
+	nodesByID := make(map[string]*timelineTreeNode)
+	eventAliases := make(map[string]string)
+	if id := d.timelineRowEventID(d.rows[start]); id != "" {
+		nodesByID[id] = root
 	}
-	for _, detail := range d.timelineExpandedRowDetails(d.rows[start]) {
-		root.children = append(root.children, &timelineTreeNode{
+
+	type pendingTimelineNode struct {
+		rowIndex int
+		row      activityRow
+		node     *timelineTreeNode
+	}
+	pending := make([]pendingTimelineNode, 0, end-start-1)
+	for i := start + 1; i < end; i++ {
+		row := d.rows[i]
+		node := d.newTimelineTreeNode(i, row)
+		pending = append(pending, pendingTimelineNode{rowIndex: i, row: row, node: node})
+		if id := d.timelineRowEventID(row); id != "" {
+			nodesByID[id] = node
+			if endID := d.timelineActionEndEventID(row); endID != "" {
+				eventAliases[endID] = id
+			}
+		}
+	}
+
+	var currentAssistant *timelineTreeNode
+	for _, item := range pending {
+		parentID := timelineResolveEventAlias(d.timelineRowParentEventID(item.row), eventAliases)
+		if parentID != "" {
+			if parent := nodesByID[parentID]; parent != nil && parent != item.node {
+				parent.children = append(parent.children, item.node)
+				if d.rowIsAssistantMessage(item.row) {
+					currentAssistant = item.node
+				}
+				continue
+			}
+		}
+		if d.rowIsAssistantMessage(item.row) {
+			root.children = append(root.children, item.node)
+			currentAssistant = item.node
+			continue
+		}
+		if currentAssistant != nil && item.row.kind != activityRowCollapsed {
+			currentAssistant.children = append(currentAssistant.children, item.node)
+			continue
+		}
+		root.children = append(root.children, item.node)
+	}
+	return root
+}
+
+func (d *DetailView) newTimelineTreeNode(rowIndex int, row activityRow) *timelineTreeNode {
+	node := &timelineTreeNode{
+		rowIndex: rowIndex,
+		label:    d.renderTimelineTreeLabel(rowIndex, row),
+	}
+	if detail := d.timelineActionDetail(row); detail != "" && d.detailLevel != timelineDetailCompact {
+		node.children = append(node.children, &timelineTreeNode{
+			rowIndex: -1,
+			label:    styleMuted.Render(summarizeActivityContent(detail, d.width-24)),
+		})
+	}
+	for _, detail := range d.timelineExpandedRowDetails(row) {
+		node.children = append(node.children, &timelineTreeNode{
 			rowIndex: -1,
 			label:    styleMuted.Render(detail),
 		})
 	}
-	var currentAssistant *timelineTreeNode
-	for i := start + 1; i < end; i++ {
-		row := d.rows[i]
-		node := &timelineTreeNode{
-			rowIndex: i,
-			label:    d.renderTimelineTreeLabel(i, row),
-		}
-		if detail := d.timelineActionDetail(row); detail != "" && d.detailLevel != timelineDetailCompact {
-			node.children = append(node.children, &timelineTreeNode{
-				rowIndex: -1,
-				label:    styleMuted.Render(summarizeActivityContent(detail, d.width-24)),
-			})
-		}
-		for _, detail := range d.timelineExpandedRowDetails(row) {
-			node.children = append(node.children, &timelineTreeNode{
-				rowIndex: -1,
-				label:    styleMuted.Render(detail),
-			})
-		}
-		if d.rowIsAssistantMessage(row) {
-			root.children = append(root.children, node)
-			currentAssistant = node
-			continue
-		}
-		if currentAssistant != nil && row.kind != activityRowCollapsed {
-			currentAssistant.children = append(currentAssistant.children, node)
-			continue
-		}
-		root.children = append(root.children, node)
+	return node
+}
+
+func (d *DetailView) timelineRowEventID(row activityRow) string {
+	if d.session == nil || !isMessageIndex(d.session, row.messageIndex) {
+		return ""
 	}
-	return root
+	return d.session.Messages[row.messageIndex].Meta.EventID
+}
+
+func (d *DetailView) timelineRowParentEventID(row activityRow) string {
+	if d.session == nil || !isMessageIndex(d.session, row.messageIndex) {
+		return ""
+	}
+	return d.session.Messages[row.messageIndex].Meta.EventParentID
+}
+
+func (d *DetailView) timelineActionEndEventID(row activityRow) string {
+	if d.session == nil || row.kind != activityRowActionGroup || !isMessageIndex(d.session, row.endMessageIndex) {
+		return ""
+	}
+	return d.session.Messages[row.endMessageIndex].Meta.EventID
+}
+
+func timelineResolveEventAlias(id string, aliases map[string]string) string {
+	seen := make(map[string]bool)
+	for id != "" && aliases[id] != "" && !seen[id] {
+		seen[id] = true
+		id = aliases[id]
+	}
+	return id
 }
 
 func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) string {
@@ -736,6 +794,15 @@ func expandedActivityMeta(meta models.ActivityMeta) string {
 	}
 	if meta.InteractionID != "" {
 		parts = append(parts, "interaction "+meta.InteractionID)
+	}
+	if meta.EventID != "" {
+		parts = append(parts, "event "+meta.EventID)
+	}
+	if meta.EventParentID != "" {
+		parts = append(parts, "event-parent "+meta.EventParentID)
+	}
+	if meta.RawParentID != "" && meta.RawParentID != meta.EventParentID {
+		parts = append(parts, "raw-parent "+meta.RawParentID)
 	}
 	if len(parts) == 0 {
 		return ""
@@ -1037,6 +1104,15 @@ func (d *DetailView) renderFocusedEventMeta(index int) string {
 	}
 	if msg.Meta.InteractionID != "" {
 		parts = append(parts, "interaction "+msg.Meta.InteractionID)
+	}
+	if msg.Meta.EventID != "" {
+		parts = append(parts, "event "+msg.Meta.EventID)
+	}
+	if msg.Meta.EventParentID != "" {
+		parts = append(parts, "event-parent "+msg.Meta.EventParentID)
+	}
+	if msg.Meta.RawParentID != "" && msg.Meta.RawParentID != msg.Meta.EventParentID {
+		parts = append(parts, "raw-parent "+msg.Meta.RawParentID)
 	}
 	tokens := fmt.Sprintf(
 		"tokens in:%d out:%d cache-read:%d cache-write:%d",

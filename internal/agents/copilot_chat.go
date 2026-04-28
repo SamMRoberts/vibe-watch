@@ -409,6 +409,7 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 	var startTime time.Time
 	var lastUpdated time.Time
 	toolNames := make(map[string]string)
+	hiddenEventParents := make(map[string]string)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -439,12 +440,20 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 			if !start.IsZero() {
 				startTime = start
 			}
+			if event.ID != "" {
+				hiddenEventParents[event.ID] = event.ParentID
+			}
 		case "user.message":
 			messages = append(messages, models.Message{
 				Role:      "user",
 				Content:   data.Content,
 				Timestamp: timestamp,
+				Meta:      transcriptEventMeta(event, hiddenEventParents),
 			})
+		case "assistant.turn_start", "assistant.turn_end":
+			if event.ID != "" {
+				hiddenEventParents[event.ID] = event.ParentID
+			}
 		case "assistant.message":
 			content := data.Content
 			if content == "" && len(data.ToolRequests) > 0 {
@@ -460,6 +469,7 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 				Role:      "assistant",
 				Content:   content,
 				Timestamp: timestamp,
+				Meta:      transcriptEventMeta(event, hiddenEventParents),
 			})
 		case "tool.execution_start", "tool.execution_complete":
 			activityData := copilotMessageData{
@@ -471,6 +481,9 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 			}
 			if activity, ok := copilotActivityMessage(event.Type, activityData, toolNames); ok {
 				activity.Timestamp = timestamp
+				activity.Meta.EventID = event.ID
+				activity.Meta.EventParentID = resolveHiddenEventParent(event.ParentID, hiddenEventParents)
+				activity.Meta.RawParentID = event.ParentID
 				messages = append(messages, activity)
 			}
 		}
@@ -480,6 +493,27 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 		lastUpdated = info.ModTime()
 	}
 	return messages, startTime, lastUpdated
+}
+
+func transcriptEventMeta(event copilotChatTranscriptEvent, hiddenParents map[string]string) models.ActivityMeta {
+	return models.ActivityMeta{
+		EventID:       event.ID,
+		EventParentID: resolveHiddenEventParent(event.ParentID, hiddenParents),
+		RawParentID:   event.ParentID,
+	}
+}
+
+func resolveHiddenEventParent(parentID string, hiddenParents map[string]string) string {
+	seen := make(map[string]bool)
+	for parentID != "" && !seen[parentID] {
+		next, ok := hiddenParents[parentID]
+		if !ok {
+			break
+		}
+		seen[parentID] = true
+		parentID = next
+	}
+	return parentID
 }
 
 func parseCopilotChatSessionFile(path string) copilotChatSessionState {

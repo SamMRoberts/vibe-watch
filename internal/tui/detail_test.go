@@ -430,6 +430,64 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 	}
 }
 
+func TestDetailTimelineGroupsByTranscriptParentIDs(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	start := toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1")
+	start.Meta.EventID = "tool-start"
+	start.Meta.EventParentID = "assistant-target"
+	complete := toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1")
+	complete.Meta.EventID = "tool-end"
+	complete.Meta.EventParentID = "tool-start"
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt", Meta: models.ActivityMeta{EventID: "user-1"}},
+			{Role: "assistant", Content: "nearest assistant", Meta: models.ActivityMeta{EventID: "assistant-nearest", EventParentID: "user-1"}},
+			start,
+			complete,
+			{Role: "assistant", Content: "target assistant", Meta: models.ActivityMeta{EventID: "assistant-target", EventParentID: "user-1"}},
+		},
+	})
+
+	treeView := renderTimelineTree(detail.timelineTree(0, len(detail.rows)))
+	nearestPos := strings.Index(treeView, "nearest assistant")
+	targetPos := strings.Index(treeView, "target assistant")
+	toolPos := strings.Index(treeView, "bash · done")
+	if nearestPos < 0 || targetPos < 0 || toolPos < 0 {
+		t.Fatalf("expected parent-linked tree rows, got:\n%s", treeView)
+	}
+	if !(nearestPos < targetPos && targetPos < toolPos) {
+		t.Fatalf("expected tool to render under its parent assistant, not nearest chronological assistant, got:\n%s", treeView)
+	}
+}
+
+func TestDetailTimelineAliasesGroupedCompletionEventID(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	start := toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1")
+	start.Meta.EventID = "tool-start"
+	start.Meta.EventParentID = "user-1"
+	complete := toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1")
+	complete.Meta.EventID = "tool-end"
+	complete.Meta.EventParentID = "tool-start"
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt", Meta: models.ActivityMeta{EventID: "user-1"}},
+			start,
+			complete,
+			{Role: "assistant", Content: "assistant after completion", Meta: models.ActivityMeta{EventID: "assistant-after", EventParentID: "tool-end"}},
+		},
+	})
+
+	treeView := renderTimelineTree(detail.timelineTree(0, len(detail.rows)))
+	toolPos := strings.Index(treeView, "bash · done")
+	assistantPos := strings.Index(treeView, "assistant after completion")
+	if toolPos < 0 || assistantPos < 0 {
+		t.Fatalf("expected grouped tool and child assistant, got:\n%s", treeView)
+	}
+	if !(toolPos < assistantPos) {
+		t.Fatalf("expected assistant parented to grouped completion to render under the tool group, got:\n%s", treeView)
+	}
+}
+
 func TestDetailAssistantTimelineStateReflectsChildActions(t *testing.T) {
 	detail := NewDetailView(140, 80)
 	detail.SetSession(&models.Session{
