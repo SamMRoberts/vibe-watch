@@ -56,6 +56,59 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 	}
 }
 
+func TestDashboardGroupsAllSessionsByDateAndAgent(t *testing.T) {
+	dayOne := time.Date(2026, 4, 28, 10, 15, 0, 0, time.Local)
+	dayTwo := time.Date(2026, 4, 27, 9, 0, 0, 0, time.Local)
+	copilot := &models.Session{
+		ID:          "copilot",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/vibe-watch",
+		LastUpdated: dayOne,
+	}
+	claude := &models.Session{
+		ID:          "claude",
+		AgentType:   models.AgentClaude,
+		ProjectPath: "/repo/other-project",
+		LastUpdated: dayOne.Add(-time.Hour),
+	}
+	codex := &models.Session{
+		ID:          "codex",
+		AgentType:   models.AgentCodex,
+		ProjectPath: "/repo/third-project",
+		LastUpdated: dayTwo,
+	}
+
+	dashboard := NewDashboardView(120, 30)
+	dashboard.SetSessions([]*models.Session{codex, copilot, claude}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 6 {
+		t.Fatalf("expected group headers plus all sessions, got %d rows: %#v", len(rows), rows)
+	}
+	if rows[0][0] != "Apr 28, 2026" || !strings.Contains(rows[0][1], "Claude Code") {
+		t.Fatalf("expected first group to be Apr 28 Claude, got %#v", rows[0])
+	}
+	if dashboard.rowSessions[0] != nil || dashboard.rowSessions[1] != claude {
+		t.Fatalf("expected group header to be non-selectable and first session to be Claude, got %#v", dashboard.rowSessions[:2])
+	}
+	if dashboard.SelectedSession() != claude {
+		t.Fatalf("expected initial selection to skip the group header, got %#v", dashboard.SelectedSession())
+	}
+	if rows[2][0] != "Apr 28, 2026" || !strings.Contains(rows[2][1], "Copilot CLI") {
+		t.Fatalf("expected second group to be Apr 28 Copilot, got %#v", rows[2])
+	}
+	if rows[4][0] != "Apr 27, 2026" || !strings.Contains(rows[4][1], "Codex CLI") {
+		t.Fatalf("expected third group to be Apr 27 Codex, got %#v", rows[4])
+	}
+	if dashboard.rowSessions[3] != copilot || dashboard.rowSessions[5] != codex {
+		t.Fatalf("expected all sessions to remain selectable across repositories, got %#v", dashboard.rowSessions)
+	}
+	dashboard.MoveDown()
+	if dashboard.SelectedSession() != copilot {
+		t.Fatalf("expected moving down to skip the next group header, got %#v", dashboard.SelectedSession())
+	}
+}
+
 func TestDashboardNarrowRowsShowStateAndUpdated(t *testing.T) {
 	updated := time.Date(2026, 4, 28, 10, 15, 0, 0, time.Local)
 	session := &models.Session{

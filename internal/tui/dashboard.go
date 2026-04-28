@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 type DashboardView struct {
 	table       table.Model
 	sessions    []*models.Session
+	rowSessions []*models.Session
 	filter      string
 	width       int
 	height      int
@@ -65,12 +67,46 @@ func (d *DashboardView) SetSessions(sessions []*models.Session, agentFilter stri
 
 func (d *DashboardView) updateTable(agentFilter string) {
 	var rows []table.Row
-	filterLower := strings.ToLower(d.filter)
+	var rowSessions []*models.Session
+	filtered := d.filteredSessions(agentFilter)
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return dashboardSessionLess(filtered[i], filtered[j])
+	})
 
+	groupCount := dashboardGroupCount(filtered)
+	lastGroup := ""
+	for i, s := range filtered {
+		group := dashboardGroupKey(s)
+		if groupCount > 1 && group != lastGroup {
+			runCount := 1
+			for j := i + 1; j < len(filtered) && dashboardGroupKey(filtered[j]) == group; j++ {
+				runCount++
+			}
+			rows = append(rows, d.dashboardGroupRow(s, runCount))
+			rowSessions = append(rowSessions, nil)
+			lastGroup = group
+		}
+
+		rows = append(rows, d.dashboardSessionRow(s))
+		rowSessions = append(rowSessions, s)
+	}
+
+	d.table.SetRows(rows)
+	d.rowSessions = rowSessions
+	d.ensureCursorOnSession(1)
+}
+
+func (d *DashboardView) filteredSessions(agentFilter string) []*models.Session {
+	out := make([]*models.Session, 0, len(d.sessions))
+	filterLower := strings.ToLower(d.filter)
+	agentFilterLower := strings.ToLower(agentFilter)
 	for _, s := range d.sessions {
-		if agentFilter != "" {
+		if s == nil {
+			continue
+		}
+		if agentFilterLower != "" {
 			agentLower := strings.ToLower(string(s.AgentType))
-			if !strings.Contains(agentLower, strings.ToLower(agentFilter)) {
+			if !strings.Contains(agentLower, agentFilterLower) {
 				continue
 			}
 		}
@@ -81,24 +117,92 @@ func (d *DashboardView) updateTable(agentFilter string) {
 				continue
 			}
 		}
-
-		projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
-		agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
-		stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
-		updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
-		rows = append(rows, table.Row{
-			agentLabel(string(s.AgentType), agentWidth),
-			truncateStart(s.ProjectPath, projectWidth),
-			compactInt(s.MessageCount()),
-			sessionInputTokens(s),
-			compactInt(s.TotalOutputTokens()),
-			formatTableDuration(s.Duration()),
-			statusText(s, stateWidth),
-			formatLastUpdated(s.LastUpdated, updatedWidth),
-		})
+		out = append(out, s)
 	}
+	return out
+}
 
-	d.table.SetRows(rows)
+func (d *DashboardView) dashboardSessionRow(s *models.Session) table.Row {
+	projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
+	agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
+	stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
+	updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
+	return table.Row{
+		agentLabel(string(s.AgentType), agentWidth),
+		truncateStart(s.ProjectPath, projectWidth),
+		compactInt(s.MessageCount()),
+		sessionInputTokens(s),
+		compactInt(s.TotalOutputTokens()),
+		formatTableDuration(s.Duration()),
+		statusText(s, stateWidth),
+		formatLastUpdated(s.LastUpdated, updatedWidth),
+	}
+}
+
+func (d *DashboardView) dashboardGroupRow(s *models.Session, count int) table.Row {
+	agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
+	projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
+	return table.Row{
+		truncateEnd(dashboardGroupDate(s), agentWidth),
+		truncateEnd(fmt.Sprintf("%s · %d sessions", string(s.AgentType), count), projectWidth),
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+	}
+}
+
+func dashboardGroupCount(sessions []*models.Session) int {
+	seen := make(map[string]bool)
+	for _, session := range sessions {
+		seen[dashboardGroupKey(session)] = true
+	}
+	return len(seen)
+}
+
+func dashboardSessionLess(a, b *models.Session) bool {
+	aTime := dashboardGroupTime(a)
+	bTime := dashboardGroupTime(b)
+	if !sameDay(aTime, bTime) {
+		return aTime.After(bTime)
+	}
+	if a.AgentType != b.AgentType {
+		return string(a.AgentType) < string(b.AgentType)
+	}
+	return aTime.After(bTime)
+}
+
+func dashboardGroupKey(session *models.Session) string {
+	return dashboardGroupDate(session) + "\x00" + string(session.AgentType)
+}
+
+func dashboardGroupDate(session *models.Session) string {
+	t := dashboardGroupTime(session)
+	if t.IsZero() {
+		return "Unknown"
+	}
+	return t.Format("Jan 02, 2006")
+}
+
+func dashboardGroupTime(session *models.Session) time.Time {
+	if session == nil {
+		return time.Time{}
+	}
+	if !session.LastUpdated.IsZero() {
+		return session.LastUpdated
+	}
+	return session.StartTime
+}
+
+func sameDay(a, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return a.IsZero() && b.IsZero()
+	}
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
 
 func dashboardColumns(width int) []table.Column {
@@ -226,6 +330,46 @@ func truncateStart(value string, width int) string {
 
 func (d *DashboardView) SelectedIndex() int {
 	return d.table.Cursor()
+}
+
+func (d *DashboardView) SelectedSession() *models.Session {
+	idx := d.SelectedIndex()
+	if idx < 0 || idx >= len(d.rowSessions) {
+		return nil
+	}
+	return d.rowSessions[idx]
+}
+
+func (d *DashboardView) MoveUp() {
+	d.table.MoveUp(1)
+	d.ensureCursorOnSession(-1)
+}
+
+func (d *DashboardView) MoveDown() {
+	d.table.MoveDown(1)
+	d.ensureCursorOnSession(1)
+}
+
+func (d *DashboardView) ensureCursorOnSession(direction int) {
+	if len(d.rowSessions) == 0 || d.SelectedSession() != nil {
+		return
+	}
+	if direction == 0 {
+		direction = 1
+	}
+	start := d.table.Cursor()
+	for idx := start; idx >= 0 && idx < len(d.rowSessions); idx += direction {
+		if d.rowSessions[idx] != nil {
+			d.table.SetCursor(idx)
+			return
+		}
+	}
+	for idx := start; idx >= 0 && idx < len(d.rowSessions); idx -= direction {
+		if d.rowSessions[idx] != nil {
+			d.table.SetCursor(idx)
+			return
+		}
+	}
 }
 
 func (d *DashboardView) View(agentFilter string) string {

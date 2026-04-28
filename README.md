@@ -2,14 +2,14 @@
 
 A graphical terminal UI (TUI) for monitoring and analyzing session data from agentic coding agents and CLIs — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, and Amazon Q Developer CLI.
 
-Run it from your repository in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity and token usage for the current repo.
+Run it in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity and token usage across detected projects.
 
 ![vibe-watch dashboard](https://via.placeholder.com/800x400?text=vibe-watch+TUI+Dashboard)
 
 ## Features
 
 - **Real-time session monitoring** — auto-polls every 2 seconds for new/updated sessions
-- **Dashboard view** — sortable table of current-repository sessions with token counts, duration, and status
+- **Dashboard view** — grouped table of detected sessions by date and agent with token counts, duration, and status
 - **Detail view** — full message history with token-level breakdowns per message
 - **Analytics view** — aggregate stats, agent comparisons, bar charts, top projects
 - **Multi-agent support** — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, Amazon Q
@@ -21,7 +21,7 @@ Run it from your repository in a **separate terminal** alongside your AI coding 
 | Agent | Log Location |
 |---|---|
 | **Claude Code** | `~/.claude/projects/` (JSONL) |
-| **Codex CLI** | `~/.codex/sessions/` (JSON) |
+| **Codex CLI** | `~/.codex/sessions/` (JSONL) |
 | **GitHub Copilot CLI** | `~/.copilot/session-state/` |
 | **GitHub Copilot Chat for VS Code** | `~/Library/Application Support/Code/User/workspaceStorage/` |
 | **Amazon Q Developer** | `~/.aws/amazonq/` |

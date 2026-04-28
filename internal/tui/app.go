@@ -135,11 +135,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Enter):
 			if a.view == viewDashboard && a.dashboard != nil {
-				idx := a.dashboard.SelectedIndex()
-				filtered := a.filteredSessions()
-				if idx >= 0 && idx < len(filtered) {
-					a.detail.SetSession(filtered[idx])
-					if filtered[idx].IsActive {
+				selected := a.dashboard.SelectedSession()
+				if selected != nil {
+					a.detail.SetSession(selected)
+					if selected.IsActive {
 						a.detail.FollowLatest()
 					}
 					a.view = viewDetail
@@ -161,7 +160,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Up):
 			if a.view == viewDashboard && a.dashboard != nil {
-				a.dashboard.table.MoveUp(1)
+				a.dashboard.MoveUp()
 			} else if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectPreviousRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
@@ -170,7 +169,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Down):
 			if a.view == viewDashboard && a.dashboard != nil {
-				a.dashboard.table.MoveDown(1)
+				a.dashboard.MoveDown()
 			} else if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectNextRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
