@@ -576,3 +576,151 @@ func sessionLifecycleMessage(content, lifecycle string) models.Message {
 		},
 	}
 }
+
+func TestDetailFollowPausePersistedAcrossRefresh(t *testing.T) {
+	// Create initial active session with some messages
+	initialSession := &models.Session{
+		ID:       "test-session",
+		LogPath:  "/tmp/test",
+		IsActive: true,
+		Messages: []models.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "resp1"},
+			{Role: "assistant", Content: "resp2"},
+		},
+	}
+
+	detail := NewDetailView(120, 30)
+	detail.SetSession(initialSession)
+
+	// User should start in follow mode for active session
+	if !detail.follow {
+		t.Error("Expected follow mode to be enabled for active session")
+	}
+
+	// User scrolls up (SelectPreviousRow), pausing follow
+	detail.SelectPreviousRow()
+	if detail.follow {
+		t.Error("Expected follow mode to be disabled after SelectPreviousRow")
+	}
+
+	// Session refreshes with new message (simulating live updates)
+	updatedSession := &models.Session{
+		ID:       "test-session",
+		LogPath:  "/tmp/test",
+		IsActive: true,
+		Messages: []models.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "resp1"},
+			{Role: "assistant", Content: "resp2"},
+			{Role: "assistant", Content: "resp3"}, // new message
+		},
+	}
+
+	// Simulate what App.refreshDetailSession does
+	shouldFollow := detail.Following()
+	detail.SetSession(updatedSession)
+
+	// After refresh, follow should still be paused
+	if detail.follow {
+		t.Errorf("Expected follow mode to remain disabled after refresh (shouldFollow was %v)", shouldFollow)
+	}
+}
+
+func TestDetailFollowNotReEnabledWhenUserPausedFollow(t *testing.T) {
+	// Test that even if wasAtBottom is true, we don't re-enable follow if user explicitly paused it
+	initialSession := &models.Session{
+		ID:       "test-session",
+		LogPath:  "/tmp/test",
+		IsActive: true,
+		Messages: []models.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "resp1"},
+			{Role: "assistant", Content: "resp2"},
+		},
+	}
+
+	detail := NewDetailView(120, 30)
+	detail.SetSession(initialSession)
+
+	// User should start in follow mode for active session
+	if !detail.follow {
+		t.Error("Expected follow mode to be enabled for active session")
+	}
+	if detail.userPausedFollow {
+		t.Error("Expected userPausedFollow to be false on new active session")
+	}
+
+	// User explicitly pauses follow (e.g., by scrolling up)
+	detail.SelectPreviousRow()
+	if detail.follow {
+		t.Error("Expected follow mode to be disabled after SelectPreviousRow")
+	}
+	if !detail.userPausedFollow {
+		t.Error("Expected userPausedFollow to be true after SelectPreviousRow")
+	}
+
+	// Session refreshes with new message (same session ID and log path)
+	updatedSession := &models.Session{
+		ID:       "test-session",
+		LogPath:  "/tmp/test",
+		IsActive: true,
+		Messages: []models.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "resp1"},
+			{Role: "assistant", Content: "resp2"},
+			{Role: "assistant", Content: "resp3"}, // new message
+		},
+	}
+
+	// SetSession with updated messages for same session
+	detail.SetSession(updatedSession)
+
+	// After refresh of same session, userPausedFollow flag should be preserved
+	if !detail.userPausedFollow {
+		t.Error("Expected userPausedFollow to remain true after SetSession for same session")
+	}
+	// And follow should still be false
+	if detail.follow {
+		t.Error("Expected follow to remain false after SetSession for same session")
+	}
+}
+
+func TestRefreshDetailSessionRespectsPausedFollow(t *testing.T) {
+	// Test simulating app.refreshDetailSession() logic to ensure wasAtBottom doesn't override userPausedFollow
+	initialSession := &models.Session{
+		ID:       "session-1",
+		LogPath:  "/path/to/session",
+		IsActive: true,
+		Messages: []models.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "resp1"},
+			{Role: "assistant", Content: "resp2"},
+		},
+	}
+
+	detail := NewDetailView(120, 30)
+	detail.SetSession(initialSession)
+
+	// User pauses follow by scrolling
+	detail.SelectPreviousRow()
+
+	// Simulate app.refreshDetailSession() logic
+	shouldFollow := detail.Following()    // false
+	userPausedFollow := detail.UserPausedFollow() // true
+	detail.SetSession(initialSession)
+
+	// The key logic from refreshDetailSession:
+	// if (shouldFollow || (wasAtBottom && !userPausedFollow)) { FollowLatest() }
+	// This should NOT trigger because userPausedFollow is true
+	shouldAutoFollow := shouldFollow || (true && !userPausedFollow) // true && !true = true && false = false
+
+	if shouldAutoFollow {
+		t.Error("Expected auto-follow to be disabled when user explicitly paused follow")
+	}
+
+	// Verify detail state
+	if detail.follow {
+		t.Error("Expected follow to remain disabled")
+	}
+}

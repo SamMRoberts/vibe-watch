@@ -303,14 +303,17 @@ func (a *App) refreshDetailSession() {
 	}
 	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
 		shouldFollow := a.detail.Following()
+		userPausedFollow := a.detail.UserPausedFollow()
 		wasAtBottom := a.detail.AtBottom()
 		a.detail.SetSession(updated)
 		if a.view == viewPromptDetail {
 			a.detail.RefreshFocusedDetail()
 		}
-		if a.view == viewDetail && updated.IsActive && (shouldFollow || wasAtBottom) {
+		// Only auto-follow if user didn't explicitly pause follow. wasAtBottom alone isn't enough
+		// because user may have just paused but viewport still appears at bottom.
+		if a.view == viewDetail && updated.IsActive && (shouldFollow || (wasAtBottom && !userPausedFollow)) {
 			a.detail.FollowLatest()
-		} else if a.view == viewPromptDetail && updated.IsActive && (shouldFollow || wasAtBottom) {
+		} else if a.view == viewPromptDetail && updated.IsActive && (shouldFollow || (wasAtBottom && !userPausedFollow)) {
 			a.detail.ScrollToBottom()
 		}
 	}

@@ -46,6 +46,7 @@ type DetailView struct {
 	focusedMode      focusedDetailMode
 	focusedMessage   int
 	follow           bool
+	userPausedFollow bool // tracks if user explicitly paused follow vs it being false for other reasons
 	width            int
 	height           int
 }
@@ -89,6 +90,7 @@ func (d *DetailView) SetSession(s *models.Session) {
 		d.focusedMode = focusNone
 		d.focusedMessage = -1
 		d.follow = s != nil && s.IsActive
+		d.userPausedFollow = false
 	}
 
 	d.session = s
@@ -122,6 +124,7 @@ func (d *DetailView) ScrollToBottom() {
 
 func (d *DetailView) FollowLatest() {
 	d.follow = true
+	d.userPausedFollow = false
 	d.renderContent()
 	d.selectLastRow()
 	d.scrollSelectedRowIntoView()
@@ -131,14 +134,20 @@ func (d *DetailView) FollowLatest() {
 func (d *DetailView) ToggleFollow() {
 	d.follow = !d.follow
 	if d.follow {
+		d.userPausedFollow = false
 		d.FollowLatest()
 		return
 	}
+	d.userPausedFollow = true
 	d.renderContent()
 }
 
 func (d *DetailView) Following() bool {
 	return d.follow
+}
+
+func (d *DetailView) UserPausedFollow() bool {
+	return d.userPausedFollow
 }
 
 func (d *DetailView) SelectLastUser() {
@@ -1193,6 +1202,7 @@ func (d *DetailView) AtBottom() bool {
 func (d *DetailView) pauseFollow() {
 	if d.session != nil && d.session.IsActive {
 		d.follow = false
+		d.userPausedFollow = true
 	}
 }
 
