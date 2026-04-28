@@ -88,7 +88,7 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			agentLabel(string(s.AgentType)),
 			truncateStart(s.ProjectPath, projectWidth),
 			compactInt(s.MessageCount()),
-			compactInt(s.TotalInputTokens()),
+			sessionInputTokens(s),
 			compactInt(s.TotalOutputTokens()),
 			formatTableDuration(s.Duration()),
 			statusText(s.IsActive),
@@ -174,6 +174,21 @@ func formatTableDuration(duration time.Duration) string {
 		return "-"
 	}
 	return models.FormatDuration(duration)
+}
+
+func sessionInputTokens(session *models.Session) string {
+	if inputTokensUnavailable(session) {
+		return "-"
+	}
+	return compactInt(session.TotalInputTokens())
+}
+
+func inputTokensUnavailable(session *models.Session) bool {
+	return session != nil &&
+		session.AgentType == models.AgentCopilot &&
+		session.IsActive &&
+		session.TotalInputTokens() == 0 &&
+		session.TotalOutputTokens() > 0
 }
 
 func compactInt(value int) string {

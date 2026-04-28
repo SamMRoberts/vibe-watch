@@ -35,11 +35,15 @@ type copilotEvent struct {
 }
 
 type copilotMessageData struct {
-	Content            string                 `json:"content"`
-	TransformedContent string                 `json:"transformedContent"`
-	OutputTokens       int                    `json:"outputTokens"`
-	ToolRequests       []copilotToolRequest   `json:"toolRequests"`
-	ModelMetrics       map[string]modelMetric `json:"modelMetrics"`
+	Content               string                 `json:"content"`
+	TransformedContent    string                 `json:"transformedContent"`
+	OutputTokens          int                    `json:"outputTokens"`
+	ToolRequests          []copilotToolRequest   `json:"toolRequests"`
+	ModelMetrics          map[string]modelMetric `json:"modelMetrics"`
+	CurrentTokens         int                    `json:"currentTokens"`
+	SystemTokens          int                    `json:"systemTokens"`
+	ConversationTokens    int                    `json:"conversationTokens"`
+	ToolDefinitionsTokens int                    `json:"toolDefinitionsTokens"`
 }
 
 type copilotToolRequest struct {
@@ -187,7 +191,7 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 			})
 			session.TotalTokens.OutputTokens += data.OutputTokens
 		case "session.shutdown":
-			applyCopilotMetrics(session, data.ModelMetrics)
+			applyCopilotMetrics(session, data)
 		}
 	}
 
@@ -315,18 +319,26 @@ func summarizeToolRequests(requests []copilotToolRequest) string {
 	return strings.Join(parts, "\n")
 }
 
-func applyCopilotMetrics(session *models.Session, metrics map[string]modelMetric) {
-	if len(metrics) == 0 {
-		return
+func applyCopilotMetrics(session *models.Session, data copilotMessageData) {
+	if len(data.ModelMetrics) > 0 {
+		session.TotalTokens = models.TokenUsage{}
 	}
-
-	session.TotalTokens = models.TokenUsage{}
-	for _, metric := range metrics {
+	for _, metric := range data.ModelMetrics {
 		session.TotalTokens.InputTokens += metric.Usage.InputTokens
 		session.TotalTokens.OutputTokens += metric.Usage.OutputTokens
 		session.TotalTokens.CacheReads += metric.Usage.CacheReadTokens
 		session.TotalTokens.CacheWrites += metric.Usage.CacheWriteTokens
 	}
+	if session.TotalTokens.InputTokens == 0 {
+		session.TotalTokens.InputTokens = copilotInputTokens(data)
+	}
+}
+
+func copilotInputTokens(data copilotMessageData) int {
+	if data.CurrentTokens > 0 {
+		return data.CurrentTokens
+	}
+	return data.SystemTokens + data.ConversationTokens + data.ToolDefinitionsTokens
 }
 
 func latestTime(a, b time.Time) time.Time {

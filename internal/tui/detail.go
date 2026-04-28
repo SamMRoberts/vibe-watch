@@ -143,7 +143,7 @@ func (d *DetailView) renderContent() {
 
 	// Token usage panel
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Input Tokens", fmt.Sprintf("%d", s.TotalInputTokens()), "↘", styleAccent),
+		metricCard("Input Tokens", detailInputTokens(s), "↘", styleAccent),
 		"  ",
 		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
 		"  ",
@@ -232,6 +232,13 @@ func (d *DetailView) userRoleLabel(messageIndex int) string {
 
 func styleText(s string) string {
 	return lipgloss.NewStyle().Foreground(colorText).Render(s)
+}
+
+func detailInputTokens(session *models.Session) string {
+	if inputTokensUnavailable(session) {
+		return "-"
+	}
+	return fmt.Sprintf("%d", session.TotalInputTokens())
 }
 
 func (d *DetailView) selectUser(direction int) {

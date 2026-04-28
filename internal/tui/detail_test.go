@@ -78,3 +78,17 @@ func TestDetailCollapseAllThreads(t *testing.T) {
 		t.Fatalf("expected both user threads to show collapsed summaries, got:\n%s", view)
 	}
 }
+
+func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		AgentType:   models.AgentCopilot,
+		IsActive:    true,
+		TotalTokens: models.TokenUsage{OutputTokens: 42},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "Input Tokens") || !strings.Contains(view, "-") {
+		t.Fatalf("expected unavailable input token marker in detail view, got:\n%s", view)
+	}
+}

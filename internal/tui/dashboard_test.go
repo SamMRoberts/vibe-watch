@@ -55,3 +55,23 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 		t.Fatalf("expected last updated to be populated, got %q", got)
 	}
 }
+
+func TestDashboardShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
+	session := &models.Session{
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/vibe-watch",
+		IsActive:    true,
+		TotalTokens: models.TokenUsage{OutputTokens: 42},
+	}
+
+	dashboard := NewDashboardView(80, 24)
+	dashboard.SetSessions([]*models.Session{session}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if got := rows[0][3]; got != "-" {
+		t.Fatalf("expected unavailable input tokens marker, got %q", got)
+	}
+}
