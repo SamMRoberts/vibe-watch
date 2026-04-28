@@ -28,7 +28,6 @@ func NewDashboardView(width, height int) *DashboardView {
 		{Title: "Msgs", Width: 6},
 		{Title: "In Tok", Width: 8},
 		{Title: "Out Tok", Width: 8},
-		{Title: "Cost", Width: 9},
 		{Title: "Duration", Width: 10},
 		{Title: "Status", Width: 10},
 		{Title: "Last Updated", Width: 14},
@@ -106,7 +105,6 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			fmt.Sprintf("%d", s.MessageCount()),
 			fmt.Sprintf("%d", s.TotalInputTokens()),
 			fmt.Sprintf("%d", s.TotalOutputTokens()),
-			styleWarning.Render(fmt.Sprintf("$%.4f", s.EstimatedCost())),
 			models.FormatDuration(s.Duration()),
 			statusPill(s.IsActive),
 			lastUpdated,
@@ -125,13 +123,11 @@ func (d *DashboardView) View(agentFilter string) string {
 
 	// Stats bar
 	activeCount := 0
-	totalCost := 0.0
 	totalTokens := 0
 	for _, s := range d.sessions {
 		if s.IsActive {
 			activeCount++
 		}
-		totalCost += s.EstimatedCost()
 		totalTokens += s.TotalInputTokens() + s.TotalOutputTokens()
 	}
 
@@ -141,8 +137,6 @@ func (d *DashboardView) View(agentFilter string) string {
 		metricCard("Active", fmt.Sprintf("%d", activeCount), "✦", styleSuccess),
 		"  ",
 		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
-		"  ",
-		metricCard("Total Cost", fmt.Sprintf("$%.4f", totalCost), "◉", styleWarning),
 	)
 
 	sb.WriteString(styleMuted.Render("╭─ live session telemetry") + "\n")

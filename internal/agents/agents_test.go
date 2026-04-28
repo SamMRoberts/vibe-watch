@@ -150,9 +150,6 @@ updated_at: 2026-04-14T21:08:03.055Z
 			"data": map[string]interface{}{
 				"modelMetrics": map[string]interface{}{
 					"claude-sonnet-4.6": map[string]interface{}{
-						"requests": map[string]interface{}{
-							"cost": 0.0123,
-						},
 						"usage": map[string]interface{}{
 							"inputTokens":      100,
 							"outputTokens":     50,
@@ -205,9 +202,6 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 	if s.TotalTokens.CacheWrites != 10 {
 		t.Errorf("expected 10 cache writes, got %d", s.TotalTokens.CacheWrites)
-	}
-	if s.CostUSD != 0.0123 {
-		t.Errorf("expected cost 0.0123, got %f", s.CostUSD)
 	}
 }
 

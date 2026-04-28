@@ -48,9 +48,6 @@ type copilotToolRequest struct {
 }
 
 type modelMetric struct {
-	Requests struct {
-		Cost float64 `json:"cost"`
-	} `json:"requests"`
 	Usage struct {
 		InputTokens      int `json:"inputTokens"`
 		OutputTokens     int `json:"outputTokens"`
@@ -204,9 +201,6 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 	if session.LastUpdated.IsZero() {
 		session.LastUpdated = info.ModTime()
 	}
-	if session.CostUSD == 0 {
-		session.CostUSD = session.EstimatedCost()
-	}
 
 	return session, nil
 }
@@ -327,13 +321,11 @@ func applyCopilotMetrics(session *models.Session, metrics map[string]modelMetric
 	}
 
 	session.TotalTokens = models.TokenUsage{}
-	session.CostUSD = 0
 	for _, metric := range metrics {
 		session.TotalTokens.InputTokens += metric.Usage.InputTokens
 		session.TotalTokens.OutputTokens += metric.Usage.OutputTokens
 		session.TotalTokens.CacheReads += metric.Usage.CacheReadTokens
 		session.TotalTokens.CacheWrites += metric.Usage.CacheWriteTokens
-		session.CostUSD += metric.Requests.Cost
 	}
 }
 

@@ -177,7 +177,6 @@ func (c *ClaudeDetector) parseSession(logPath, projectName string) (*models.Sess
 
 	// Mark active if modified in last 5 minutes
 	session.IsActive = time.Since(info.ModTime()) < 5*time.Minute
-	session.CostUSD = session.EstimatedCost()
 
 	return session, nil
 }

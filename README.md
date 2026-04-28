@@ -2,14 +2,14 @@
 
 A graphical terminal UI (TUI) for monitoring and analyzing session data from agentic coding agents and CLIs — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, and Amazon Q Developer CLI.
 
-Run it from your repository in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity, token usage, and cost estimates for the current repo.
+Run it from your repository in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity and token usage for the current repo.
 
 ![vibe-watch dashboard](https://via.placeholder.com/800x400?text=vibe-watch+TUI+Dashboard)
 
 ## Features
 
 - **Real-time session monitoring** — auto-polls every 2 seconds for new/updated sessions
-- **Dashboard view** — sortable table of current-repository sessions with token counts, cost, duration, and status
+- **Dashboard view** — sortable table of current-repository sessions with token counts, duration, and status
 - **Detail view** — full message history with token-level breakdowns per message
 - **Analytics view** — aggregate stats, agent comparisons, bar charts, top projects
 - **Multi-agent support** — Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, Amazon Q
@@ -113,11 +113,3 @@ vibe-watch/
         ├── keys.go                # Key bindings
         └── styles.go              # Lip Gloss color scheme & styles
 ```
-
-## Cost Estimation
-
-Token costs are estimated using Claude Sonnet 3.5 pricing as a baseline:
-- Input tokens: **$3.00 / million tokens**
-- Output tokens: **$15.00 / million tokens**
-
-Actual costs will vary by model and provider. These are estimates only.

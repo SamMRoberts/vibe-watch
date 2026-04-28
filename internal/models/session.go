@@ -39,7 +39,6 @@ type Session struct {
 	TotalTokens TokenUsage
 	IsActive    bool
 	LogPath     string
-	CostUSD     float64
 }
 
 func (s *Session) TotalInputTokens() int {
@@ -48,15 +47,6 @@ func (s *Session) TotalInputTokens() int {
 
 func (s *Session) TotalOutputTokens() int {
 	return s.TotalTokens.OutputTokens
-}
-
-func (s *Session) EstimatedCost() float64 {
-	if s.CostUSD > 0 {
-		return s.CostUSD
-	}
-	inputCost := float64(s.TotalTokens.InputTokens) * 3.0 / 1_000_000
-	outputCost := float64(s.TotalTokens.OutputTokens) * 15.0 / 1_000_000
-	return inputCost + outputCost
 }
 
 func (s *Session) Duration() time.Duration {

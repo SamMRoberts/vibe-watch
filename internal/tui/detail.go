@@ -77,8 +77,6 @@ func (d *DetailView) renderContent() {
 		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
 		"  ",
 		metricCard("Cache Reads", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
-		"  ",
-		metricCard("Est. Cost", fmt.Sprintf("$%.4f", s.EstimatedCost()), "◉", styleWarning),
 	)
 	sb.WriteString(tokenPanel + "\n\n")
 	sb.WriteString(divider(d.width-6) + "\n\n")

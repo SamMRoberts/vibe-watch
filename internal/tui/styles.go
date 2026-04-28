@@ -18,7 +18,6 @@ var (
 	colorMuted       = lipgloss.Color("#9fb8ad")
 	colorSubtle      = lipgloss.Color("#41645a")
 	colorSuccess     = lipgloss.Color("#84cc16")
-	colorWarning     = lipgloss.Color("#fbbf24")
 	colorError       = lipgloss.Color("#fb7185")
 	colorClaude      = lipgloss.Color("#ff9f6e")
 	colorCodex       = lipgloss.Color("#38bdf8")
@@ -76,9 +75,6 @@ var (
 
 	styleSuccess = lipgloss.NewStyle().
 			Foreground(colorSuccess)
-
-	styleWarning = lipgloss.NewStyle().
-			Foreground(colorWarning)
 
 	styleError = lipgloss.NewStyle().
 			Foreground(colorError)

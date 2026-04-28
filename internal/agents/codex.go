@@ -104,6 +104,5 @@ func (c *CodexDetector) parseSession(logPath string) (*models.Session, error) {
 		})
 	}
 
-	session.CostUSD = session.EstimatedCost()
 	return session, nil
 }

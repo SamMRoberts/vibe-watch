@@ -26,35 +26,6 @@ func TestSessionDurationZeroStart(t *testing.T) {
 	}
 }
 
-func TestSessionEstimatedCost(t *testing.T) {
-	s := &models.Session{
-		TotalTokens: models.TokenUsage{
-			InputTokens:  1_000_000,
-			OutputTokens: 1_000_000,
-		},
-	}
-	// Input: $3/MTok, Output: $15/MTok → $3 + $15 = $18
-	cost := s.EstimatedCost()
-	if cost < 17.9 || cost > 18.1 {
-		t.Errorf("expected ~$18 cost for 1M in + 1M out tokens, got $%.4f", cost)
-	}
-}
-
-func TestSessionEstimatedCostUsesCostUSD(t *testing.T) {
-	s := &models.Session{
-		CostUSD: 42.0,
-		TotalTokens: models.TokenUsage{
-			InputTokens:  1_000_000,
-			OutputTokens: 1_000_000,
-		},
-	}
-	// Should use CostUSD directly, not recompute
-	cost := s.EstimatedCost()
-	if cost != 42.0 {
-		t.Errorf("expected $42.0, got $%.4f", cost)
-	}
-}
-
 func TestSessionMessageCount(t *testing.T) {
 	s := &models.Session{
 		Messages: []models.Message{

@@ -46,19 +46,15 @@ func (a *AnalyticsView) View() string {
 	// Aggregate by agent
 	agentCounts := make(map[string]int)
 	agentTokens := make(map[string]int)
-	agentCosts := make(map[string]float64)
 	projectCounts := make(map[string]int)
 	totalTokens := 0
-	totalCost := 0.0
 
 	for _, s := range a.sessions {
 		agentKey := string(s.AgentType)
 		agentCounts[agentKey]++
 		tok := s.TotalInputTokens() + s.TotalOutputTokens()
 		agentTokens[agentKey] += tok
-		agentCosts[agentKey] += s.EstimatedCost()
 		totalTokens += tok
-		totalCost += s.EstimatedCost()
 		if s.ProjectPath != "" {
 			projectCounts[s.ProjectPath]++
 		}
@@ -97,7 +93,7 @@ func (a *AnalyticsView) View() string {
 			sty.Render(filledBar),
 			lipgloss.NewStyle().Foreground(colorSubtle).Render(emptyBar),
 			styleText(fmt.Sprintf("%d sessions", count)),
-			styleWarning.Render(fmt.Sprintf("$%.4f", agentCosts[agentName])),
+			styleText(fmt.Sprintf("%d tokens", agentTokens[agentName])),
 		))
 	}
 
@@ -108,8 +104,6 @@ func (a *AnalyticsView) View() string {
 		metricCard("Total Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent),
 		"  ",
 		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
-		"  ",
-		metricCard("Total Cost", fmt.Sprintf("$%.4f", totalCost), "◉", styleWarning),
 	)
 	sb.WriteString(statsRow + "\n\n")
 
