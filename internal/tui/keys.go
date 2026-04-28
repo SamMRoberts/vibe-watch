@@ -134,21 +134,21 @@ func dashboardHelp() helpKeyMap {
 
 func detailHelp() helpKeyMap {
 	return helpKeyMap{
-		short: []key.Binding{keys.Esc, keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter, keys.DetailLevel, keys.Timestamps, keys.Follow},
+		short: []key.Binding{keys.Esc, keys.Tab, keys.Enter, keys.Follow},
 		full: [][]key.Binding{
 			{keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter},
 			{keys.Collapse, keys.CollapseAll, keys.DetailLevel, keys.Timestamps, keys.Follow},
-			{keys.PageUp, keys.PageDown, keys.Home, keys.End, keys.Esc},
+			{keys.PageUp, keys.PageDown, keys.Home, keys.End, keys.Tab, keys.ShiftTab, keys.Esc},
 		},
 	}
 }
 
 func focusedHelp() helpKeyMap {
 	return helpKeyMap{
-		short: []key.Binding{keys.Esc, keys.Up, keys.Down, keys.PageUp, keys.PageDown},
+		short: []key.Binding{keys.Esc, keys.Tab, keys.Up, keys.Down, keys.PageUp, keys.PageDown},
 		full: [][]key.Binding{
 			{keys.Up, keys.Down, keys.PageUp, keys.PageDown},
-			{keys.Home, keys.End, keys.Esc},
+			{keys.Home, keys.End, keys.Tab, keys.ShiftTab, keys.Esc},
 		},
 	}
 }

@@ -71,7 +71,7 @@ type DetailView struct {
 }
 
 func NewDetailView(width, height int) *DetailView {
-	vp := viewport.New(width-4, height-10)
+	vp := viewport.New(width-4, height-8)
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
@@ -93,7 +93,7 @@ func (d *DetailView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 	d.viewport.Width = width - 4
-	d.viewport.Height = height - 10
+	d.viewport.Height = height - 8
 	if d.session != nil {
 		d.renderCurrentContent()
 	}
@@ -554,7 +554,7 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 		rendered = d.renderMessageRow(rowIndex, row)
 	}
 	if selected {
-		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
+		return styleSelected.Render("▌ " + rendered)
 	}
 	return styleMuted.Render("  ") + rendered
 }
@@ -673,7 +673,7 @@ func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) stri
 		rendered = d.renderMessageTreeLabel(rowIndex, row)
 	}
 	if selected {
-		return styleSelected.Render("▌ "+rendered) + d.renderSelectedRowContext(row)
+		return styleSelected.Render("▌ " + rendered)
 	}
 	return rendered
 }
@@ -1018,13 +1018,21 @@ func (d *DetailView) renderCollapsedTreeLabel(row activityRow) string {
 	)
 }
 
-func (d *DetailView) renderSelectedRowContext(row activityRow) string {
+func (d *DetailView) selectedRowContextLabel() string {
+	row, ok := d.selectedActivityRow()
+	if !ok {
+		return ""
+	}
+	return d.rowContextLabel(row)
+}
+
+func (d *DetailView) rowContextLabel(row activityRow) string {
 	if d.session == nil {
 		return ""
 	}
 	switch row.kind {
 	case activityRowCollapsed:
-		return styleMuted.Render("  · enter opens folded prompt")
+		return "enter opens folded prompt"
 	case activityRowActionGroup:
 		start, ok := messageAt(d.session.Messages, row.messageIndex)
 		if !ok {
@@ -1032,19 +1040,19 @@ func (d *DetailView) renderSelectedRowContext(row activityRow) string {
 		}
 		end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
 		state := lifecycleIndicatorState(groupedActionState(start, end, hasEnd))
-		return styleMuted.Render("  · enter opens " + lowerStatusLabel(indicatorSpec(state).Label) + " activity")
+		return "enter opens " + lowerStatusLabel(indicatorSpec(state).Label) + " activity"
 	default:
 		msg, ok := messageAt(d.session.Messages, row.messageIndex)
 		if !ok {
 			return ""
 		}
 		if msg.Role == "user" {
-			return styleMuted.Render("  · enter opens prompt thread")
+			return "enter opens prompt thread"
 		}
 		if msg.Meta.Kind != "" {
-			return styleMuted.Render("  · " + activityKindLabel(msg) + " details")
+			return activityKindLabel(msg) + " details"
 		}
-		return styleMuted.Render("  · enter opens activity")
+		return "enter opens activity"
 	}
 }
 
@@ -1288,7 +1296,7 @@ func (d *DetailView) setContent(header, content string) {
 }
 
 func (d *DetailView) viewportHeight() int {
-	height := d.height - 10 - lipgloss.Height(d.header)
+	height := d.height - 8 - lipgloss.Height(d.header)
 	if height < 3 {
 		return 3
 	}
@@ -2044,6 +2052,21 @@ func (d *DetailView) View() string {
 			Render(styleMuted.Render("Select a session from the dashboard to view details.\n\nPress esc to go back."))
 	}
 
+	return d.header + "\n" + d.viewport.View()
+}
+
+func (d *DetailView) ThreadView() string {
+	if d.session == nil {
+		return d.View()
+	}
+
+	return d.header + "\n" + d.viewport.View()
+}
+
+func (d *DetailView) FooterStatus() string {
+	if d == nil || d.session == nil {
+		return ""
+	}
 	rowLabel := "0/0"
 	if len(d.rows) > 0 && d.selectedRow >= 0 {
 		rowLabel = fmt.Sprintf("%d/%d", d.selectedRow+1, len(d.rows))
@@ -2052,33 +2075,28 @@ func (d *DetailView) View() string {
 	if d.follow {
 		followLabel = "follow"
 	}
-	footer := styleMuted.Render(fmt.Sprintf(
-		"  %d%%  row %s  detail %s  %s  %s  ↑/↓ activity  [/ ] prompts  enter open  d detail  t time  space collapse  f follow  esc back",
-		int(d.viewport.ScrollPercent()*100),
-		rowLabel,
-		d.timelineDetailLabel(),
+	parts := []string{
+		fmt.Sprintf("%d%%", int(d.viewport.ScrollPercent()*100)),
+		"row " + rowLabel,
+		"detail " + d.timelineDetailLabel(),
 		d.timestampLabel(),
 		followLabel,
-	))
-
-	return d.header + "\n" + d.viewport.View() + "\n" + footer
+	}
+	if context := d.selectedRowContextLabel(); context != "" {
+		parts = append(parts, context)
+	}
+	return strings.Join(parts, "  ")
 }
 
-func (d *DetailView) ThreadView() string {
-	if d.session == nil {
-		return d.View()
+func (d *DetailView) FocusedFooterStatus() string {
+	if d == nil || d.session == nil {
+		return ""
 	}
-
 	label := "focused activity"
 	if d.focusedMode == focusThread {
-		label = "verbose prompt detail"
+		label = "prompt detail"
 	}
-	footer := styleMuted.Render(fmt.Sprintf("  %d%%  %s  ↑↓/pgup/pgdown scroll  esc back",
-		int(d.viewport.ScrollPercent()*100),
-		label,
-	))
-
-	return d.header + "\n" + d.viewport.View() + "\n" + footer
+	return fmt.Sprintf("%d%%  %s", int(d.viewport.ScrollPercent()*100), label)
 }
 
 func firstUserIndex(session *models.Session) int {

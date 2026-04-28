@@ -413,13 +413,22 @@ func fitRenderedHeight(rendered string, height int) string {
 
 func (a *App) renderShellHeader() string {
 	contentWidth := maxInt(1, a.width-2)
-	title := styleTitle.Render("◈ vibe-watch")
-	subtitleText := "agent session observatory"
-	if a.width < 90 {
+	titleText := "◈ vibe-watch"
+	if a.width < 54 {
+		titleText = "◈ vw"
+	}
+	title := styleTitle.Render(titleText)
+	subtitleText := ""
+	switch {
+	case a.width >= 112:
+		subtitleText = "agent session observatory"
+	case a.width >= 82:
 		subtitleText = "observatory"
 	}
-	subtitle := styleMuted.Render(subtitleText)
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", subtitle)
+	headerLeft := title
+	if subtitleText != "" {
+		headerLeft = lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", styleMuted.Render(subtitleText))
+	}
 	headerTabs := a.renderViewTabs()
 	headerRight := a.renderHeaderStatus()
 
@@ -431,6 +440,10 @@ func (a *App) renderShellHeader() string {
 	if headerWidth < lipgloss.Width(headerTabs) {
 		headerRight = ""
 		headerWidth = contentWidth - lipgloss.Width(headerLeft)
+	}
+	if headerWidth < lipgloss.Width(headerTabs) {
+		headerLeft = styleTitle.Render("◈ vw")
+		headerWidth = contentWidth - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
 	}
 	if headerWidth < lipgloss.Width(headerTabs) {
 		headerTabs = ""
@@ -451,13 +464,21 @@ func (a *App) renderShellHeader() string {
 }
 
 func (a *App) renderViewTabs() string {
-	tabDash := styleTab.Render("☷ Dashboard")
-	tabAnalytics := styleTab.Render("▣ Analytics")
+	dashboardLabel := "☷ Dashboard"
+	analyticsLabel := "▣ Analytics"
+	if a.width < 92 {
+		dashboardLabel = "☷ Dash"
+	}
+	if a.width < 86 {
+		analyticsLabel = "▣ Stats"
+	}
+	tabDash := styleTab.Render(dashboardLabel)
+	tabAnalytics := styleTab.Render(analyticsLabel)
 	switch a.view {
 	case viewDashboard:
-		tabDash = styleActiveTab.Render("☷ Dashboard")
+		tabDash = styleActiveTab.Render(dashboardLabel)
 	case viewAnalytics:
-		tabAnalytics = styleActiveTab.Render("▣ Analytics")
+		tabAnalytics = styleActiveTab.Render(analyticsLabel)
 	case viewDetail:
 		tabDash = styleActiveTab.Render("◈ Detail")
 	case viewPromptDetail:
@@ -490,7 +511,10 @@ func (a *App) renderHeaderStatus() string {
 			failed++
 		}
 	}
-	if a.width < 90 {
+	if len(a.sessions) == 0 && a.lastRefresh.IsZero() {
+		return ""
+	}
+	if a.width < 112 {
 		return ""
 	}
 	parts := []string{quietPill(fmt.Sprintf("%d sessions", len(a.sessions)))}
@@ -500,14 +524,15 @@ func (a *App) renderHeaderStatus() string {
 	if failed > 0 {
 		parts = append(parts, statusCountChip(statusFailed, failed))
 	}
-	if !a.lastRefresh.IsZero() {
-		parts = append(parts, styleMuted.Render(fmt.Sprintf("refreshed %ds", int(time.Since(a.lastRefresh).Seconds()))))
+	if !a.lastRefresh.IsZero() && a.width >= 122 {
+		parts = append(parts, styleMuted.Render(fmt.Sprintf("%ds", int(time.Since(a.lastRefresh).Seconds()))))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Center, joinWithSpaces(parts)...)
 }
 
 func (a *App) renderShellFooter() string {
-	helpText := a.renderHelpText()
+	innerWidth := maxInt(1, a.width-4)
+	helpText := a.renderFooterLine(innerWidth)
 	if a.lastErr != nil {
 		helpText = styleError.Render(fmt.Sprintf("⚠ detection error: %v", a.lastErr)) +
 			styleMuted.Render("  Check detector paths and logs, then press r to retry.")
@@ -522,8 +547,42 @@ func (a *App) renderShellFooter() string {
 		Render(helpText)
 }
 
+func (a *App) renderFooterLine(width int) string {
+	status := a.renderFooterStatusText()
+	if status == "" {
+		return a.renderHelpTextForWidth(width)
+	}
+	statusMax := width * 3 / 5
+	if statusMax < 28 {
+		statusMax = minInt(width, 28)
+	}
+	status = truncateEnd(status, statusMax)
+	statusText := styleMuted.Render(status)
+	remaining := width - lipgloss.Width(status) - 3
+	if remaining < 16 {
+		return statusText
+	}
+	helpText := a.renderHelpTextForWidth(remaining)
+	return lipgloss.JoinHorizontal(lipgloss.Center, statusText, styleDivider.Render(" │ "), helpText)
+}
+
+func (a *App) renderFooterStatusText() string {
+	switch {
+	case a.view == viewDetail && a.detail != nil:
+		return a.detail.FooterStatus()
+	case a.view == viewPromptDetail && a.detail != nil:
+		return a.detail.FocusedFooterStatus()
+	default:
+		return ""
+	}
+}
+
 func (a *App) renderHelpText() string {
-	h := newHelpModel(a.width - 4)
+	return a.renderHelpTextForWidth(a.width - 4)
+}
+
+func (a *App) renderHelpTextForWidth(width int) string {
+	h := newHelpModel(width)
 	switch {
 	case a.filterMode:
 		return h.View(filterHelp())

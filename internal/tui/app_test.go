@@ -29,8 +29,11 @@ func TestAppShellFitsAdaptiveWidths(t *testing.T) {
 		if got := maxRenderedLineWidth(view); got > width {
 			t.Fatalf("expected app shell to fit width %d, got max line width %d:\n%s", width, got, view)
 		}
-		if !strings.Contains(view, "vibe-watch") || !strings.Contains(view, "observatory") {
-			t.Fatalf("expected observatory shell branding, got:\n%s", view)
+		if !strings.Contains(view, "vibe-watch") {
+			t.Fatalf("expected shell branding, got:\n%s", view)
+		}
+		if width >= 82 && !strings.Contains(view, "observatory") {
+			t.Fatalf("expected observatory subtitle at width %d, got:\n%s", width, view)
 		}
 	}
 }
@@ -74,7 +77,7 @@ func TestAppShellKeepsHeaderVisibleAfterDashboardLoads(t *testing.T) {
 }
 
 func TestAppFooterUsesGeneratedHelp(t *testing.T) {
-	app := &App{view: viewDetail, width: 110, height: 30, detail: NewDetailView(110, 30)}
+	app := &App{view: viewDetail, width: 150, height: 30, detail: NewDetailView(150, 30)}
 	app.detail.SetSession(&models.Session{
 		Messages: []models.Message{
 			{Role: "user", Content: "prompt"},
@@ -83,7 +86,7 @@ func TestAppFooterUsesGeneratedHelp(t *testing.T) {
 	})
 
 	view := app.View()
-	for _, want := range []string{"↑/k", "up", "[", "prev prompt", "f", "follow"} {
+	for _, want := range []string{"detail standard", "enter opens prompt thread", "tab", "views", "f", "follow"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected generated detail help to include %q, got:\n%s", want, view)
 		}
@@ -361,14 +364,14 @@ func TestDetailLevelKeyCyclesTimelineDetail(t *testing.T) {
 
 	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	updated := model.(*App)
-	if view := updated.detail.View(); !strings.Contains(view, "detail expanded") {
-		t.Fatalf("expected d to switch to expanded detail, got:\n%s", view)
+	if status := updated.detail.FooterStatus(); !strings.Contains(status, "detail expanded") {
+		t.Fatalf("expected d to switch to expanded detail, got status %q", status)
 	}
 
 	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	updated = model.(*App)
-	if view := updated.detail.View(); !strings.Contains(view, "detail compact") {
-		t.Fatalf("expected d to switch to compact detail, got:\n%s", view)
+	if status := updated.detail.FooterStatus(); !strings.Contains(status, "detail compact") {
+		t.Fatalf("expected d to switch to compact detail, got status %q", status)
 	}
 }
 
@@ -384,20 +387,29 @@ func TestTimestampKeyTogglesSessionDetailTimestamps(t *testing.T) {
 			{Role: "assistant", Content: "activity", Timestamp: ts.Add(time.Second)},
 		},
 	})
-	if view := app.detail.View(); strings.Contains(view, "12:00:") || !strings.Contains(view, "time off") {
+	if view := app.detail.View(); strings.Contains(view, "12:00:") {
 		t.Fatalf("expected timestamps hidden by default, got:\n%s", view)
+	}
+	if status := app.detail.FooterStatus(); !strings.Contains(status, "time off") {
+		t.Fatalf("expected timestamp status to start off, got %q", status)
 	}
 
 	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
 	updated := model.(*App)
-	if view := updated.detail.View(); !strings.Contains(view, "12:00:00") || !strings.Contains(view, "time on") {
+	if view := updated.detail.View(); !strings.Contains(view, "12:00:00") {
 		t.Fatalf("expected t to show timestamps, got:\n%s", view)
+	}
+	if status := updated.detail.FooterStatus(); !strings.Contains(status, "time on") {
+		t.Fatalf("expected timestamp status to be on, got %q", status)
 	}
 
 	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
 	updated = model.(*App)
-	if view := updated.detail.View(); strings.Contains(view, "12:00:") || !strings.Contains(view, "time off") {
+	if view := updated.detail.View(); strings.Contains(view, "12:00:") {
 		t.Fatalf("expected second t press to hide timestamps, got:\n%s", view)
+	}
+	if status := updated.detail.FooterStatus(); !strings.Contains(status, "time off") {
+		t.Fatalf("expected timestamp status to return off, got %q", status)
 	}
 }
 

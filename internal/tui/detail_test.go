@@ -147,17 +147,19 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 	})
 
 	standard := detail.View()
-	if !strings.Contains(standard, "detail standard") || !strings.Contains(standard, "telemetry: resultLength:12") {
+	if !strings.Contains(standard, "telemetry: resultLength:12") {
 		t.Fatalf("expected standard detail to show action detail, got:\n%s", standard)
 	}
-	if strings.Contains(standard, "12:00:") || !strings.Contains(standard, "time off") {
+	if status := detail.FooterStatus(); !strings.Contains(status, "detail standard") || !strings.Contains(status, "time off") {
+		t.Fatalf("expected standard footer status with timestamps off, got %q", status)
+	}
+	if strings.Contains(standard, "12:00:") {
 		t.Fatalf("expected timestamps to be hidden by default, got:\n%s", standard)
 	}
 
 	detail.ToggleTimelineDetailLevel()
 	expanded := detail.View()
 	for _, want := range []string{
-		"detail expanded",
 		"role assistant",
 		"content assistant response",
 		"tokens total:500 input:0 output:200 cache-read:300 cache-write:0",
@@ -172,11 +174,13 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 	if strings.Contains(expanded, "2026-04-28 12:00:") || strings.Contains(expanded, "12:00:01") {
 		t.Fatalf("expected expanded detail to hide timestamps while timestamp toggle is off, got:\n%s", expanded)
 	}
+	if status := detail.FooterStatus(); !strings.Contains(status, "detail expanded") {
+		t.Fatalf("expected expanded footer status, got %q", status)
+	}
 
 	detail.ToggleTimestamps()
 	expandedWithTime := detail.View()
 	for _, want := range []string{
-		"time on",
 		"role assistant · time 2026-04-28 12:00:01",
 		"state done · started 2026-04-28 12:00:02 · ended 2026-04-28 12:00:05 · duration 3s",
 	} {
@@ -184,20 +188,23 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 			t.Fatalf("expected timestamp-enabled expanded detail to show %q, got:\n%s", want, expandedWithTime)
 		}
 	}
+	if status := detail.FooterStatus(); !strings.Contains(status, "time on") {
+		t.Fatalf("expected timestamp-enabled footer status, got %q", status)
+	}
 	detail.ToggleTimestamps()
 
 	detail.ToggleTimelineDetailLevel()
 	compact := detail.View()
-	if !strings.Contains(compact, "detail compact") {
-		t.Fatalf("expected compact detail label, got:\n%s", compact)
+	if status := detail.FooterStatus(); !strings.Contains(status, "detail compact") {
+		t.Fatalf("expected compact detail label, got status %q", status)
 	}
 	if strings.Contains(compact, "telemetry: resultLength:12") || strings.Contains(compact, "tokens total:500") {
 		t.Fatalf("expected compact detail to suppress secondary detail lines, got:\n%s", compact)
 	}
 
 	detail.ToggleTimelineDetailLevel()
-	if view := detail.View(); !strings.Contains(view, "detail standard") {
-		t.Fatalf("expected detail level cycle to return to standard, got:\n%s", view)
+	if status := detail.FooterStatus(); !strings.Contains(status, "detail standard") {
+		t.Fatalf("expected detail level cycle to return to standard, got status %q", status)
 	}
 }
 
