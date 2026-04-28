@@ -123,6 +123,10 @@ var (
 				Foreground(colorClaude).
 				Bold(true)
 
+	styleToolMsg = lipgloss.NewStyle().
+			Foreground(colorInfo).
+			Bold(true)
+
 	styleMessageContent = lipgloss.NewStyle().
 				Foreground(colorText)
 

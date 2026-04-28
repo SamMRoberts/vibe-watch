@@ -86,6 +86,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.initViews()
 
 	case tickMsg:
+		if a.view == viewDetail && a.detail != nil {
+			a.detail.AdvanceAnimation()
+		}
 		cmds = append(cmds, tickCmd())
 
 	case sessionsUpdateMsg:

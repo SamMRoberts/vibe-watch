@@ -65,6 +65,7 @@ type DetailView struct {
 	userPausedFollow bool // tracks if user explicitly paused follow vs it being false for other reasons
 	detailLevel      timelineDetailLevel
 	showTimestamps   bool
+	animationFrame   int
 	width            int
 	height           int
 }
@@ -290,6 +291,13 @@ func (d *DetailView) ToggleTimestamps() {
 	d.showTimestamps = !d.showTimestamps
 	d.renderContent()
 	d.scrollSelectedRowIntoView()
+}
+
+func (d *DetailView) AdvanceAnimation() {
+	d.animationFrame++
+	if d.focusedMode == focusNone {
+		d.renderContent()
+	}
 }
 
 func (d *DetailView) timelineDetailLabel() string {
@@ -765,11 +773,26 @@ func renderTimelineTree(node *timelineTreeNode) string {
 		return ""
 	}
 	return timelineLipglossTree(node).
-		Enumerator(tree.RoundedEnumerator).
+		Enumerator(timelineTreeEnumerator).
+		Indenter(timelineTreeIndenter).
 		EnumeratorStyle(lipgloss.NewStyle().Foreground(colorSubtle).MarginRight(1)).
 		RootStyle(lipgloss.NewStyle().Foreground(colorCopilot).Bold(true)).
 		ItemStyle(lipgloss.NewStyle().Foreground(colorText)).
 		String()
+}
+
+func timelineTreeEnumerator(children tree.Children, index int) string {
+	if children.Length()-1 == index {
+		return "╰─"
+	}
+	return "├─"
+}
+
+func timelineTreeIndenter(children tree.Children, index int) string {
+	if children.Length()-1 == index {
+		return "  "
+	}
+	return "│ "
 }
 
 func timelineLipglossTree(node *timelineTreeNode) *tree.Tree {
@@ -792,7 +815,7 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 
 func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	msg := d.session.Messages[row.messageIndex]
-	role := timelineRoleLabel(msg.Role)
+	role := d.timelineRoleLabel(msg.Role)
 	if msg.Role == "user" && relatedAssistantCount(d.session.Messages, row.messageIndex) > 0 {
 		if d.collapsedThreads[row.messageIndex] {
 			role = styleUserMsg.Render("[+] PROMPT")
@@ -871,8 +894,8 @@ func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	start := d.session.Messages[row.messageIndex]
 	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
 	state := groupedActionState(start, end, hasEnd)
-	icon := actionStateIcon(state)
-	role := timelineRoleLabel(start.Role)
+	icon := d.actionStateIcon(state)
+	role := d.timelineRoleLabel(start.Role)
 	duration := actionLifecycleDuration(start, end, hasEnd, time.Now())
 
 	summaryWidth := d.actionSummaryWidth(duration)
@@ -1265,24 +1288,33 @@ func wrapContentLine(line string, width int) []string {
 	return lines
 }
 
-func timelineRoleLabel(role string) string {
+var timelineSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func (d *DetailView) spinnerFrame() string {
+	if len(timelineSpinnerFrames) == 0 {
+		return "⠋"
+	}
+	return timelineSpinnerFrames[d.animationFrame%len(timelineSpinnerFrames)]
+}
+
+func (d *DetailView) timelineRoleLabel(role string) string {
 	switch role {
 	case "user":
-		return styleUserMsg.Render("▶ USER")
+		return styleUserMsg.Render("✦ PROMPT")
 	case "assistant":
-		return styleAssistantMsg.Render("◆ ASSIST")
+		return styleAssistantMsg.Render(d.spinnerFrame() + " ASSIST")
 	case "tool":
-		return styleAccent.Render("▣ TOOL")
+		return styleToolMsg.Render("⚙ TOOL")
 	case "subagent":
-		return styleInfo.Render("◈ AGENT")
+		return styleInfo.Render("✧ AGENT")
 	case "session":
-		return styleMuted.Render("◇ SESSION")
+		return styleMuted.Render("⬡ SESSION")
 	case "error":
 		return styleError.Render("⚠ ERROR")
 	case "system":
-		return styleMuted.Render("● SYSTEM")
+		return styleMuted.Render("◍ SYSTEM")
 	default:
-		return styleMuted.Render("● " + strings.ToUpper(role))
+		return styleMuted.Render("• " + strings.ToUpper(role))
 	}
 }
 
@@ -1329,8 +1361,19 @@ func groupedActionState(start, end models.Message, hasEnd bool) string {
 	return "in_progress"
 }
 
-func actionStateIcon(state string) string {
-	return indicatorSpec(lifecycleIndicatorState(state)).Icon
+func (d *DetailView) actionStateIcon(state string) string {
+	switch lifecycleIndicatorState(state) {
+	case statusRequested:
+		return "◇"
+	case statusRunning:
+		return d.spinnerFrame()
+	case statusDone:
+		return "✔"
+	case statusFailed:
+		return "✖"
+	default:
+		return indicatorSpec(lifecycleIndicatorState(state)).Icon
+	}
 }
 
 func actionStateStyle(state string) lipgloss.Style {

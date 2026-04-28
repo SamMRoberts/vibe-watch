@@ -415,7 +415,9 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 
 	view := detail.View()
 	for _, want := range []string{
-		"╰──",
+		"⠋ ASSIST",
+		"⚙ TOOL",
+		"╰─",
 		"bash · done",
 		"assistant activity",
 	} {
@@ -425,6 +427,31 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 	}
 	if strings.Contains(view, "--:--:--") {
 		t.Fatalf("expected timestamps hidden by default in nested timeline, got:\n%s", view)
+	}
+}
+
+func TestDetailTimelineUsesTighterTreeIndentation(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "assistant activity"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+
+	treeView := renderTimelineTree(detail.timelineTree(0, len(detail.rows)))
+	assistantLine := lineContaining(treeView, "ASSIST")
+	toolLine := lineContaining(treeView, "TOOL")
+	if assistantLine == "" || toolLine == "" {
+		t.Fatalf("expected assistant and tool tree lines, got:\n%s", treeView)
+	}
+	if strings.HasPrefix(assistantLine, "    ") {
+		t.Fatalf("expected assistant line to be only lightly indented, got %q in:\n%s", assistantLine, treeView)
+	}
+	if !strings.HasPrefix(toolLine, "  ") || strings.HasPrefix(toolLine, "      ") {
+		t.Fatalf("expected tool line to be deeper than assistant but not over-indented, got %q in:\n%s", toolLine, treeView)
 	}
 }
 
@@ -535,7 +562,8 @@ func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "⏳") || !strings.Contains(view, "bash · running") {
+	row := detail.renderActionGroupRow(detail.rows[1])
+	if !strings.Contains(row, "⠋") || !strings.Contains(row, "⚙ TOOL") || !strings.Contains(row, "bash · running") {
 		t.Fatalf("expected running lifecycle row, got:\n%s", view)
 	}
 	if strings.Contains(view, "→") {
@@ -543,6 +571,11 @@ func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	}
 	if strings.Contains(view, "Started tool: bash") {
 		t.Fatalf("expected running lifecycle row to avoid raw start wording, got:\n%s", view)
+	}
+	detail.AdvanceAnimation()
+	animatedRow := detail.renderActionGroupRow(detail.rows[1])
+	if !strings.Contains(animatedRow, "⠙") {
+		t.Fatalf("expected running lifecycle icon to animate, got:\n%s", animatedRow)
 	}
 }
 
@@ -556,7 +589,8 @@ func TestDetailShowsRequestedToolLifecycle(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "◌") || !strings.Contains(view, "bash · requested") {
+	row := detail.renderActionGroupRow(detail.rows[1])
+	if !strings.Contains(row, "◇") || !strings.Contains(row, "⚙ TOOL") || !strings.Contains(view, "bash · requested") {
 		t.Fatalf("expected requested lifecycle indicator, got:\n%s", view)
 	}
 }
@@ -882,6 +916,15 @@ func makeTestMessages(count int) []models.Message {
 		})
 	}
 	return messages
+}
+
+func lineContaining(text, needle string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
 }
 
 func toolLifecycleMessage(content, lifecycle, id string) models.Message {
