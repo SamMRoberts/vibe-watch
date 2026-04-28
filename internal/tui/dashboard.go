@@ -83,8 +83,9 @@ func (d *DashboardView) updateTable(agentFilter string) {
 		}
 
 		projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
-
 		agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
+		stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
+		updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
 		rows = append(rows, table.Row{
 			agentLabel(string(s.AgentType), agentWidth),
 			truncateStart(s.ProjectPath, projectWidth),
@@ -92,8 +93,8 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			sessionInputTokens(s),
 			compactInt(s.TotalOutputTokens()),
 			formatTableDuration(s.Duration()),
-			statusText(s.IsActive),
-			formatLastUpdated(s.LastUpdated),
+			statusText(s.IsActive, stateWidth),
+			formatLastUpdated(s.LastUpdated, updatedWidth),
 		})
 	}
 
@@ -150,22 +151,38 @@ func tableWidth(width int) int {
 }
 
 func agentLabel(agent string, width int) string {
-	return compactAgentBadge(agent, width)
-}
-
-func statusText(active bool) string {
-	if active {
-		return styleSuccess.Render("● active")
+	label := agentIcon(agent) + " " + compactAgentName(agent)
+	if width > 0 && lipgloss.Width(label) > width {
+		label = compactAgentName(agent)
 	}
-	return styleMuted.Render("○ idle")
+	if width > 0 && lipgloss.Width(label) > width {
+		label = agentIcon(agent)
+	}
+	return label
 }
 
-func formatLastUpdated(lastUpdated time.Time) string {
+func statusText(active bool, width int) string {
+	if active {
+		if width < 6 {
+			return "live"
+		}
+		return "active"
+	}
+	return "idle"
+}
+
+func formatLastUpdated(lastUpdated time.Time, width int) string {
 	if lastUpdated.IsZero() {
 		return "-"
 	}
 	if time.Since(lastUpdated) > 24*time.Hour {
+		if width > 0 && width < 6 {
+			return lastUpdated.Format("Jan02")
+		}
 		return lastUpdated.Format("Jan 02")
+	}
+	if width > 0 && width < 8 {
+		return lastUpdated.Format("15:04")
 	}
 	return lastUpdated.Format("15:04:05")
 }

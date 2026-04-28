@@ -56,6 +56,39 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 	}
 }
 
+func TestDashboardNarrowRowsShowStateAndUpdated(t *testing.T) {
+	updated := time.Date(2026, 4, 28, 10, 15, 0, 0, time.Local)
+	session := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/Users/example/repo/vibe-watch",
+		StartTime:   updated.Add(-10 * time.Minute),
+		LastUpdated: updated,
+		IsActive:    true,
+	}
+
+	dashboard := NewDashboardView(70, 24)
+	dashboard.SetSessions([]*models.Session{session}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	row := rows[0]
+	if got := row[6]; got == "" || strings.Contains(got, "\x1b") {
+		t.Fatalf("expected plain non-empty narrow state, got %q", got)
+	}
+	if got := row[7]; got == "" || strings.Contains(got, "\x1b") {
+		t.Fatalf("expected plain non-empty narrow updated time, got %q", got)
+	}
+	if got := row[6]; got != "live" {
+		t.Fatalf("expected compact active state, got %q", got)
+	}
+	if got := row[7]; got != "10:15" {
+		t.Fatalf("expected compact updated time, got %q", got)
+	}
+}
+
 func TestDashboardShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 	session := &models.Session{
 		AgentType:   models.AgentCopilot,
