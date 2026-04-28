@@ -109,6 +109,144 @@ func TestClaudeDetectorParsesJSONL(t *testing.T) {
 	}
 }
 
+func TestCodexDetectorParsesNestedJSONLSessions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".codex", "sessions", "2026", "04", "28")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	writeJSONL(t, filepath.Join(sessionDir, "rollout-2026-04-28T19-14-02-session.jsonl"), []map[string]interface{}{
+		{
+			"type":      "session_meta",
+			"timestamp": now.Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"id":  "codex-session",
+				"cwd": "/repo/other-project",
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": now.Add(time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type":       "task_started",
+				"turn_id":    "turn-1",
+				"started_at": now.Unix(),
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": now.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type":    "user_message",
+				"message": "build the feature",
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": now.Add(3 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "output_text", "text": "I will run tests"},
+				},
+			},
+		},
+		{
+			"type":      "response_item",
+			"timestamp": now.Add(4 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type":      "function_call",
+				"call_id":   "call-1",
+				"name":      "exec_command",
+				"arguments": `{"command":"go test ./..."}`,
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": now.Add(5 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type":      "exec_command_end",
+				"call_id":   "call-1",
+				"status":    "completed",
+				"exit_code": 0,
+				"command":   []string{"go", "test", "./..."},
+				"stdout":    "ok",
+				"turn_id":   "turn-1",
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": now.Add(6 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type": "token_count",
+				"info": map[string]interface{}{
+					"total_token_usage": map[string]interface{}{
+						"input_tokens":            100,
+						"cached_input_tokens":     20,
+						"output_tokens":           30,
+						"reasoning_output_tokens": 5,
+						"total_tokens":            155,
+					},
+				},
+			},
+		},
+		{
+			"type":      "event_msg",
+			"timestamp": now.Add(7 * time.Second).Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"type":                   "task_complete",
+				"turn_id":                "turn-1",
+				"duration_ms":            2500,
+				"time_to_first_token_ms": 120,
+				"last_agent_message":     "done",
+			},
+		},
+	})
+
+	sessions, err := agents.NewCodexDetector().Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	s := sessions[0]
+	if s.ID != "codex-session" {
+		t.Fatalf("expected session id from metadata, got %q", s.ID)
+	}
+	if s.ProjectPath != "/repo/other-project" {
+		t.Fatalf("expected cwd project path, got %q", s.ProjectPath)
+	}
+	if s.TotalTokens.InputTokens != 100 || s.TotalTokens.CacheReads != 20 || s.TotalTokens.OutputTokens != 30 {
+		t.Fatalf("expected cumulative token usage, got %#v", s.TotalTokens)
+	}
+	if len(s.Messages) != 6 {
+		t.Fatalf("expected session, user, assistant, tool, and completion rows, got %d: %#v", len(s.Messages), s.Messages)
+	}
+	if s.Messages[1].Role != "user" || s.Messages[1].Content != "build the feature" {
+		t.Fatalf("expected user message, got %#v", s.Messages[1])
+	}
+	if s.Messages[2].Role != "assistant" || s.Messages[2].Content != "I will run tests" {
+		t.Fatalf("expected assistant message, got %#v", s.Messages[2])
+	}
+	if s.Messages[3].Meta.Kind != models.ActivityKindTool ||
+		s.Messages[3].Meta.Lifecycle != models.ActivityLifecycleStarted ||
+		s.Messages[3].Meta.ID != "call-1" ||
+		s.Messages[3].Meta.Label != "exec_command" {
+		t.Fatalf("expected tool start metadata, got %#v", s.Messages[3])
+	}
+	if s.Messages[4].Meta.Kind != models.ActivityKindTool ||
+		s.Messages[4].Meta.Lifecycle != models.ActivityLifecycleCompleted ||
+		!strings.Contains(s.Messages[4].Content, "exit: 0") {
+		t.Fatalf("expected tool completion metadata, got %#v", s.Messages[4])
+	}
+}
+
 func TestCopilotDetectorParsesSessionState(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

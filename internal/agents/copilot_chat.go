@@ -162,7 +162,6 @@ func (c *CopilotChatDetector) Detect() ([]*models.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	workspaces = filterCopilotChatWorkspacesForCWD(workspaces)
 
 	var sessions []*models.Session
 	for _, workspace := range workspaces {
@@ -214,48 +213,6 @@ func discoverCopilotChatWorkspaces(workspaceStorageDir string) ([]copilotChatWor
 		})
 	}
 	return workspaces, nil
-}
-
-func filterCopilotChatWorkspacesForCWD(workspaces []copilotChatWorkspace) []copilotChatWorkspace {
-	cwd, err := os.Getwd()
-	if err != nil || cwd == "" {
-		return workspaces
-	}
-	if abs, err := filepath.Abs(cwd); err == nil {
-		cwd = abs
-	}
-
-	filtered := make([]copilotChatWorkspace, 0, len(workspaces))
-	for _, workspace := range workspaces {
-		if workspaceMatchesPath(workspace.ProjectPath, cwd) {
-			filtered = append(filtered, workspace)
-		}
-	}
-	if len(filtered) == 0 {
-		return workspaces
-	}
-	return filtered
-}
-
-func workspaceMatchesPath(workspacePath, path string) bool {
-	if workspacePath == "" || path == "" {
-		return false
-	}
-	workspacePath = filepath.Clean(workspacePath)
-	path = filepath.Clean(path)
-	if workspacePath == path {
-		return true
-	}
-	if !filepath.IsAbs(workspacePath) || !filepath.IsAbs(path) {
-		return false
-	}
-	if rel, err := filepath.Rel(workspacePath, path); err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-		return true
-	}
-	if rel, err := filepath.Rel(path, workspacePath); err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-		return true
-	}
-	return false
 }
 
 func readVSCodeWorkspacePath(path string) string {
