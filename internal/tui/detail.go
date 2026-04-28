@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
@@ -498,7 +499,7 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	icon := actionStateIcon(state)
 	role := timelineRoleLabel(start.Role)
 	prefix := threadPrefix(row, start.Role)
-	duration := actionLifecycleDuration(start, end, hasEnd)
+	duration := actionLifecycleDuration(start, end, hasEnd, time.Now())
 
 	summaryWidth := d.width - 35 - lipgloss.Width(duration)
 	if summaryWidth < 24 {
@@ -968,8 +969,17 @@ func actionLifecycleStartTime(start models.Message) string {
 	return "--:--:--"
 }
 
-func actionLifecycleDuration(start, end models.Message, hasEnd bool) string {
-	if !hasEnd || start.Timestamp.IsZero() || end.Timestamp.IsZero() || end.Timestamp.Before(start.Timestamp) {
+func actionLifecycleDuration(start, end models.Message, hasEnd bool, now time.Time) string {
+	if start.Timestamp.IsZero() {
+		return ""
+	}
+	if !hasEnd {
+		if now.IsZero() || now.Before(start.Timestamp) {
+			return ""
+		}
+		return models.FormatDuration(now.Sub(start.Timestamp))
+	}
+	if end.Timestamp.IsZero() || end.Timestamp.Before(start.Timestamp) {
 		return ""
 	}
 	return models.FormatDuration(end.Timestamp.Sub(start.Timestamp))

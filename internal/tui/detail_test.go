@@ -368,6 +368,15 @@ func TestDetailLifecycleRowShowsStartTimeWithDurationAtEnd(t *testing.T) {
 	}
 }
 
+func TestActionLifecycleDurationShowsElapsedForRunningActions(t *testing.T) {
+	startedAt := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	start := models.Message{Timestamp: startedAt}
+
+	if got := actionLifecycleDuration(start, models.Message{}, false, startedAt.Add(90*time.Second)); got != "1m30s" {
+		t.Fatalf("expected running lifecycle duration from start to now, got %q", got)
+	}
+}
+
 func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
