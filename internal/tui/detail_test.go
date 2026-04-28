@@ -150,15 +150,18 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 	if !strings.Contains(standard, "detail standard") || !strings.Contains(standard, "telemetry: resultLength:12") {
 		t.Fatalf("expected standard detail to show action detail, got:\n%s", standard)
 	}
+	if strings.Contains(standard, "12:00:") || !strings.Contains(standard, "time off") {
+		t.Fatalf("expected timestamps to be hidden by default, got:\n%s", standard)
+	}
 
 	detail.ToggleTimelineDetailLevel()
 	expanded := detail.View()
 	for _, want := range []string{
 		"detail expanded",
-		"role assistant · time 2026-04-28 12:00:01",
+		"role assistant",
 		"content assistant response",
 		"tokens total:500 input:0 output:200 cache-read:300 cache-write:0",
-		"state done · started 2026-04-28 12:00:02 · ended 2026-04-28 12:00:05 · duration 3s",
+		"state done · duration 3s",
 		"kind tool · lifecycle started · label bash · id tool-1 · parent prompt-1 · interaction turn-1",
 		"end Tool completed: bash · telemetry: resultLength:12",
 	} {
@@ -166,6 +169,22 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 			t.Fatalf("expected expanded detail to show %q, got:\n%s", want, expanded)
 		}
 	}
+	if strings.Contains(expanded, "2026-04-28 12:00:") || strings.Contains(expanded, "12:00:01") {
+		t.Fatalf("expected expanded detail to hide timestamps while timestamp toggle is off, got:\n%s", expanded)
+	}
+
+	detail.ToggleTimestamps()
+	expandedWithTime := detail.View()
+	for _, want := range []string{
+		"time on",
+		"role assistant · time 2026-04-28 12:00:01",
+		"state done · started 2026-04-28 12:00:02 · ended 2026-04-28 12:00:05 · duration 3s",
+	} {
+		if !strings.Contains(expandedWithTime, want) {
+			t.Fatalf("expected timestamp-enabled expanded detail to show %q, got:\n%s", want, expandedWithTime)
+		}
+	}
+	detail.ToggleTimestamps()
 
 	detail.ToggleTimelineDetailLevel()
 	compact := detail.View()
@@ -396,13 +415,16 @@ func TestDetailTimelineRendersNestedContainers(t *testing.T) {
 
 	view := detail.View()
 	for _, want := range []string{
-		"╰── --:--:--",
+		"╰──",
 		"bash · done",
 		"assistant activity",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected nested container marker %q, got:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "--:--:--") {
+		t.Fatalf("expected timestamps hidden by default in nested timeline, got:\n%s", view)
 	}
 }
 
@@ -481,6 +503,7 @@ func TestDetailLifecycleRowShowsStartTimeWithDurationAtEnd(t *testing.T) {
 		},
 	})
 
+	detail.ToggleTimestamps()
 	row := detail.renderActionGroupRow(detail.rows[1])
 	if !strings.Contains(row, "12:00:00") {
 		t.Fatalf("expected lifecycle row to show start time, got:\n%s", row)

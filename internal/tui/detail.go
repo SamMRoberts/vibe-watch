@@ -64,6 +64,7 @@ type DetailView struct {
 	follow           bool
 	userPausedFollow bool // tracks if user explicitly paused follow vs it being false for other reasons
 	detailLevel      timelineDetailLevel
+	showTimestamps   bool
 	width            int
 	height           int
 }
@@ -285,6 +286,12 @@ func (d *DetailView) ToggleTimelineDetailLevel() {
 	d.scrollSelectedRowIntoView()
 }
 
+func (d *DetailView) ToggleTimestamps() {
+	d.showTimestamps = !d.showTimestamps
+	d.renderContent()
+	d.scrollSelectedRowIntoView()
+}
+
 func (d *DetailView) timelineDetailLabel() string {
 	switch d.detailLevel {
 	case timelineDetailCompact:
@@ -294,6 +301,13 @@ func (d *DetailView) timelineDetailLabel() string {
 	default:
 		return "standard"
 	}
+}
+
+func (d *DetailView) timestampLabel() string {
+	if d.showTimestamps {
+		return "time on"
+	}
+	return "time off"
 }
 
 func (d *DetailView) allThreadsCollapsed() bool {
@@ -633,7 +647,7 @@ func (d *DetailView) timelineExpandedRowDetails(row activityRow) []string {
 func (d *DetailView) expandedMessageDetails(msg models.Message) []string {
 	details := make([]string, 0, 4)
 	meta := []string{"role " + msg.Role}
-	if !msg.Timestamp.IsZero() {
+	if d.showTimestamps && !msg.Timestamp.IsZero() {
 		meta = append(meta, "time "+msg.Timestamp.Format("2006-01-02 15:04:05"))
 	}
 	details = append(details, summarizeActivityContent(strings.Join(meta, " · "), d.width-24))
@@ -665,10 +679,10 @@ func (d *DetailView) expandedActionDetails(row activityRow) []string {
 	details := make([]string, 0, 5)
 
 	timing := []string{"state " + lowerStatusLabel(indicatorSpec(lifecycleIndicatorState(state)).Label)}
-	if !start.Timestamp.IsZero() {
+	if d.showTimestamps && !start.Timestamp.IsZero() {
 		timing = append(timing, "started "+start.Timestamp.Format("2006-01-02 15:04:05"))
 	}
-	if hasEnd && !end.Timestamp.IsZero() {
+	if d.showTimestamps && hasEnd && !end.Timestamp.IsZero() {
 		timing = append(timing, "ended "+end.Timestamp.Format("2006-01-02 15:04:05"))
 	}
 	if duration := actionLifecycleDuration(start, end, hasEnd, time.Now()); duration != "" {
@@ -778,10 +792,6 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 
 func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	msg := d.session.Messages[row.messageIndex]
-	ts := "--:--:--"
-	if !msg.Timestamp.IsZero() {
-		ts = msg.Timestamp.Format("15:04:05")
-	}
 	role := timelineRoleLabel(msg.Role)
 	if msg.Role == "user" && relatedAssistantCount(d.session.Messages, row.messageIndex) > 0 {
 		if d.collapsedThreads[row.messageIndex] {
@@ -803,29 +813,42 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	} else if tokenBadge != "" && d.detailLevel != timelineDetailCompact {
 		tokenBadge = "  " + tokenBadge
 	}
-	line := fmt.Sprintf(
-		"%s %-10s %-14s %s %s%s",
-		styleMuted.Render(ts),
-		leftTokenBadge,
-		role,
+	fields := make([]string, 0, 6)
+	if d.showTimestamps {
+		fields = append(fields, styleMuted.Render(d.messageTimestamp(msg)))
+	}
+	fields = append(fields,
+		fmt.Sprintf("%-10s", leftTokenBadge),
+		fmt.Sprintf("%-14s", role),
 		styleMuted.Render("│"),
-		styleMessageContent.Render(summary),
-		tokenBadge,
+		styleMessageContent.Render(summary)+tokenBadge,
 	)
+	line := strings.Join(fields, " ")
 	if msg.Role == "user" {
 		return styleUserMsg.Render(line)
 	}
 	return line
 }
 
+func (d *DetailView) messageTimestamp(msg models.Message) string {
+	if msg.Timestamp.IsZero() {
+		return "--:--:--"
+	}
+	return msg.Timestamp.Format("15:04:05")
+}
+
 func (d *DetailView) messageSummaryWidth() int {
+	timestampWidth := 0
+	if d.showTimestamps {
+		timestampWidth = 9
+	}
 	switch d.detailLevel {
 	case timelineDetailCompact:
-		return maxInt(18, d.width-72)
+		return maxInt(18, d.width-63-timestampWidth)
 	case timelineDetailExpanded:
-		return maxInt(32, d.width-36)
+		return maxInt(32, d.width-27-timestampWidth)
 	default:
-		return maxInt(24, d.width-46)
+		return maxInt(24, d.width-37-timestampWidth)
 	}
 }
 
@@ -859,9 +882,9 @@ func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %-8s %-14s %s %s",
+		"%s %s%-14s %s %s",
 		actionStateStyle(state).Render(icon),
-		styleMuted.Render(actionLifecycleStartTime(start)),
+		d.actionTimestampColumn(start),
 		role,
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
@@ -870,14 +893,25 @@ func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	return firstLine
 }
 
+func (d *DetailView) actionTimestampColumn(start models.Message) string {
+	if !d.showTimestamps {
+		return ""
+	}
+	return fmt.Sprintf("%-8s ", styleMuted.Render(actionLifecycleStartTime(start)))
+}
+
 func (d *DetailView) actionSummaryWidth(duration string) int {
+	timestampWidth := 0
+	if d.showTimestamps {
+		timestampWidth = 9
+	}
 	switch d.detailLevel {
 	case timelineDetailCompact:
-		return maxInt(18, d.width-60-lipgloss.Width(duration))
+		return maxInt(18, d.width-51-timestampWidth-lipgloss.Width(duration))
 	case timelineDetailExpanded:
-		return maxInt(32, d.width-28-lipgloss.Width(duration))
+		return maxInt(32, d.width-19-timestampWidth-lipgloss.Width(duration))
 	default:
-		return maxInt(24, d.width-35-lipgloss.Width(duration))
+		return maxInt(24, d.width-26-timestampWidth-lipgloss.Width(duration))
 	}
 }
 
@@ -1817,10 +1851,11 @@ func (d *DetailView) View() string {
 		followLabel = "follow"
 	}
 	footer := styleMuted.Render(fmt.Sprintf(
-		"  %d%%  row %s  detail %s  %s  ↑/↓ activity  [/ ] prompts  enter open  d detail  space collapse  f follow  esc back",
+		"  %d%%  row %s  detail %s  %s  %s  ↑/↓ activity  [/ ] prompts  enter open  d detail  t time  space collapse  f follow  esc back",
 		int(d.viewport.ScrollPercent()*100),
 		rowLabel,
 		d.timelineDetailLabel(),
+		d.timestampLabel(),
 		followLabel,
 	))
 

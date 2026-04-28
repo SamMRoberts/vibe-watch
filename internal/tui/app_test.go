@@ -372,6 +372,35 @@ func TestDetailLevelKeyCyclesTimelineDetail(t *testing.T) {
 	}
 }
 
+func TestTimestampKeyTogglesSessionDetailTimestamps(t *testing.T) {
+	ts := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt", Timestamp: ts},
+			{Role: "assistant", Content: "activity", Timestamp: ts.Add(time.Second)},
+		},
+	})
+	if view := app.detail.View(); strings.Contains(view, "12:00:") || !strings.Contains(view, "time off") {
+		t.Fatalf("expected timestamps hidden by default, got:\n%s", view)
+	}
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	updated := model.(*App)
+	if view := updated.detail.View(); !strings.Contains(view, "12:00:00") || !strings.Contains(view, "time on") {
+		t.Fatalf("expected t to show timestamps, got:\n%s", view)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	updated = model.(*App)
+	if view := updated.detail.View(); strings.Contains(view, "12:00:") || !strings.Contains(view, "time off") {
+		t.Fatalf("expected second t press to hide timestamps, got:\n%s", view)
+	}
+}
+
 func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	app := &App{
 		view:   viewPromptDetail,
