@@ -48,7 +48,7 @@ func NewDashboardView(width, height int) *DashboardView {
 		Bold(true).
 		Foreground(colorGlow)
 	s.Selected = s.Selected.
-		Foreground(colorText).
+		Foreground(colorBackground).
 		Background(colorPrimary).
 		Bold(true)
 	t.SetStyles(s)

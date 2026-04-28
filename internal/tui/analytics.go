@@ -95,7 +95,7 @@ func (a *AnalyticsView) View() string {
 		sb.WriteString(fmt.Sprintf("  %s %s%s  %s  %s\n",
 			label,
 			sty.Render(filledBar),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#444")).Render(emptyBar),
+			lipgloss.NewStyle().Foreground(colorSubtle).Render(emptyBar),
 			styleText(fmt.Sprintf("%d sessions", count)),
 			styleWarning.Render(fmt.Sprintf("$%.4f", agentCosts[agentName])),
 		))
@@ -170,7 +170,7 @@ func (a *AnalyticsView) View() string {
 		sb.WriteString(fmt.Sprintf("  %s %s%s  %.1f%%  %s\n",
 			label,
 			sty.Render(bar),
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#444")).Render(emptyBar),
+			lipgloss.NewStyle().Foreground(colorSubtle).Render(emptyBar),
 			pct,
 			styleText(fmt.Sprintf("%d tokens", tok)),
 		))

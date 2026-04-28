@@ -7,23 +7,23 @@ import (
 )
 
 var (
-	colorBackground = lipgloss.Color("#101426")
-	colorSurface    = lipgloss.Color("#1a2040")
-	colorSurfaceAlt = lipgloss.Color("#222a52")
-	colorPrimary    = lipgloss.Color("#7c3aed")
-	colorSecondary  = lipgloss.Color("#06b6d4")
-	colorAccent     = lipgloss.Color("#f43f5e")
-	colorGlow       = lipgloss.Color("#facc15")
-	colorText       = lipgloss.Color("#f8fafc")
-	colorMuted      = lipgloss.Color("#94a3b8")
-	colorSubtle     = lipgloss.Color("#475569")
-	colorSuccess    = lipgloss.Color("#22c55e")
-	colorWarning    = lipgloss.Color("#f59e0b")
-	colorError      = lipgloss.Color("#ef4444")
-	colorClaude     = lipgloss.Color("#ff8a65")
-	colorCodex      = lipgloss.Color("#34d399")
-	colorCopilot    = lipgloss.Color("#a78bfa")
-	colorAmazonQ    = lipgloss.Color("#fb923c")
+	colorBackground = lipgloss.Color("#071311")
+	colorSurface    = lipgloss.Color("#10201d")
+	colorSurfaceAlt = lipgloss.Color("#19332e")
+	colorPrimary    = lipgloss.Color("#2dd4bf")
+	colorSecondary  = lipgloss.Color("#f97316")
+	colorAccent     = lipgloss.Color("#e11d48")
+	colorGlow       = lipgloss.Color("#f4d35e")
+	colorText       = lipgloss.Color("#f7fee7")
+	colorMuted      = lipgloss.Color("#9fb8ad")
+	colorSubtle     = lipgloss.Color("#41645a")
+	colorSuccess    = lipgloss.Color("#84cc16")
+	colorWarning    = lipgloss.Color("#fbbf24")
+	colorError      = lipgloss.Color("#fb7185")
+	colorClaude     = lipgloss.Color("#ff9f6e")
+	colorCodex      = lipgloss.Color("#38bdf8")
+	colorCopilot    = lipgloss.Color("#c084fc")
+	colorAmazonQ    = lipgloss.Color("#facc15")
 )
 
 var (
@@ -44,7 +44,7 @@ var (
 
 	styleSelected = lipgloss.NewStyle().
 			Background(colorPrimary).
-			Foreground(colorText).
+			Foreground(colorBackground).
 			Bold(true)
 
 	styleBorder = lipgloss.NewStyle().
@@ -89,7 +89,7 @@ var (
 
 	styleActiveTab = lipgloss.NewStyle().
 			Background(colorPrimary).
-			Foreground(colorText).
+			Foreground(colorBackground).
 			Bold(true).
 			Padding(0, 2).
 			MarginRight(1)
