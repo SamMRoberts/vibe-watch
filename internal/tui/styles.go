@@ -1,27 +1,35 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 var (
-	colorBackground = lipgloss.Color("#1a1a2e")
-	colorSurface    = lipgloss.Color("#16213e")
-	colorPrimary    = lipgloss.Color("#0f3460")
-	colorAccent     = lipgloss.Color("#e94560")
-	colorText       = lipgloss.Color("#eaeaea")
-	colorMuted      = lipgloss.Color("#888888")
-	colorSuccess    = lipgloss.Color("#4caf50")
-	colorWarning    = lipgloss.Color("#ff9800")
-	colorError      = lipgloss.Color("#f44336")
-	colorClaude     = lipgloss.Color("#cc785c")
-	colorCodex      = lipgloss.Color("#74aa9c")
-	colorCopilot    = lipgloss.Color("#6e40c9")
-	colorAmazonQ    = lipgloss.Color("#ff9900")
+	colorBackground = lipgloss.Color("#101426")
+	colorSurface    = lipgloss.Color("#1a2040")
+	colorSurfaceAlt = lipgloss.Color("#222a52")
+	colorPrimary    = lipgloss.Color("#7c3aed")
+	colorSecondary  = lipgloss.Color("#06b6d4")
+	colorAccent     = lipgloss.Color("#f43f5e")
+	colorGlow       = lipgloss.Color("#facc15")
+	colorText       = lipgloss.Color("#f8fafc")
+	colorMuted      = lipgloss.Color("#94a3b8")
+	colorSubtle     = lipgloss.Color("#475569")
+	colorSuccess    = lipgloss.Color("#22c55e")
+	colorWarning    = lipgloss.Color("#f59e0b")
+	colorError      = lipgloss.Color("#ef4444")
+	colorClaude     = lipgloss.Color("#ff8a65")
+	colorCodex      = lipgloss.Color("#34d399")
+	colorCopilot    = lipgloss.Color("#a78bfa")
+	colorAmazonQ    = lipgloss.Color("#fb923c")
 )
 
 var (
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorAccent).
+			Foreground(colorGlow).
 			PaddingLeft(1)
 
 	styleSubtitle = lipgloss.NewStyle().
@@ -29,7 +37,7 @@ var (
 			PaddingLeft(1)
 
 	styleHeader = lipgloss.NewStyle().
-			Background(colorPrimary).
+			Background(colorSurface).
 			Foreground(colorText).
 			Bold(true).
 			Padding(0, 1)
@@ -44,9 +52,19 @@ var (
 			BorderForeground(colorPrimary)
 
 	styleCard = lipgloss.NewStyle().
+			Background(colorSurface).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorPrimary).
 			Padding(0, 1)
+
+	stylePanel = lipgloss.NewStyle().
+			Background(colorSurface).
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(colorSecondary).
+			Padding(1, 2)
+
+	styleDivider = lipgloss.NewStyle().
+			Foreground(colorSubtle)
 
 	styleMuted = lipgloss.NewStyle().
 			Foreground(colorMuted)
@@ -66,14 +84,15 @@ var (
 
 	styleTab = lipgloss.NewStyle().
 			Foreground(colorMuted).
-			Padding(0, 2)
+			Padding(0, 2).
+			MarginRight(1)
 
 	styleActiveTab = lipgloss.NewStyle().
-			Foreground(colorAccent).
+			Background(colorPrimary).
+			Foreground(colorText).
 			Bold(true).
 			Padding(0, 2).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(colorAccent)
+			MarginRight(1)
 
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted).
@@ -84,8 +103,8 @@ var (
 			Bold(true)
 
 	styleAssistantMsg = lipgloss.NewStyle().
-			Foreground(colorClaude).
-			Bold(true)
+				Foreground(colorClaude).
+				Bold(true)
 
 	styleMessageContent = lipgloss.NewStyle().
 				Foreground(colorText)
@@ -103,4 +122,62 @@ func agentStyle(agent string) lipgloss.Style {
 		return s
 	}
 	return lipgloss.NewStyle().Foreground(colorText)
+}
+
+func agentBadge(agent string) string {
+	sty := agentStyle(agent).
+		Background(colorSurfaceAlt).
+		Padding(0, 1)
+	return sty.Render(agentIcon(agent) + " " + agent)
+}
+
+func agentIcon(agent string) string {
+	switch agent {
+	case "Claude Code":
+		return "✹"
+	case "Codex CLI":
+		return "◆"
+	case "Copilot CLI":
+		return "◈"
+	case "Amazon Q":
+		return "⬢"
+	default:
+		return "●"
+	}
+}
+
+func metricCard(label, value, icon string, valueStyle lipgloss.Style) string {
+	return styleCard.Width(20).Render(
+		styleMuted.Render(icon+" "+label) + "\n" +
+			valueStyle.Render(value),
+	)
+}
+
+func statusPill(active bool) string {
+	if active {
+		return lipgloss.NewStyle().
+			Background(colorSuccess).
+			Foreground(colorBackground).
+			Bold(true).
+			Padding(0, 1).
+			Render("● ACTIVE")
+	}
+	return lipgloss.NewStyle().
+		Background(colorSurfaceAlt).
+		Foreground(colorMuted).
+		Padding(0, 1).
+		Render("○ IDLE")
+}
+
+func styleGlowCursor() string {
+	return lipgloss.NewStyle().
+		Foreground(colorGlow).
+		Render("█")
+}
+
+func divider(width int) string {
+	if width < 3 {
+		width = 3
+	}
+	return styleDivider.Render(strings.Repeat("━", width))
 }

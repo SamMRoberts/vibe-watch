@@ -10,6 +10,9 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
+// maxAnalyticsSectionWidth keeps chart dividers comfortably within standard 80-column terminals.
+const maxAnalyticsSectionWidth = 74
+
 type AnalyticsView struct {
 	sessions []*models.Session
 	width    int
@@ -37,7 +40,7 @@ func (a *AnalyticsView) View() string {
 			Width(a.width - 4).
 			Height(a.height - 6).
 			Align(lipgloss.Center).
-			Render(styleMuted.Render("No data yet.\n\nStart using agentic coding tools to see analytics."))
+			Render(styleMuted.Render("No data yet.\n\n✦ Start using agentic coding tools to see analytics."))
 	}
 
 	// Aggregate by agent
@@ -62,7 +65,8 @@ func (a *AnalyticsView) View() string {
 	}
 
 	// Sessions by agent bar chart
-	sb.WriteString(styleAccent.Render("Sessions by Agent") + "\n\n")
+	sb.WriteString(styleAccent.Render("╭─ Sessions by Agent") + "\n")
+	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
 
 	agentNames := []string{"Claude Code", "Codex CLI", "Copilot CLI", "Amazon Q"}
 	maxCount := 0
@@ -86,13 +90,14 @@ func (a *AnalyticsView) View() string {
 		filledBar := strings.Repeat("█", barLen)
 		emptyBar := strings.Repeat("░", barWidth-barLen)
 		sty := agentStyle(agentName)
+		label := lipgloss.NewStyle().Width(22).Render(agentBadge(agentName))
 
-		sb.WriteString(fmt.Sprintf("  %-12s %s%s %d sessions, $%.4f\n",
-			sty.Render(agentName),
+		sb.WriteString(fmt.Sprintf("  %s %s%s  %s  %s\n",
+			label,
 			sty.Render(filledBar),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#444")).Render(emptyBar),
-			count,
-			agentCosts[agentName],
+			styleText(fmt.Sprintf("%d sessions", count)),
+			styleWarning.Render(fmt.Sprintf("$%.4f", agentCosts[agentName])),
 		))
 	}
 
@@ -100,25 +105,17 @@ func (a *AnalyticsView) View() string {
 
 	// Summary stats
 	statsRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		styleCard.Width(24).Render(
-			styleMuted.Render("Total Sessions")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", len(a.sessions))),
-		),
+		metricCard("Total Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent),
 		"  ",
-		styleCard.Width(24).Render(
-			styleMuted.Render("Total Tokens")+"\n"+
-				styleAccent.Render(fmt.Sprintf("%d", totalTokens)),
-		),
+		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
 		"  ",
-		styleCard.Width(24).Render(
-			styleMuted.Render("Total Cost")+"\n"+
-				styleWarning.Render(fmt.Sprintf("$%.4f", totalCost)),
-		),
+		metricCard("Total Cost", fmt.Sprintf("$%.4f", totalCost), "◉", styleWarning),
 	)
 	sb.WriteString(statsRow + "\n\n")
 
 	// Top projects
-	sb.WriteString(styleAccent.Render("Most Active Projects") + "\n\n")
+	sb.WriteString(styleAccent.Render("╭─ Most Active Projects") + "\n")
+	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
 
 	type projEntry struct {
 		name  string
@@ -139,17 +136,20 @@ func (a *AnalyticsView) View() string {
 		if len(name) > 40 {
 			name = "..." + name[len(name)-37:]
 		}
-		sb.WriteString(fmt.Sprintf("  %2d. %-42s %d sessions\n",
-			i+1,
-			styleText(name),
-			p.count,
+		rank := styleAccent.Render(fmt.Sprintf("%2d", i+1))
+		projectName := lipgloss.NewStyle().Width(42).Render(styleText(name))
+		sb.WriteString(fmt.Sprintf("  %s  %s %s\n",
+			rank,
+			projectName,
+			styleMuted.Render(fmt.Sprintf("%d sessions", p.count)),
 		))
 	}
 
 	sb.WriteString("\n")
 
 	// Token breakdown
-	sb.WriteString(styleAccent.Render("Token Usage by Agent") + "\n\n")
+	sb.WriteString(styleAccent.Render("╭─ Token Usage by Agent") + "\n")
+	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
 	for _, agentName := range agentNames {
 		tok := agentTokens[agentName]
 		if tok == 0 {
@@ -165,13 +165,23 @@ func (a *AnalyticsView) View() string {
 			barLen = barWidth
 		}
 		bar := strings.Repeat("█", barLen)
-		sb.WriteString(fmt.Sprintf("  %-12s %s %.1f%% (%d tokens)\n",
-			sty.Render(agentName),
+		emptyBar := strings.Repeat("░", barWidth-barLen)
+		label := lipgloss.NewStyle().Width(22).Render(agentBadge(agentName))
+		sb.WriteString(fmt.Sprintf("  %s %s%s  %.1f%%  %s\n",
+			label,
 			sty.Render(bar),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#444")).Render(emptyBar),
 			pct,
-			tok,
+			styleText(fmt.Sprintf("%d tokens", tok)),
 		))
 	}
 
 	return sb.String()
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
