@@ -108,6 +108,123 @@ func TestClaudeDetectorParsesJSONL(t *testing.T) {
 	}
 }
 
+func TestCopilotDetectorParsesSessionState(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "session-123")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-123
+cwd: /tmp/project
+git_root: /tmp/project
+summary: Test Project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "user.message",
+			"timestamp": "2026-04-14T21:07:48.374Z",
+			"data": map[string]interface{}{
+				"content": "hello copilot",
+			},
+		},
+		{
+			"type":      "assistant.message",
+			"timestamp": "2026-04-14T21:07:54.053Z",
+			"data": map[string]interface{}{
+				"content":      "hello human",
+				"outputTokens": 12,
+			},
+		},
+		{
+			"type":      "session.shutdown",
+			"timestamp": "2026-04-14T21:17:34.021Z",
+			"data": map[string]interface{}{
+				"modelMetrics": map[string]interface{}{
+					"claude-sonnet-4.6": map[string]interface{}{
+						"requests": map[string]interface{}{
+							"cost": 0.0123,
+						},
+						"usage": map[string]interface{}{
+							"inputTokens":      100,
+							"outputTokens":     50,
+							"cacheReadTokens":  20,
+							"cacheWriteTokens": 10,
+						},
+					},
+				},
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	s := sessions[0]
+	if s.ID != "session-123" {
+		t.Errorf("expected session ID from workspace, got %q", s.ID)
+	}
+	if s.AgentType != models.AgentCopilot {
+		t.Errorf("expected AgentCopilot, got %q", s.AgentType)
+	}
+	if s.ProjectPath != "/tmp/project" {
+		t.Errorf("expected project path from git_root, got %q", s.ProjectPath)
+	}
+	if len(s.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(s.Messages))
+	}
+	if s.Messages[0].Role != "user" || s.Messages[0].Content != "hello copilot" {
+		t.Errorf("unexpected user message: %#v", s.Messages[0])
+	}
+	if s.Messages[1].Role != "assistant" || s.Messages[1].Content != "hello human" {
+		t.Errorf("unexpected assistant message: %#v", s.Messages[1])
+	}
+	if s.TotalTokens.InputTokens != 100 {
+		t.Errorf("expected 100 input tokens, got %d", s.TotalTokens.InputTokens)
+	}
+	if s.TotalTokens.OutputTokens != 50 {
+		t.Errorf("expected 50 output tokens, got %d", s.TotalTokens.OutputTokens)
+	}
+	if s.TotalTokens.CacheReads != 20 {
+		t.Errorf("expected 20 cache reads, got %d", s.TotalTokens.CacheReads)
+	}
+	if s.TotalTokens.CacheWrites != 10 {
+		t.Errorf("expected 10 cache writes, got %d", s.TotalTokens.CacheWrites)
+	}
+	if s.CostUSD != 0.0123 {
+		t.Errorf("expected cost 0.0123, got %f", s.CostUSD)
+	}
+}
+
+func TestCopilotDetectorNonExistentDir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
 func TestRegistryDetectAll(t *testing.T) {
 	// Ensure none of the detectors panic on an empty home dir
 	tmp := t.TempDir()
