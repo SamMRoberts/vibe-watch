@@ -467,17 +467,19 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 	if summary == "" {
 		summary = "(empty)"
 	}
+	leftTokenBadge := ""
 	tokenBadge := timelineTokenBadge(msg.Tokens)
 	if msg.Role == "user" {
-		tokenBadge = d.threadTokenBadge(row.messageIndex)
-	}
-	if tokenBadge != "" {
+		leftTokenBadge = d.threadTokenBadge(row.messageIndex)
+		tokenBadge = ""
+	} else if tokenBadge != "" {
 		tokenBadge = "  " + tokenBadge
 	}
 	line := fmt.Sprintf(
-		"%s %s %s %-14s %s %s%s",
+		"%s %s %-10s %s %-14s %s %s%s",
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		styleMuted.Render(ts),
+		leftTokenBadge,
 		prefix,
 		role,
 		styleMuted.Render("│"),
@@ -1050,7 +1052,7 @@ func timelineTokenBadge(tokens models.TokenUsage) string {
 }
 
 type tokenLoadSpec struct {
-	Label string
+	Level string
 	Icon  string
 	Style lipgloss.Style
 }
@@ -1069,7 +1071,7 @@ func (d *DetailView) threadTokenBadge(userIndex int) string {
 		return ""
 	}
 	spec := tokenLoadIndicator(total)
-	return spec.Style.Render(fmt.Sprintf("%s tok %s %s", spec.Icon, spec.Label, compactInt(total)))
+	return spec.Style.Render(fmt.Sprintf("%s %s", spec.Icon, compactInt(total)))
 }
 
 func threadTokenUsage(messages []models.Message, userIndex int) models.TokenUsage {
@@ -1094,13 +1096,13 @@ func tokenUsageTotal(tokens models.TokenUsage) int {
 func tokenLoadIndicator(total int) tokenLoadSpec {
 	switch {
 	case total >= 60_000:
-		return tokenLoadSpec{"way high", "⚠", styleError}
+		return tokenLoadSpec{"critical", "⚠", styleError}
 	case total >= 30_000:
-		return tokenLoadSpec{"high", "◆", lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)}
+		return tokenLoadSpec{"elevated", "◆", lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)}
 	case total >= 10_000:
-		return tokenLoadSpec{"kinda high", "◐", styleWarning}
+		return tokenLoadSpec{"moderate", "◐", styleWarning}
 	default:
-		return tokenLoadSpec{"efficient", "◌", styleSuccess}
+		return tokenLoadSpec{"optimal", "◌", styleSuccess}
 	}
 }
 

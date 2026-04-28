@@ -144,14 +144,20 @@ func TestDetailUserRowsShowThreadTokenLoadIndicators(t *testing.T) {
 
 	view := detail.View()
 	for _, want := range []string{
-		"tok efficient 3.0k",
-		"tok kinda high 15.0k",
-		"tok high 40.0k",
-		"tok way high 70.0k",
+		"◌ 3.0k",
+		"◐ 15.0k",
+		"◆ 40.0k",
+		"⚠ 70.0k",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected thread token indicator %q, got:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "tok ") ||
+		strings.Contains(view, "efficient") ||
+		strings.Contains(view, "kinda high") ||
+		strings.Contains(view, "way high") {
+		t.Fatalf("expected minimal icon + number token indicators without old labels, got:\n%s", view)
 	}
 }
 
@@ -165,17 +171,17 @@ func TestThreadTokenUsageIncludesCacheTokens(t *testing.T) {
 	if got := tokenUsageTotal(tokens); got != 1_000 {
 		t.Fatalf("expected thread token total to include cache reads/writes, got %d", got)
 	}
-	if spec := tokenLoadIndicator(9_999); spec.Label != "efficient" {
-		t.Fatalf("expected efficient indicator below 10k, got %#v", spec)
+	if spec := tokenLoadIndicator(9_999); spec.Level != "optimal" {
+		t.Fatalf("expected optimal indicator below 10k, got %#v", spec)
 	}
-	if spec := tokenLoadIndicator(10_000); spec.Label != "kinda high" {
-		t.Fatalf("expected kinda high indicator at 10k, got %#v", spec)
+	if spec := tokenLoadIndicator(10_000); spec.Level != "moderate" {
+		t.Fatalf("expected moderate indicator at 10k, got %#v", spec)
 	}
-	if spec := tokenLoadIndicator(30_000); spec.Label != "high" {
-		t.Fatalf("expected high indicator at 30k, got %#v", spec)
+	if spec := tokenLoadIndicator(30_000); spec.Level != "elevated" {
+		t.Fatalf("expected elevated indicator at 30k, got %#v", spec)
 	}
-	if spec := tokenLoadIndicator(60_000); spec.Label != "way high" {
-		t.Fatalf("expected way high indicator at 60k, got %#v", spec)
+	if spec := tokenLoadIndicator(60_000); spec.Level != "critical" {
+		t.Fatalf("expected critical indicator at 60k, got %#v", spec)
 	}
 }
 
