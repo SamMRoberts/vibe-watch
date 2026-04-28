@@ -771,6 +771,32 @@ func TestDetailHeaderShowsStatusIndicatorsAndLifecycleCounts(t *testing.T) {
 	}
 }
 
+func TestDetailHeaderUsesCompactMetricRow(t *testing.T) {
+	detail := NewDetailView(140, 40)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity"},
+		},
+		TotalTokens: models.TokenUsage{InputTokens: 1200, OutputTokens: 300, CacheReads: 40},
+	})
+
+	view := detail.View()
+	for _, want := range []string{"☷ Messages:", "↘ Input:", "↗ Output:", "◌ Cache:"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected compact metric chip %q, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "│ ☷ Messages") || strings.Contains(view, "│ ↘ Input") {
+		t.Fatalf("expected detail metrics to render as compact chips instead of cards, got:\n%s", view)
+	}
+	if status := detail.FooterStatus(); !strings.Contains(status, "live") {
+		t.Fatalf("expected active following footer status to say live, got %q", status)
+	}
+}
+
 func TestInactiveSessionWithFailedActivityRemainsIdle(t *testing.T) {
 	detail := NewDetailView(140, 80)
 	detail.SetSession(&models.Session{

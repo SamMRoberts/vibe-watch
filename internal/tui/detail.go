@@ -74,7 +74,7 @@ func NewDetailView(width, height int) *DetailView {
 	vp := viewport.New(width-4, height-8)
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(colorSubtle).
 		Padding(0, 1)
 	return &DetailView{
 		viewport:         vp,
@@ -1162,7 +1162,7 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 		startStr = s.StartTime.Format("2006-01-02 15:04:05")
 	}
 
-	summaryCards := detailSummaryMetrics(s, d.width)
+	summaryMetrics := detailSummaryMetrics(s, d.width)
 
 	statusLine := lipgloss.JoinHorizontal(lipgloss.Top,
 		detailStatusLine(s, d.follow),
@@ -1173,43 +1173,24 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 	)
 
 	return title + "\n" +
-		statusLine + "\n\n" +
-		summaryCards + "\n" +
-		divider(d.width-6)
+		statusLine + "\n" +
+		summaryMetrics + "\n" +
+		thinDivider(d.width-6)
 }
 
 func detailSummaryMetrics(s *models.Session, width int) string {
+	metrics := []string{
+		metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
+		metricChip("Input", detailInputTokens(s), "↘", styleAccent),
+		metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
+		metricChip("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent),
+	}
 	if width < 72 {
-		first := lipgloss.JoinHorizontal(lipgloss.Top,
-			metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
-			" ",
-			metricChip("Input", detailInputTokens(s), "↘", styleAccent),
-		)
-		second := lipgloss.JoinHorizontal(lipgloss.Top,
-			metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
-			" ",
-			metricChip("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent),
-		)
+		first := lipgloss.JoinHorizontal(lipgloss.Top, metrics[0], " ", metrics[1])
+		second := lipgloss.JoinHorizontal(lipgloss.Top, metrics[2], " ", metrics[3])
 		return first + "\n" + second
 	}
-
-	available := width - 6
-	cardWidth := (available - 3) / 4
-	if cardWidth < 12 {
-		cardWidth = 12
-	}
-	if cardWidth > 20 {
-		cardWidth = 20
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCardWidth("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent, cardWidth),
-		" ",
-		metricCardWidth("Input", detailInputTokens(s), "↘", styleAccent, cardWidth),
-		" ",
-		metricCardWidth("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent, cardWidth),
-		" ",
-		metricCardWidth("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent, cardWidth),
-	)
+	return lipgloss.JoinHorizontal(lipgloss.Top, metrics[0], " ", metrics[1], " ", metrics[2], " ", metrics[3])
 }
 
 func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.TokenUsage) string {
@@ -1230,9 +1211,9 @@ func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.T
 	)
 
 	return header + "\n" +
-		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
+		styleMuted.Render(d.session.ProjectPath) + "\n" +
 		tokenPanel + "\n" +
-		divider(d.width-6)
+		thinDivider(d.width-6)
 }
 
 func (d *DetailView) eventHeader(index int, msg models.Message) string {
@@ -1253,9 +1234,9 @@ func (d *DetailView) eventHeader(index int, msg models.Message) string {
 		metricChip("Cache", detailCacheTokens(msg.Tokens), "◌", styleAccent),
 	)
 	return header + "\n" +
-		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
+		styleMuted.Render(d.session.ProjectPath) + "\n" +
 		tokenPanel + "\n" +
-		divider(d.width-6)
+		thinDivider(d.width-6)
 }
 
 func detailStatusLine(session *models.Session, follow bool) string {
@@ -2073,7 +2054,7 @@ func (d *DetailView) FooterStatus() string {
 	}
 	followLabel := "paused"
 	if d.follow {
-		followLabel = "follow"
+		followLabel = "live"
 	}
 	parts := []string{
 		fmt.Sprintf("%d%%", int(d.viewport.ScrollPercent()*100)),
