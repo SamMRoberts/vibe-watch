@@ -35,54 +35,50 @@ type copilotEvent struct {
 }
 
 type copilotMessageData struct {
-	Content               string                 `json:"content"`
-	TransformedContent    string                 `json:"transformedContent"`
-	OutputTokens          int                    `json:"outputTokens"`
-	ToolRequests          []copilotToolRequest   `json:"toolRequests"`
-	ModelMetrics          map[string]modelMetric `json:"modelMetrics"`
-	CurrentModel          string                 `json:"currentModel"`
-	CurrentTokens         int                    `json:"currentTokens"`
-	SystemTokens          int                    `json:"systemTokens"`
-	ConversationTokens    int                    `json:"conversationTokens"`
-	ToolDefinitionsTokens int                    `json:"toolDefinitionsTokens"`
-	TotalApiDurationMs    int                    `json:"totalApiDurationMs"`
-	TotalPremiumRequests  int                    `json:"totalPremiumRequests"`
-	ShutdownType          string                 `json:"shutdownType"`
-	ToolCallID            string                 `json:"toolCallId"`
-	ParentToolCallID      string                 `json:"parentToolCallId"`
-	ToolName              string                 `json:"toolName"`
-	MCPServerName         string                 `json:"mcpServerName"`
-	MCPToolName           string                 `json:"mcpToolName"`
-	Success               *bool                  `json:"success"`
-	Error                 json.RawMessage        `json:"error"`
-	Model                 string                 `json:"model"`
-	ToolTelemetry         map[string]any         `json:"toolTelemetry"`
-	AgentName             string                 `json:"agentName"`
-	AgentDisplayName      string                 `json:"agentDisplayName"`
-	DurationMs            int                    `json:"durationMs"`
-	TotalTokens           int                    `json:"totalTokens"`
-	TotalToolCalls        int                    `json:"totalToolCalls"`
-	NewModel              string                 `json:"newModel"`
-	PreviousModel         string                 `json:"previousModel"`
-	NewMode               string                 `json:"newMode"`
-	PreviousMode          string                 `json:"previousMode"`
-	ReasoningEffort       string                 `json:"reasoningEffort"`
-	Operation             string                 `json:"operation"`
-	InfoType              string                 `json:"infoType"`
-	Message               string                 `json:"message"`
-	Summary               string                 `json:"summary"`
-	ErrorType             string                 `json:"errorType"`
-	Reason                string                 `json:"reason"`
-	Name                  string                 `json:"name"`
-	CodeChanges           copilotCodeChanges     `json:"codeChanges"`
-	CheckpointNumber      int                    `json:"checkpointNumber"`
-	PreCompactionTokens   int                    `json:"preCompactionTokens"`
-	CompactionTokensUsed  struct {
-		Input       int `json:"input"`
-		Output      int `json:"output"`
-		CachedInput int `json:"cachedInput"`
-	} `json:"compactionTokensUsed"`
-	Context struct {
+	Content               string                  `json:"content"`
+	TransformedContent    string                  `json:"transformedContent"`
+	OutputTokens          int                     `json:"outputTokens"`
+	ToolRequests          []copilotToolRequest    `json:"toolRequests"`
+	ModelMetrics          map[string]modelMetric  `json:"modelMetrics"`
+	CurrentModel          string                  `json:"currentModel"`
+	CurrentTokens         int                     `json:"currentTokens"`
+	SystemTokens          int                     `json:"systemTokens"`
+	ConversationTokens    int                     `json:"conversationTokens"`
+	ToolDefinitionsTokens int                     `json:"toolDefinitionsTokens"`
+	TotalApiDurationMs    int                     `json:"totalApiDurationMs"`
+	TotalPremiumRequests  int                     `json:"totalPremiumRequests"`
+	ShutdownType          string                  `json:"shutdownType"`
+	ToolCallID            string                  `json:"toolCallId"`
+	ParentToolCallID      string                  `json:"parentToolCallId"`
+	ToolName              string                  `json:"toolName"`
+	MCPServerName         string                  `json:"mcpServerName"`
+	MCPToolName           string                  `json:"mcpToolName"`
+	Success               *bool                   `json:"success"`
+	Error                 json.RawMessage         `json:"error"`
+	Model                 string                  `json:"model"`
+	ToolTelemetry         map[string]any          `json:"toolTelemetry"`
+	AgentName             string                  `json:"agentName"`
+	AgentDisplayName      string                  `json:"agentDisplayName"`
+	DurationMs            int                     `json:"durationMs"`
+	TotalTokens           int                     `json:"totalTokens"`
+	TotalToolCalls        int                     `json:"totalToolCalls"`
+	NewModel              string                  `json:"newModel"`
+	PreviousModel         string                  `json:"previousModel"`
+	NewMode               string                  `json:"newMode"`
+	PreviousMode          string                  `json:"previousMode"`
+	ReasoningEffort       string                  `json:"reasoningEffort"`
+	Operation             string                  `json:"operation"`
+	InfoType              string                  `json:"infoType"`
+	Message               string                  `json:"message"`
+	Summary               string                  `json:"summary"`
+	ErrorType             string                  `json:"errorType"`
+	Reason                string                  `json:"reason"`
+	Name                  string                  `json:"name"`
+	CodeChanges           copilotCodeChanges      `json:"codeChanges"`
+	CheckpointNumber      int                     `json:"checkpointNumber"`
+	PreCompactionTokens   int                     `json:"preCompactionTokens"`
+	CompactionTokensUsed  copilotCompactionTokens `json:"compactionTokensUsed"`
+	Context               struct {
 		CWD        string `json:"cwd"`
 		GitRoot    string `json:"gitRoot"`
 		Repository string `json:"repository"`
@@ -103,6 +99,20 @@ type copilotCodeChanges struct {
 	LinesAdded    int      `json:"linesAdded"`
 	LinesRemoved  int      `json:"linesRemoved"`
 	FilesModified []string `json:"filesModified"`
+}
+
+type copilotCompactionTokens struct {
+	InputTokens      int    `json:"inputTokens"`
+	OutputTokens     int    `json:"outputTokens"`
+	CacheReadTokens  int    `json:"cacheReadTokens"`
+	CacheWriteTokens int    `json:"cacheWriteTokens"`
+	Duration         int    `json:"duration"`
+	Model            string `json:"model"`
+
+	// Older inspected logs used shorter names; keep these as a fallback.
+	Input       int `json:"input"`
+	Output      int `json:"output"`
+	CachedInput int `json:"cachedInput"`
 }
 
 type modelMetric struct {
@@ -250,6 +260,14 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 			applyCopilotMetrics(session, data)
 			if activity, ok := copilotActivityMessage(event.Type, data, toolNames); ok {
 				activity.Timestamp = timestamp
+				session.Messages = append(session.Messages, activity)
+			}
+		case "session.compaction_complete":
+			usage := data.CompactionTokensUsed.usage()
+			addTokenUsage(&session.TotalTokens, usage)
+			if activity, ok := copilotActivityMessage(event.Type, data, toolNames); ok {
+				activity.Timestamp = timestamp
+				activity.Tokens = usage
 				session.Messages = append(session.Messages, activity)
 			}
 		default:
@@ -467,13 +485,15 @@ func copilotActivity(eventType string, data copilotMessageData, toolNames map[st
 			data.ToolDefinitionsTokens,
 		)
 	case "session.compaction_complete":
+		usage := data.CompactionTokensUsed.usage()
 		return "session", fmt.Sprintf(
-			"Completed context compaction #%d\npre-compaction tokens: %d\ncompaction tokens input:%d output:%d cached:%d",
+			"Completed context compaction #%d\npre-compaction tokens: %d\ncompaction tokens input:%d output:%d cache read:%d cache write:%d",
 			data.CheckpointNumber,
 			data.PreCompactionTokens,
-			data.CompactionTokensUsed.Input,
-			data.CompactionTokensUsed.Output,
-			data.CompactionTokensUsed.CachedInput,
+			usage.InputTokens,
+			usage.OutputTokens,
+			usage.CacheReads,
+			usage.CacheWrites,
 		)
 	case "abort":
 		return "error", "Aborted: " + emptyDash(data.Reason)
@@ -694,6 +714,34 @@ func applyCopilotMetrics(session *models.Session, data copilotMessageData) {
 	if session.TotalTokens.InputTokens == 0 {
 		session.TotalTokens.InputTokens = copilotInputTokens(data)
 	}
+}
+
+func (t copilotCompactionTokens) usage() models.TokenUsage {
+	input := t.InputTokens
+	if input == 0 {
+		input = t.Input
+	}
+	output := t.OutputTokens
+	if output == 0 {
+		output = t.Output
+	}
+	cacheReads := t.CacheReadTokens
+	if cacheReads == 0 {
+		cacheReads = t.CachedInput
+	}
+	return models.TokenUsage{
+		InputTokens:  input,
+		OutputTokens: output,
+		CacheReads:   cacheReads,
+		CacheWrites:  t.CacheWriteTokens,
+	}
+}
+
+func addTokenUsage(total *models.TokenUsage, usage models.TokenUsage) {
+	total.InputTokens += usage.InputTokens
+	total.OutputTokens += usage.OutputTokens
+	total.CacheReads += usage.CacheReads
+	total.CacheWrites += usage.CacheWrites
 }
 
 func copilotInputTokens(data copilotMessageData) int {

@@ -403,6 +403,79 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 }
 
+func TestCopilotDetectorUsesCompactionTokenUsage(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "compaction")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-compaction
+cwd: /tmp/project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "assistant.message",
+			"timestamp": "2026-04-14T21:07:54.053Z",
+			"data": map[string]interface{}{
+				"content":      "hello human",
+				"outputTokens": 12,
+			},
+		},
+		{
+			"type":      "session.compaction_complete",
+			"timestamp": "2026-04-14T21:17:34.021Z",
+			"data": map[string]interface{}{
+				"success":             true,
+				"preCompactionTokens": 219977,
+				"checkpointNumber":    1,
+				"compactionTokensUsed": map[string]interface{}{
+					"inputTokens":      212569,
+					"outputTokens":     4152,
+					"cacheReadTokens":  193024,
+					"cacheWriteTokens": 7,
+					"model":            "gpt-5.5",
+				},
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	s := sessions[0]
+	if got := s.TotalTokens.InputTokens; got != 212569 {
+		t.Fatalf("expected compaction input tokens, got %d", got)
+	}
+	if got := s.TotalTokens.OutputTokens; got != 4164 {
+		t.Fatalf("expected assistant and compaction output tokens, got %d", got)
+	}
+	if got := s.TotalTokens.CacheReads; got != 193024 {
+		t.Fatalf("expected compaction cache read tokens, got %d", got)
+	}
+	if got := s.TotalTokens.CacheWrites; got != 7 {
+		t.Fatalf("expected compaction cache write tokens, got %d", got)
+	}
+	last := s.Messages[len(s.Messages)-1]
+	if last.Role != "session" || last.Tokens.InputTokens != 212569 || !strings.Contains(last.Content, "cache read:193024") {
+		t.Fatalf("expected compaction activity with token usage, got %#v", last)
+	}
+}
+
 func TestCopilotDetectorNonExistentDir(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
