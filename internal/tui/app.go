@@ -17,6 +17,7 @@ type viewState int
 const (
 	viewDashboard viewState = iota
 	viewDetail
+	viewPromptDetail
 	viewAnalytics
 )
 
@@ -102,28 +103,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
-		case msg.String() == "ctrl+c" || (msg.String() == "q" && a.view != viewDetail):
+		case msg.String() == "ctrl+c" || (msg.String() == "q" && a.view != viewDetail && a.view != viewPromptDetail):
 			a.watcher.Stop()
 			return a, tea.Quit
 
 		case msg.String() == "tab":
-			a.view = (a.view + 1) % 3
-			if a.view == viewDetail {
+			if a.view == viewDashboard {
 				a.view = viewAnalytics
+			} else {
+				a.view = viewDashboard
 			}
 
 		case msg.String() == "shift+tab":
-			if a.view == 0 {
+			if a.view == viewDashboard {
 				a.view = viewAnalytics
 			} else {
-				a.view--
-				if a.view == viewDetail {
-					a.view = viewDashboard
-				}
+				a.view = viewDashboard
 			}
 
 		case msg.String() == "esc":
-			if a.view == viewDetail {
+			if a.view == viewPromptDetail {
+				a.view = viewDetail
+				a.detail.ShowSessionDetail()
+			} else if a.view == viewDetail {
 				a.view = viewDashboard
 			}
 
@@ -138,6 +140,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						a.detail.ScrollToBottom()
 					}
 					a.view = viewDetail
+				}
+			} else if a.view == viewDetail && a.detail != nil {
+				if a.detail.OpenSelectedThread() {
+					a.view = viewPromptDetail
 				}
 			}
 
@@ -155,6 +161,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.dashboard.table.MoveUp(1)
 			} else if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectPreviousUser()
+			} else if a.view == viewPromptDetail && a.detail != nil {
+				a.detail.ScrollUp()
 			}
 
 		case msg.String() == "down" || msg.String() == "j":
@@ -162,6 +170,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.dashboard.table.MoveDown(1)
 			} else if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectNextUser()
+			} else if a.view == viewPromptDetail && a.detail != nil {
+				a.detail.ScrollDown()
 			}
 
 		case msg.String() == " " || msg.String() == "space":
@@ -175,12 +185,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case msg.String() == "pgup" || msg.String() == "b":
-			if a.view == viewDetail && a.detail != nil {
+			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageUp()
 			}
 
 		case msg.String() == "pgdown" || msg.String() == "f":
-			if a.view == viewDetail && a.detail != nil {
+			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageDown()
 			}
 		}
@@ -263,7 +273,10 @@ func (a *App) refreshDetailSession() {
 	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
 		wasAtBottom := a.detail.AtBottom()
 		a.detail.SetSession(updated)
-		if a.view == viewDetail && updated.IsActive && wasAtBottom {
+		if a.view == viewPromptDetail {
+			a.detail.RefreshSelectedThread()
+		}
+		if (a.view == viewDetail || a.view == viewPromptDetail) && updated.IsActive && wasAtBottom {
 			a.detail.ScrollToBottom()
 		}
 	}
@@ -309,6 +322,8 @@ func (a *App) View() string {
 		tabAnalytics = styleActiveTab.Render("▣ Analytics")
 	case viewDetail:
 		tabDash = styleActiveTab.Render("◈ Detail")
+	case viewPromptDetail:
+		tabDash = styleActiveTab.Render("◉ Prompt Detail")
 	}
 
 	refreshStr := ""
@@ -352,6 +367,10 @@ func (a *App) View() string {
 		if a.detail != nil {
 			sb.WriteString(a.detail.View())
 		}
+	case viewPromptDetail:
+		if a.detail != nil {
+			sb.WriteString(a.detail.ThreadView())
+		}
 	case viewAnalytics:
 		if a.analytics != nil {
 			sb.WriteString(a.analytics.View())
@@ -361,7 +380,10 @@ func (a *App) View() string {
 	// Footer help
 	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  space toggle  │  c collapse all  │  pgup/pgdn scroll")
+		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  enter detail  │  space toggle  │  c collapse all")
+	}
+	if a.view == viewPromptDetail {
+		helpText = styleMuted.Render("  q quit  │  esc session detail  │  ↑↓ scroll  │  pgup/pgdn page")
 	}
 	if a.lastErr != nil {
 		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))

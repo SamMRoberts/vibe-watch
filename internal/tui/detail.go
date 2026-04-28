@@ -110,6 +110,28 @@ func (d *DetailView) CollapseAllThreads() {
 	d.scrollSelectedUserIntoView()
 }
 
+func (d *DetailView) OpenSelectedThread() bool {
+	if !isUserMessage(d.session, d.selectedUser) {
+		return false
+	}
+	d.renderThreadContent()
+	d.viewport.GotoTop()
+	return true
+}
+
+func (d *DetailView) RefreshSelectedThread() bool {
+	if !isUserMessage(d.session, d.selectedUser) {
+		return false
+	}
+	d.renderThreadContent()
+	return true
+}
+
+func (d *DetailView) ShowSessionDetail() {
+	d.renderContent()
+	d.scrollSelectedUserIntoView()
+}
+
 func (d *DetailView) renderContent() {
 	if d.session == nil {
 		d.viewport.SetContent(styleMuted.Render("No session selected"))
@@ -215,6 +237,117 @@ func (d *DetailView) renderContent() {
 	d.viewport.SetContent(sb.String())
 }
 
+func (d *DetailView) renderThreadContent() {
+	if d.session == nil {
+		d.viewport.SetContent(styleMuted.Render("No session selected"))
+		return
+	}
+
+	start, end, ok := selectedThreadRange(d.session.Messages, d.selectedUser)
+	if !ok {
+		d.viewport.SetContent(styleMuted.Render("No user message selected"))
+		return
+	}
+
+	threadMessages := d.session.Messages[start:end]
+	var threadTokens models.TokenUsage
+	for _, msg := range threadMessages {
+		threadTokens.InputTokens += msg.Tokens.InputTokens
+		threadTokens.OutputTokens += msg.Tokens.OutputTokens
+		threadTokens.CacheReads += msg.Tokens.CacheReads
+		threadTokens.CacheWrites += msg.Tokens.CacheWrites
+	}
+
+	var sb strings.Builder
+	header := lipgloss.JoinHorizontal(lipgloss.Top,
+		agentBadge(string(d.session.AgentType)),
+		styleMuted.Render("  ·  "),
+		styleAccent.Render(fmt.Sprintf("Prompt detail %d", start+1)),
+	)
+	sb.WriteString(header + "\n")
+	sb.WriteString(styleMuted.Render(d.session.ProjectPath) + "\n\n")
+
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCard("Messages", fmt.Sprintf("%d", len(threadMessages)), "☷", styleAccent),
+		"  ",
+		metricCard("Input Tokens", fmt.Sprintf("%d", threadTokens.InputTokens), "↘", styleAccent),
+		"  ",
+		metricCard("Output Tokens", fmt.Sprintf("%d", threadTokens.OutputTokens), "↗", styleAccent),
+		"  ",
+		metricCard("Cache Reads", fmt.Sprintf("%d", threadTokens.CacheReads), "◌", styleAccent),
+	) + "\n\n")
+	sb.WriteString(divider(d.width-6) + "\n\n")
+
+	for i, msg := range threadMessages {
+		absoluteIndex := start + i
+		sb.WriteString(renderVerboseMessage(absoluteIndex, msg, d.width-10))
+	}
+	if len(threadMessages) == 1 {
+		sb.WriteString(styleMuted.Render("No assistant activity has been recorded for this prompt yet.\n"))
+	}
+
+	d.viewport.SetContent(sb.String())
+}
+
+func renderVerboseMessage(index int, msg models.Message, contentWidth int) string {
+	var sb strings.Builder
+	roleLabel := styleMuted.Render("● " + msg.Role)
+	switch msg.Role {
+	case "user":
+		roleLabel = styleUserMsg.Render("▶ User prompt")
+	case "assistant":
+		roleLabel = styleAssistantMsg.Render("◆ Assistant activity")
+	}
+
+	timestamp := ""
+	if !msg.Timestamp.IsZero() {
+		timestamp = styleMuted.Render("  " + msg.Timestamp.Format("2006-01-02 15:04:05"))
+	}
+	sb.WriteString(fmt.Sprintf("%s %s%s\n", styleMuted.Render(fmt.Sprintf("%02d", index+1)), roleLabel, timestamp))
+
+	content := msg.Content
+	if content == "" {
+		content = "(empty)"
+	}
+	for _, line := range strings.Split(content, "\n") {
+		for _, wrapped := range wrapContentLine(line, contentWidth) {
+			sb.WriteString(styleMuted.Render("   │ ") + styleMessageContent.Render(wrapped) + "\n")
+		}
+	}
+
+	if msg.Tokens.InputTokens > 0 ||
+		msg.Tokens.OutputTokens > 0 ||
+		msg.Tokens.CacheReads > 0 ||
+		msg.Tokens.CacheWrites > 0 {
+		sb.WriteString(styleMuted.Render(fmt.Sprintf(
+			"   ╰─ tokens in:%d out:%d cache-read:%d cache-write:%d\n",
+			msg.Tokens.InputTokens,
+			msg.Tokens.OutputTokens,
+			msg.Tokens.CacheReads,
+			msg.Tokens.CacheWrites,
+		)))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+func wrapContentLine(line string, width int) []string {
+	if width < 20 {
+		width = 20
+	}
+	if line == "" {
+		return []string{""}
+	}
+	runes := []rune(line)
+	lines := make([]string, 0, len(runes)/width+1)
+	for len(runes) > width {
+		lines = append(lines, string(runes[:width]))
+		runes = runes[width:]
+	}
+	lines = append(lines, string(runes))
+	return lines
+}
+
 func (d *DetailView) userRoleLabel(messageIndex int) string {
 	label := "▶ User"
 	if relatedAssistantCount(d.session.Messages, messageIndex) > 0 {
@@ -315,6 +448,17 @@ func (d *DetailView) View() string {
 	return d.viewport.View() + "\n" + footer
 }
 
+func (d *DetailView) ThreadView() string {
+	if d.session == nil {
+		return d.View()
+	}
+
+	footer := styleMuted.Render(fmt.Sprintf("  %d%%  verbose prompt detail  ↑↓/pgup/pgdown scroll  esc back",
+		int(d.viewport.ScrollPercent()*100)))
+
+	return d.viewport.View() + "\n" + footer
+}
+
 func firstUserIndex(session *models.Session) int {
 	if session == nil {
 		return -1
@@ -343,4 +487,18 @@ func relatedAssistantCount(messages []models.Message, userIndex int) int {
 		count++
 	}
 	return count
+}
+
+func selectedThreadRange(messages []models.Message, userIndex int) (int, int, bool) {
+	if userIndex < 0 || userIndex >= len(messages) || messages[userIndex].Role != "user" {
+		return 0, 0, false
+	}
+	end := len(messages)
+	for i := userIndex + 1; i < len(messages); i++ {
+		if messages[i].Role == "user" {
+			end = i
+			break
+		}
+	}
+	return userIndex, end, true
 }

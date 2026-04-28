@@ -92,3 +92,39 @@ func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 		t.Fatalf("expected unavailable input token marker in detail view, got:\n%s", view)
 	}
 }
+
+func TestDetailOpenSelectedThreadShowsRelatedActivityOnly(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		ProjectPath: "/repo/project",
+		Messages: []models.Message{
+			{Role: "user", Content: "first prompt"},
+			{Role: "assistant", Content: "first response"},
+			{Role: "assistant", Content: "first follow up"},
+			{Role: "user", Content: "second prompt"},
+			{Role: "assistant", Content: "second response"},
+		},
+	})
+
+	if !detail.OpenSelectedThread() {
+		t.Fatalf("expected selected user prompt to open")
+	}
+	view := detail.ThreadView()
+
+	if !strings.Contains(view, "first prompt") ||
+		!strings.Contains(view, "first response") ||
+		!strings.Contains(view, "first follow up") {
+		t.Fatalf("expected selected prompt thread content, got:\n%s", view)
+	}
+	if strings.Contains(view, "second prompt") || strings.Contains(view, "second response") {
+		t.Fatalf("expected prompt detail to exclude following user thread, got:\n%s", view)
+	}
+}
+
+func TestDetailPromptDetailIsVerbose(t *testing.T) {
+	longContent := strings.Repeat("x", 600)
+	rendered := renderVerboseMessage(1, models.Message{Role: "assistant", Content: longContent}, 80)
+	if strings.Count(rendered, "x") != len(longContent) {
+		t.Fatalf("expected prompt detail to render full assistant content")
+	}
+}

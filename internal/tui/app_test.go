@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
@@ -112,6 +115,56 @@ func TestUpdateViewsDoesNotScrollActiveDetailSessionWhenUserScrolledUp(t *testin
 	}
 	if app.detail.viewport.YOffset != previousOffset {
 		t.Fatalf("expected scrolled-up offset %d to be preserved, got %d", previousOffset, app.detail.viewport.YOffset)
+	}
+}
+
+func TestEnterOpensPromptDetailFromSessionDetail(t *testing.T) {
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity"},
+			{Role: "user", Content: "next prompt"},
+		},
+	})
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := model.(*App)
+
+	if updated.view != viewPromptDetail {
+		t.Fatalf("expected enter to open prompt detail view, got %v", updated.view)
+	}
+	if view := updated.detail.ThreadView(); !strings.Contains(view, "activity") || strings.Contains(view, "next prompt") {
+		t.Fatalf("expected prompt detail content for selected prompt, got:\n%s", view)
+	}
+}
+
+func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
+	app := &App{
+		view:   viewPromptDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity"},
+		},
+	})
+	if !app.detail.OpenSelectedThread() {
+		t.Fatalf("expected prompt detail to open")
+	}
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := model.(*App)
+
+	if updated.view != viewDetail {
+		t.Fatalf("expected esc to return to session detail, got %v", updated.view)
+	}
+	if view := updated.detail.View(); !strings.Contains(view, "prompt") || !strings.Contains(view, "activity") {
+		t.Fatalf("expected session detail content after returning, got:\n%s", view)
 	}
 }
 
