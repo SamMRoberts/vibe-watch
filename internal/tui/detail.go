@@ -498,22 +498,24 @@ func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	icon := actionStateIcon(state)
 	role := timelineRoleLabel(start.Role)
 	prefix := threadPrefix(row, start.Role)
+	duration := actionLifecycleDuration(start, end, hasEnd)
 
-	summaryWidth := d.width - 60
+	summaryWidth := d.width - 35 - lipgloss.Width(duration)
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
 	summary := summarizeActivityContent(actionLifecycleSummary(start, end, hasEnd), summaryWidth)
 
 	firstLine := fmt.Sprintf(
-		"%s %s %-17s %-14s %s %s",
+		"%s %s %-8s %-14s %s %s",
 		actionStateStyle(state).Render(icon),
 		prefix,
-		styleMuted.Render(actionLifecycleTimeRange(start, end, hasEnd)),
+		styleMuted.Render(actionLifecycleStartTime(start)),
 		role,
 		styleMuted.Render("│"),
 		styleMessageContent.Render(summary),
 	)
+	firstLine = appendRightAligned(firstLine, styleMuted.Render(duration), d.width-2)
 
 	detail := actionLifecycleDetail(start, end, hasEnd)
 	if detail == "" {
@@ -940,11 +942,7 @@ func actionLifecycleSummary(start, end models.Message, hasEnd bool) string {
 	state := groupedActionState(start, end, hasEnd)
 	stateText := lowerStatusLabel(indicatorSpec(lifecycleIndicatorState(state)).Label)
 
-	parts := []string{label, stateText}
-	if duration := actionLifecycleDuration(start, end, hasEnd); duration != "" {
-		parts = append(parts, duration)
-	}
-	return strings.Join(parts, " · ")
+	return strings.Join([]string{label, stateText}, " · ")
 }
 
 func actionLifecycleLabel(start models.Message) string {
@@ -963,18 +961,11 @@ func actionLifecycleLabel(start models.Message) string {
 	return content
 }
 
-func actionLifecycleTimeRange(start, end models.Message, hasEnd bool) string {
-	startTime := "--:--:--"
+func actionLifecycleStartTime(start models.Message) string {
 	if !start.Timestamp.IsZero() {
-		startTime = start.Timestamp.Format("15:04:05")
+		return start.Timestamp.Format("15:04:05")
 	}
-	if !hasEnd {
-		return startTime + "→…"
-	}
-	if end.Timestamp.IsZero() {
-		return startTime + "→--:--:--"
-	}
-	return startTime + "→" + end.Timestamp.Format("15:04:05")
+	return "--:--:--"
 }
 
 func actionLifecycleDuration(start, end models.Message, hasEnd bool) string {
@@ -982,6 +973,17 @@ func actionLifecycleDuration(start, end models.Message, hasEnd bool) string {
 		return ""
 	}
 	return models.FormatDuration(end.Timestamp.Sub(start.Timestamp))
+}
+
+func appendRightAligned(line, suffix string, width int) string {
+	if suffix == "" {
+		return line
+	}
+	padding := width - lipgloss.Width(line) - lipgloss.Width(suffix)
+	if padding < 1 {
+		padding = 1
+	}
+	return line + strings.Repeat(" ", padding) + suffix
 }
 
 func actionLifecycleDetail(start, end models.Message, hasEnd bool) string {

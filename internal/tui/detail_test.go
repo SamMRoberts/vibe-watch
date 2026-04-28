@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
@@ -324,6 +325,49 @@ func TestDetailLifecycleRowShowsUsefulCompletionDetail(t *testing.T) {
 	}
 }
 
+func TestDetailLifecycleRowShowsStartTimeWithDurationAtEnd(t *testing.T) {
+	startedAt := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{
+				Role:      "tool",
+				Content:   "Started tool: bash",
+				Timestamp: startedAt,
+				Meta: models.ActivityMeta{
+					Kind:      models.ActivityKindTool,
+					Lifecycle: models.ActivityLifecycleStarted,
+					ID:        "tool-1",
+					Label:     "bash",
+				},
+			},
+			{
+				Role:      "tool",
+				Content:   "Tool completed: bash",
+				Timestamp: startedAt.Add(5 * time.Second),
+				Meta: models.ActivityMeta{
+					Kind:      models.ActivityKindTool,
+					Lifecycle: models.ActivityLifecycleCompleted,
+					ID:        "tool-1",
+					Label:     "bash",
+				},
+			},
+		},
+	})
+
+	row := detail.renderActionGroupRow(detail.rows[1])
+	if !strings.Contains(row, "12:00:00") {
+		t.Fatalf("expected lifecycle row to show start time, got:\n%s", row)
+	}
+	if strings.Contains(row, "12:00:05") || strings.Contains(row, "→") {
+		t.Fatalf("expected lifecycle row to omit end timestamp/range arrow, got:\n%s", row)
+	}
+	if durationPos, summaryPos := strings.LastIndex(row, "5s"), strings.Index(row, "bash · done"); durationPos < 0 || durationPos < summaryPos {
+		t.Fatalf("expected duration at the end of the lifecycle row, got:\n%s", row)
+	}
+}
+
 func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
@@ -334,8 +378,11 @@ func TestDetailShowsRunningToolLifecycle(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "⏳") || !strings.Contains(view, "bash · running") || !strings.Contains(view, "→…") {
+	if !strings.Contains(view, "⏳") || !strings.Contains(view, "bash · running") {
 		t.Fatalf("expected running lifecycle row, got:\n%s", view)
+	}
+	if strings.Contains(view, "→") {
+		t.Fatalf("expected running lifecycle row to show only the start time, got:\n%s", view)
 	}
 	if strings.Contains(view, "Started tool: bash") {
 		t.Fatalf("expected running lifecycle row to avoid raw start wording, got:\n%s", view)
