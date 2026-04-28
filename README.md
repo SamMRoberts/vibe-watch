@@ -2,14 +2,14 @@
 
 A graphical terminal UI (TUI) for monitoring and analyzing session data from agentic coding agents and CLIs — Claude Code, Codex CLI, GitHub Copilot CLI, and Amazon Q Developer CLI.
 
-Run it in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity, token usage, and cost estimates.
+Run it from your repository in a **separate terminal** alongside your AI coding agent to get real-time dashboards of session activity, token usage, and cost estimates for the current repo.
 
 ![vibe-watch dashboard](https://via.placeholder.com/800x400?text=vibe-watch+TUI+Dashboard)
 
 ## Features
 
 - **Real-time session monitoring** — auto-polls every 2 seconds for new/updated sessions
-- **Dashboard view** — sortable table of all sessions with token counts, cost, duration, and status
+- **Dashboard view** — sortable table of current-repository sessions with token counts, cost, duration, and status
 - **Detail view** — full message history with token-level breakdowns per message
 - **Analytics view** — aggregate stats, agent comparisons, bar charts, top projects
 - **Multi-agent support** — Claude Code, Codex CLI, GitHub Copilot CLI, Amazon Q
