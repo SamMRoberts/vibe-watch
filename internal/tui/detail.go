@@ -20,6 +20,14 @@ const (
 	focusEvent
 )
 
+type timelineDetailLevel int
+
+const (
+	timelineDetailCompact timelineDetailLevel = iota
+	timelineDetailStandard
+	timelineDetailExpanded
+)
+
 type activityRowKind int
 
 const (
@@ -55,6 +63,7 @@ type DetailView struct {
 	focusedMessage   int
 	follow           bool
 	userPausedFollow bool // tracks if user explicitly paused follow vs it being false for other reasons
+	detailLevel      timelineDetailLevel
 	width            int
 	height           int
 }
@@ -72,6 +81,7 @@ func NewDetailView(width, height int) *DetailView {
 		selectedRow:      -1,
 		focusedMessage:   -1,
 		follow:           true,
+		detailLevel:      timelineDetailStandard,
 		width:            width,
 		height:           height,
 	}
@@ -267,6 +277,23 @@ func (d *DetailView) ToggleAllThreadsCollapsed() {
 	d.ensureSelectedRow()
 	d.renderContent()
 	d.scrollSelectedRowIntoView()
+}
+
+func (d *DetailView) ToggleTimelineDetailLevel() {
+	d.detailLevel = (d.detailLevel + 1) % 3
+	d.renderContent()
+	d.scrollSelectedRowIntoView()
+}
+
+func (d *DetailView) timelineDetailLabel() string {
+	switch d.detailLevel {
+	case timelineDetailCompact:
+		return "compact"
+	case timelineDetailExpanded:
+		return "expanded"
+	default:
+		return "standard"
+	}
 }
 
 func (d *DetailView) allThreadsCollapsed() bool {
@@ -522,10 +549,16 @@ func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
 			rowIndex: i,
 			label:    d.renderTimelineTreeLabel(i, row),
 		}
-		if detail := d.timelineActionDetail(row); detail != "" {
+		if detail := d.timelineActionDetail(row); detail != "" && d.detailLevel != timelineDetailCompact {
 			node.children = append(node.children, &timelineTreeNode{
 				rowIndex: -1,
 				label:    styleMuted.Render(summarizeActivityContent(detail, d.width-24)),
+			})
+		}
+		if detail := d.timelineExpandedRowDetail(row); detail != "" {
+			node.children = append(node.children, &timelineTreeNode{
+				rowIndex: -1,
+				label:    styleMuted.Render(detail),
 			})
 		}
 		if d.rowIsAssistantMessage(row) {
@@ -572,6 +605,30 @@ func (d *DetailView) timelineActionDetail(row activityRow) string {
 	start := d.session.Messages[row.messageIndex]
 	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
 	return actionLifecycleDetail(start, end, hasEnd)
+}
+
+func (d *DetailView) timelineExpandedRowDetail(row activityRow) string {
+	if d.detailLevel != timelineDetailExpanded || row.kind != activityRowMessage || !isMessageIndex(d.session, row.messageIndex) {
+		return ""
+	}
+	msg := d.session.Messages[row.messageIndex]
+	parts := make([]string, 0, 4)
+	if total := tokenUsageTotal(msg.Tokens); total > 0 {
+		parts = append(parts, fmt.Sprintf("tokens in:%d out:%d cache:%s", msg.Tokens.InputTokens, msg.Tokens.OutputTokens, detailCacheTokens(msg.Tokens)))
+	}
+	if msg.Meta.Kind != "" {
+		parts = append(parts, activityKindLabel(msg))
+	}
+	if msg.Meta.ID != "" {
+		parts = append(parts, "id "+msg.Meta.ID)
+	}
+	if msg.Meta.ParentID != "" {
+		parts = append(parts, "parent "+msg.Meta.ParentID)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return summarizeActivityContent(strings.Join(parts, " · "), d.width-24)
 }
 
 func (d *DetailView) recordTimelineTreeOffsets(node *timelineTreeNode, line int) {
@@ -643,10 +700,7 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 			role = styleUserMsg.Render("[-] PROMPT")
 		}
 	}
-	summaryWidth := d.width - 46
-	if summaryWidth < 24 {
-		summaryWidth = 24
-	}
+	summaryWidth := d.messageSummaryWidth()
 	summary := summarizeActivityContent(msg.Content, summaryWidth)
 	if summary == "" {
 		summary = "(empty)"
@@ -656,7 +710,7 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	if msg.Role == "user" {
 		leftTokenBadge = d.threadTokenBadge(row.messageIndex)
 		tokenBadge = ""
-	} else if tokenBadge != "" {
+	} else if tokenBadge != "" && d.detailLevel != timelineDetailCompact {
 		tokenBadge = "  " + tokenBadge
 	}
 	line := fmt.Sprintf(
@@ -674,10 +728,21 @@ func (d *DetailView) renderMessageTreeLabel(row activityRow) string {
 	return line
 }
 
+func (d *DetailView) messageSummaryWidth() int {
+	switch d.detailLevel {
+	case timelineDetailCompact:
+		return maxInt(18, d.width-72)
+	case timelineDetailExpanded:
+		return maxInt(32, d.width-36)
+	default:
+		return maxInt(24, d.width-46)
+	}
+}
+
 func (d *DetailView) renderActionGroupRow(row activityRow) string {
 	firstLine := d.renderActionGroupTreeLabel(row)
 	detail := d.timelineActionDetail(row)
-	if detail == "" {
+	if detail == "" || d.detailLevel == timelineDetailCompact {
 		return actionThreadPrefix(row) + " " + firstLine
 	}
 	detailStyle := styleMuted
@@ -697,7 +762,7 @@ func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	role := timelineRoleLabel(start.Role)
 	duration := actionLifecycleDuration(start, end, hasEnd, time.Now())
 
-	summaryWidth := d.width - 35 - lipgloss.Width(duration)
+	summaryWidth := d.actionSummaryWidth(duration)
 	if summaryWidth < 24 {
 		summaryWidth = 24
 	}
@@ -713,6 +778,17 @@ func (d *DetailView) renderActionGroupTreeLabel(row activityRow) string {
 	)
 	firstLine = appendRightAligned(firstLine, styleMuted.Render(duration), d.width-2)
 	return firstLine
+}
+
+func (d *DetailView) actionSummaryWidth(duration string) int {
+	switch d.detailLevel {
+	case timelineDetailCompact:
+		return maxInt(18, d.width-60-lipgloss.Width(duration))
+	case timelineDetailExpanded:
+		return maxInt(32, d.width-28-lipgloss.Width(duration))
+	default:
+		return maxInt(24, d.width-35-lipgloss.Width(duration))
+	}
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
@@ -1651,9 +1727,10 @@ func (d *DetailView) View() string {
 		followLabel = "follow"
 	}
 	footer := styleMuted.Render(fmt.Sprintf(
-		"  %d%%  row %s  %s  ↑/↓ activity  [/ ] prompts  enter detail  space collapse  f follow  esc back",
+		"  %d%%  row %s  detail %s  %s  ↑/↓ activity  [/ ] prompts  enter open  d detail  space collapse  f follow  esc back",
 		int(d.viewport.ScrollPercent()*100),
 		rowLabel,
+		d.timelineDetailLabel(),
 		followLabel,
 	))
 

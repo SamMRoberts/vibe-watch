@@ -110,6 +110,43 @@ func TestDetailToggleAllThreadsCollapsed(t *testing.T) {
 	}
 }
 
+func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt", Tokens: models.TokenUsage{InputTokens: 100}},
+			{Role: "assistant", Content: "assistant response", Tokens: models.TokenUsage{OutputTokens: 200, CacheReads: 300}},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash\ntelemetry: resultLength:12", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+
+	standard := detail.View()
+	if !strings.Contains(standard, "detail standard") || !strings.Contains(standard, "telemetry: resultLength:12") {
+		t.Fatalf("expected standard detail to show action detail, got:\n%s", standard)
+	}
+
+	detail.ToggleTimelineDetailLevel()
+	expanded := detail.View()
+	if !strings.Contains(expanded, "detail expanded") || !strings.Contains(expanded, "tokens in:0 out:200 cache:300") {
+		t.Fatalf("expected expanded detail to show token detail, got:\n%s", expanded)
+	}
+
+	detail.ToggleTimelineDetailLevel()
+	compact := detail.View()
+	if !strings.Contains(compact, "detail compact") {
+		t.Fatalf("expected compact detail label, got:\n%s", compact)
+	}
+	if strings.Contains(compact, "telemetry: resultLength:12") || strings.Contains(compact, "tokens in:0 out:200 cache:300") {
+		t.Fatalf("expected compact detail to suppress secondary detail lines, got:\n%s", compact)
+	}
+
+	detail.ToggleTimelineDetailLevel()
+	if view := detail.View(); !strings.Contains(view, "detail standard") {
+		t.Fatalf("expected detail level cycle to return to standard, got:\n%s", view)
+	}
+}
+
 func TestDetailSelectNextRowNavigatesActivityRows(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{

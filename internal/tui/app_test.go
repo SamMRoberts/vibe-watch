@@ -347,6 +347,31 @@ func TestCollapseAllKeyTogglesAllPromptThreads(t *testing.T) {
 	}
 }
 
+func TestDetailLevelKeyCyclesTimelineDetail(t *testing.T) {
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity", Tokens: models.TokenUsage{OutputTokens: 25}},
+		},
+	})
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated := model.(*App)
+	if view := updated.detail.View(); !strings.Contains(view, "detail expanded") {
+		t.Fatalf("expected d to switch to expanded detail, got:\n%s", view)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated = model.(*App)
+	if view := updated.detail.View(); !strings.Contains(view, "detail compact") {
+		t.Fatalf("expected d to switch to compact detail, got:\n%s", view)
+	}
+}
+
 func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	app := &App{
 		view:   viewPromptDetail,

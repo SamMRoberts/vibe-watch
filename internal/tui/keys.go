@@ -20,6 +20,7 @@ type keyMap struct {
 	NextPrompt     key.Binding
 	Collapse       key.Binding
 	CollapseAll    key.Binding
+	DetailLevel    key.Binding
 	Follow         key.Binding
 }
 
@@ -105,6 +106,10 @@ var keys = keyMap{
 		key.WithKeys("c"),
 		key.WithHelp("c", "toggle all"),
 	),
+	DetailLevel: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "detail"),
+	),
 	Follow: key.NewBinding(
 		key.WithKeys("f"),
 		key.WithHelp("f", "follow"),
@@ -124,10 +129,10 @@ func dashboardHelp() helpKeyMap {
 
 func detailHelp() helpKeyMap {
 	return helpKeyMap{
-		short: []key.Binding{keys.Esc, keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter, keys.Follow},
+		short: []key.Binding{keys.Esc, keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter, keys.DetailLevel, keys.Follow},
 		full: [][]key.Binding{
 			{keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter},
-			{keys.Collapse, keys.CollapseAll, keys.Follow},
+			{keys.Collapse, keys.CollapseAll, keys.DetailLevel, keys.Follow},
 			{keys.PageUp, keys.PageDown, keys.Home, keys.End, keys.Esc},
 		},
 	}

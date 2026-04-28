@@ -208,6 +208,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.ToggleAllThreadsCollapsed()
 			}
 
+		case key.Matches(msg, keys.DetailLevel):
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.ToggleTimelineDetailLevel()
+			}
+
 		case key.Matches(msg, keys.Follow):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.ToggleFollow()
