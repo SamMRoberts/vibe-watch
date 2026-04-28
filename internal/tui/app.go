@@ -134,6 +134,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx >= 0 && idx < len(filtered) {
 					a.detail.SetSession(filtered[idx])
 					if filtered[idx].IsActive {
+						a.detail.SelectLastUser()
 						a.detail.ScrollToBottom()
 					}
 					a.view = viewDetail
@@ -153,14 +154,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveUp(1)
 			} else if a.view == viewDetail && a.detail != nil {
-				a.detail.ScrollUp()
+				a.detail.SelectPreviousUser()
 			}
 
 		case msg.String() == "down" || msg.String() == "j":
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveDown(1)
 			} else if a.view == viewDetail && a.detail != nil {
-				a.detail.ScrollDown()
+				a.detail.SelectNextUser()
+			}
+
+		case msg.String() == " " || msg.String() == "space":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.ToggleSelectedThread()
 			}
 
 		case msg.String() == "pgup" || msg.String() == "b":
@@ -349,7 +355,7 @@ func (a *App) View() string {
 	// Footer help
 	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ scroll  │  pgup/pgdn page")
+		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  space collapse  │  pgup/pgdn scroll")
 	}
 	if a.lastErr != nil {
 		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))
