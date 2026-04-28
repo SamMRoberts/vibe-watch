@@ -23,13 +23,15 @@ type activityRowKind int
 const (
 	activityRowMessage activityRowKind = iota
 	activityRowCollapsed
+	activityRowActionGroup
 )
 
 type activityRow struct {
-	kind           activityRowKind
-	messageIndex   int
-	threadStart    int
-	collapsedCount int
+	kind            activityRowKind
+	messageIndex    int
+	endMessageIndex int
+	threadStart     int
+	collapsedCount  int
 }
 
 type DetailView struct {
@@ -391,15 +393,36 @@ func (d *DetailView) renderEventContent() {
 	}
 	msg := d.session.Messages[d.focusedMessage]
 	header := d.eventHeader(d.focusedMessage, msg)
-	d.setContent(header, renderVerboseMessage(d.focusedMessage, msg, d.width-10))
+	d.setContent(header, d.renderFocusedEventBody(d.focusedMessage))
+}
+
+func (d *DetailView) renderFocusedEventBody(index int) string {
+	if d.session == nil || !isMessageIndex(d.session, index) {
+		return styleMuted.Render("No activity selected")
+	}
+
+	var content strings.Builder
+	content.WriteString(renderVerboseMessage(index, d.session.Messages[index], d.width-10))
+	if endIndex, ok := matchingActionEnd(d.session.Messages, index); ok {
+		content.WriteString(styleMuted.Render("Grouped completion\n"))
+		content.WriteString(renderVerboseMessage(endIndex, d.session.Messages[endIndex], d.width-10))
+		return content.String()
+	}
+	if isActionStart(d.session.Messages[index]) {
+		content.WriteString(styleMuted.Render("Waiting for completion for this action.\n"))
+	}
+	return content.String()
 }
 
 func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 	selected := rowIndex == d.selectedRow
 	var rendered string
-	if row.kind == activityRowCollapsed {
+	switch row.kind {
+	case activityRowCollapsed:
 		rendered = d.renderCollapsedRow(row)
-	} else {
+	case activityRowActionGroup:
+		rendered = d.renderActionGroupRow(row)
+	default:
 		rendered = d.renderMessageRow(row)
 	}
 	if selected {
@@ -442,6 +465,56 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		styleMessageContent.Render(summary),
 		tokenBadge,
 	)
+}
+
+func (d *DetailView) renderActionGroupRow(row activityRow) string {
+	start := d.session.Messages[row.messageIndex]
+	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+	state := groupedActionState(start, end, hasEnd)
+	icon := actionStateIcon(state)
+
+	ts := "--:--:--"
+	if !start.Timestamp.IsZero() {
+		ts = start.Timestamp.Format("15:04:05")
+	}
+	role := timelineRoleLabel(start.Role)
+	summaryWidth := d.width - 48
+	if summaryWidth < 24 {
+		summaryWidth = 24
+	}
+	summary := summarizeActivityContent(start.Content, summaryWidth)
+	if summary == "" {
+		summary = "(empty)"
+	}
+
+	firstLine := fmt.Sprintf(
+		"%s %s %s %-16s %s",
+		actionStateStyle(state).Render(icon),
+		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
+		styleMuted.Render(ts),
+		role,
+		styleMessageContent.Render(summary),
+	)
+
+	child := styleMuted.Render("   ╰─ " + pendingActionText(start))
+	if hasEnd {
+		endTime := "--:--:--"
+		if !end.Timestamp.IsZero() {
+			endTime = end.Timestamp.Format("15:04:05")
+		}
+		endSummary := summarizeActivityContent(end.Content, summaryWidth)
+		if endSummary == "" {
+			endSummary = "(empty)"
+		}
+		child = fmt.Sprintf(
+			"%s %s %s",
+			styleMuted.Render("   ╰─"),
+			actionStateStyle(state).Render(actionStateIcon(state)+" "+endTime),
+			styleMessageContent.Render(endSummary),
+		)
+	}
+
+	return firstLine + "\n" + child
 }
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
@@ -631,6 +704,86 @@ func timelineRoleLabel(role string) string {
 	}
 }
 
+func isActionStart(msg models.Message) bool {
+	return msg.Meta.Kind != "" &&
+		(msg.Meta.Lifecycle == models.ActivityLifecycleStarted ||
+			msg.Meta.Lifecycle == models.ActivityLifecycleRequested)
+}
+
+func isActionEnd(msg models.Message) bool {
+	return msg.Meta.Kind != "" &&
+		(msg.Meta.Lifecycle == models.ActivityLifecycleCompleted ||
+			msg.Meta.Lifecycle == models.ActivityLifecycleFailed)
+}
+
+func matchingActionEnd(messages []models.Message, start int) (int, bool) {
+	if start < 0 || start >= len(messages) || !isActionStart(messages[start]) || messages[start].Meta.ID == "" {
+		return 0, false
+	}
+	id := messages[start].Meta.ID
+	kind := messages[start].Meta.Kind
+	for i := start + 1; i < len(messages); i++ {
+		if messages[i].Meta.ID == id && messages[i].Meta.Kind == kind && isActionEnd(messages[i]) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func messageAt(messages []models.Message, index int) (models.Message, bool) {
+	if index < 0 || index >= len(messages) {
+		return models.Message{}, false
+	}
+	return messages[index], true
+}
+
+func groupedActionState(start, end models.Message, hasEnd bool) string {
+	if hasEnd {
+		return end.Meta.Lifecycle
+	}
+	if start.Meta.Lifecycle == models.ActivityLifecycleRequested {
+		return models.ActivityLifecycleRequested
+	}
+	return "in_progress"
+}
+
+func actionStateIcon(state string) string {
+	switch state {
+	case models.ActivityLifecycleCompleted:
+		return "✓"
+	case models.ActivityLifecycleFailed:
+		return "⚠"
+	case models.ActivityLifecycleRequested:
+		return "◌"
+	default:
+		return "⏳"
+	}
+}
+
+func actionStateStyle(state string) lipgloss.Style {
+	switch state {
+	case models.ActivityLifecycleCompleted:
+		return styleSuccess
+	case models.ActivityLifecycleFailed:
+		return styleError
+	case models.ActivityLifecycleRequested:
+		return styleInfo
+	default:
+		return styleWarning
+	}
+}
+
+func pendingActionText(start models.Message) string {
+	label := start.Meta.Label
+	if label == "" {
+		label = summarizeActivityContent(start.Content, 40)
+	}
+	if start.Meta.Lifecycle == models.ActivityLifecycleRequested {
+		return fmt.Sprintf("requested · waiting for %s", label)
+	}
+	return fmt.Sprintf("in progress · waiting for %s", label)
+}
+
 func timelineTokenBadge(tokens models.TokenUsage) string {
 	parts := make([]string, 0, 4)
 	if tokens.InputTokens > 0 {
@@ -691,8 +844,18 @@ func (d *DetailView) rebuildRows() {
 
 func buildActivityRows(messages []models.Message, collapsed map[int]bool) []activityRow {
 	rows := make([]activityRow, 0, len(messages))
+	groups := actionGroups(messages)
 	for i := 0; i < len(messages); i++ {
-		rows = append(rows, activityRow{kind: activityRowMessage, messageIndex: i, threadStart: nearestThreadStart(messages, i)})
+		if group, ok := groups.byEnd[i]; ok && group.endMessageIndex == i {
+			continue
+		}
+
+		if group, ok := groups.byStart[i]; ok {
+			rows = append(rows, group)
+		} else {
+			rows = append(rows, activityRow{kind: activityRowMessage, messageIndex: i, threadStart: nearestThreadStart(messages, i)})
+		}
+
 		if messages[i].Role == "user" && collapsed[i] {
 			count := relatedAssistantCount(messages, i)
 			if count > 0 {
@@ -707,6 +870,59 @@ func buildActivityRows(messages []models.Message, collapsed map[int]bool) []acti
 		}
 	}
 	return rows
+}
+
+type actionGroupIndex struct {
+	byStart map[int]activityRow
+	byEnd   map[int]activityRow
+}
+
+type actionGroupKey struct {
+	kind string
+	id   string
+}
+
+func actionGroups(messages []models.Message) actionGroupIndex {
+	rootByID := make(map[actionGroupKey]int)
+	for i, msg := range messages {
+		if !isActionStart(msg) || msg.Meta.ID == "" {
+			continue
+		}
+		key := actionGroupKey{kind: msg.Meta.Kind, id: msg.Meta.ID}
+		existing, seen := rootByID[key]
+		if !seen || preferActionRoot(msg, messages[existing]) {
+			rootByID[key] = i
+		}
+	}
+
+	groups := actionGroupIndex{
+		byStart: make(map[int]activityRow),
+		byEnd:   make(map[int]activityRow),
+	}
+	for key, start := range rootByID {
+		row := activityRow{
+			kind:            activityRowActionGroup,
+			messageIndex:    start,
+			endMessageIndex: -1,
+			threadStart:     nearestThreadStart(messages, start),
+		}
+		for i := start + 1; i < len(messages); i++ {
+			if messages[i].Meta.ID == key.id && messages[i].Meta.Kind == key.kind && isActionEnd(messages[i]) {
+				row.endMessageIndex = i
+				break
+			}
+		}
+		groups.byStart[start] = row
+		if row.endMessageIndex >= 0 {
+			groups.byEnd[row.endMessageIndex] = row
+		}
+	}
+	return groups
+}
+
+func preferActionRoot(candidate, existing models.Message) bool {
+	return candidate.Meta.Lifecycle == models.ActivityLifecycleStarted &&
+		existing.Meta.Lifecycle == models.ActivityLifecycleRequested
 }
 
 func (d *DetailView) selectInitialRow() {
@@ -785,7 +1001,8 @@ func (d *DetailView) selectUser(direction int) {
 
 func (d *DetailView) selectMessageRow(messageIndex int) {
 	for i, row := range d.rows {
-		if row.kind == activityRowMessage && row.messageIndex == messageIndex {
+		if row.kind != activityRowCollapsed &&
+			(row.messageIndex == messageIndex || row.endMessageIndex == messageIndex) {
 			d.selectedRow = i
 			d.updateSelectedUser()
 			return
@@ -814,7 +1031,7 @@ func (d *DetailView) updateSelectedUser() {
 		d.selectedUser = row.threadStart
 		return
 	}
-	d.selectedUser = nearestThreadStart(d.session.Messages, row.messageIndex)
+	d.selectedUser = row.threadStart
 }
 
 func (d *DetailView) selectedActivityRow() (activityRow, bool) {

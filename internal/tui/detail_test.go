@@ -152,6 +152,116 @@ func TestDetailOpenSelectedDetailShowsSingleEvent(t *testing.T) {
 	}
 }
 
+func TestDetailGroupsToolStartAndCompletion(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			{Role: "assistant", Content: "assistant between action events"},
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+
+	if len(detail.rows) != 3 {
+		t.Fatalf("expected user, grouped action, and assistant rows, got %d: %#v", len(detail.rows), detail.rows)
+	}
+	group := detail.rows[1]
+	if group.kind != activityRowActionGroup || group.messageIndex != 1 || group.endMessageIndex != 3 {
+		t.Fatalf("expected tool start/completion group, got %#v", group)
+	}
+
+	view := detail.View()
+	startPos := strings.Index(view, "Started tool: bash")
+	completePos := strings.Index(view, "Tool completed: bash")
+	betweenPos := strings.Index(view, "assistant between action events")
+	if startPos < 0 || completePos < 0 || betweenPos < 0 {
+		t.Fatalf("expected grouped and surrounding activity, got:\n%s", view)
+	}
+	if !(startPos < completePos && completePos < betweenPos) {
+		t.Fatalf("expected completion directly after start before intervening activity, got:\n%s", view)
+	}
+}
+
+func TestDetailShowsPendingToolAction(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "in progress") || !strings.Contains(view, "waiting for bash") {
+		t.Fatalf("expected pending action indicator, got:\n%s", view)
+	}
+}
+
+func TestDetailShowsUnmatchedToolCompletion(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Tool completed: orphan", models.ActivityLifecycleCompleted, "tool-orphan"),
+		},
+	})
+
+	if len(detail.rows) != 2 || detail.rows[1].kind != activityRowMessage {
+		t.Fatalf("expected unmatched completion to remain a standalone row, got %#v", detail.rows)
+	}
+	if view := detail.View(); !strings.Contains(view, "Tool completed: orphan") {
+		t.Fatalf("expected unmatched completion to remain visible, got:\n%s", view)
+	}
+}
+
+func TestDetailOpenGroupedActionShowsStartAndCompletion(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		ProjectPath: "/repo/project",
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			{Role: "assistant", Content: "assistant between action events"},
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+	detail.SelectNextRow()
+
+	if !detail.OpenSelectedDetail() {
+		t.Fatalf("expected grouped action to open focused detail")
+	}
+	view := detail.ThreadView()
+	for _, want := range []string{"Started tool: bash", "Grouped completion", "Tool completed: bash"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected focused grouped action detail with %q, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "assistant between action events") {
+		t.Fatalf("expected grouped action detail to exclude surrounding activity, got:\n%s", view)
+	}
+}
+
+func TestDetailCollapseHidesGroupedActionRows(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
+			toolLifecycleMessage("Tool completed: bash", models.ActivityLifecycleCompleted, "tool-1"),
+		},
+	})
+
+	detail.ToggleSelectedThread()
+	view := detail.View()
+	if strings.Contains(view, "Started tool: bash") || strings.Contains(view, "Tool completed: bash") {
+		t.Fatalf("expected grouped action to collapse with the prompt thread, got:\n%s", view)
+	}
+	if !strings.Contains(view, "2 activity entries folded") {
+		t.Fatalf("expected collapsed grouped action summary, got:\n%s", view)
+	}
+}
+
 func TestDetailFollowModePausesAndResumes(t *testing.T) {
 	detail := NewDetailView(120, 22)
 	detail.SetSession(&models.Session{
@@ -279,4 +389,17 @@ func makeTestMessages(count int) []models.Message {
 		})
 	}
 	return messages
+}
+
+func toolLifecycleMessage(content, lifecycle, id string) models.Message {
+	return models.Message{
+		Role:    "tool",
+		Content: content,
+		Meta: models.ActivityMeta{
+			Kind:      models.ActivityKindTool,
+			Lifecycle: lifecycle,
+			ID:        id,
+			Label:     "bash",
+		},
+	}
 }

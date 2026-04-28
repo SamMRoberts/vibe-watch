@@ -347,6 +347,81 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 }
 
+func TestCopilotDetectorPreservesToolLifecycleMetadata(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "tool-meta")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-tool-meta
+cwd: /tmp/project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "tool.execution_start",
+			"timestamp": "2026-04-14T21:07:49.000Z",
+			"data": map[string]interface{}{
+				"toolCallId":       "tool-1",
+				"parentToolCallId": "parent-1",
+				"interactionId":    "turn-1",
+				"toolName":         "bash",
+			},
+		},
+		{
+			"type":      "tool.execution_complete",
+			"timestamp": "2026-04-14T21:07:50.000Z",
+			"data": map[string]interface{}{
+				"toolCallId":    "tool-1",
+				"interactionId": "turn-1",
+				"success":       true,
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 lifecycle messages, got %d: %#v", len(messages), messages)
+	}
+
+	start := messages[0].Meta
+	if start.Kind != models.ActivityKindTool ||
+		start.Lifecycle != models.ActivityLifecycleStarted ||
+		start.ID != "tool-1" ||
+		start.ParentID != "parent-1" ||
+		start.InteractionID != "turn-1" ||
+		start.Label != "bash" {
+		t.Fatalf("unexpected start metadata: %#v", start)
+	}
+
+	complete := messages[1].Meta
+	if complete.Kind != models.ActivityKindTool ||
+		complete.Lifecycle != models.ActivityLifecycleCompleted ||
+		complete.ID != "tool-1" ||
+		complete.InteractionID != "turn-1" ||
+		complete.Label != "bash" {
+		t.Fatalf("unexpected completion metadata: %#v", complete)
+	}
+}
+
 func TestCopilotDetectorUsesShutdownCurrentTokensFallback(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

@@ -50,6 +50,7 @@ type copilotMessageData struct {
 	ShutdownType          string                  `json:"shutdownType"`
 	ToolCallID            string                  `json:"toolCallId"`
 	ParentToolCallID      string                  `json:"parentToolCallId"`
+	InteractionID         string                  `json:"interactionId"`
 	ToolName              string                  `json:"toolName"`
 	MCPServerName         string                  `json:"mcpServerName"`
 	MCPToolName           string                  `json:"mcpToolName"`
@@ -57,6 +58,8 @@ type copilotMessageData struct {
 	Error                 json.RawMessage         `json:"error"`
 	Model                 string                  `json:"model"`
 	ToolTelemetry         map[string]any          `json:"toolTelemetry"`
+	AgentID               string                  `json:"agentId"`
+	SubagentID            string                  `json:"subagentId"`
 	AgentName             string                  `json:"agentName"`
 	AgentDisplayName      string                  `json:"agentDisplayName"`
 	DurationMs            int                     `json:"durationMs"`
@@ -407,7 +410,54 @@ func copilotActivityMessage(eventType string, data copilotMessageData, toolNames
 	if content == "" {
 		return models.Message{}, false
 	}
-	return models.Message{Role: role, Content: content}, true
+	return models.Message{
+		Role:    role,
+		Content: content,
+		Meta:    copilotActivityMeta(eventType, data, toolNames),
+	}, true
+}
+
+func copilotActivityMeta(eventType string, data copilotMessageData, toolNames map[string]string) models.ActivityMeta {
+	switch eventType {
+	case "tool.execution_start":
+		return models.ActivityMeta{
+			Kind:          models.ActivityKindTool,
+			Lifecycle:     models.ActivityLifecycleStarted,
+			ID:            data.ToolCallID,
+			ParentID:      data.ParentToolCallID,
+			InteractionID: data.InteractionID,
+			Label:         copilotToolLabel(data),
+		}
+	case "tool.user_requested":
+		return models.ActivityMeta{
+			Kind:          models.ActivityKindTool,
+			Lifecycle:     models.ActivityLifecycleRequested,
+			ID:            data.ToolCallID,
+			ParentID:      data.ParentToolCallID,
+			InteractionID: data.InteractionID,
+			Label:         copilotToolLabel(data),
+		}
+	case "tool.execution_complete":
+		lifecycle := models.ActivityLifecycleCompleted
+		if data.Success != nil && !*data.Success {
+			lifecycle = models.ActivityLifecycleFailed
+		}
+		return models.ActivityMeta{
+			Kind:          models.ActivityKindTool,
+			Lifecycle:     lifecycle,
+			ID:            data.ToolCallID,
+			ParentID:      data.ParentToolCallID,
+			InteractionID: data.InteractionID,
+			Label:         copilotToolLabelWithCache(data, toolNames),
+		}
+	case "subagent.started":
+		return copilotSubagentMeta(data, models.ActivityLifecycleStarted)
+	case "subagent.completed":
+		return copilotSubagentMeta(data, models.ActivityLifecycleCompleted)
+	case "subagent.failed":
+		return copilotSubagentMeta(data, models.ActivityLifecycleFailed)
+	}
+	return models.ActivityMeta{}
 }
 
 func copilotActivity(eventType string, data copilotMessageData, toolNames map[string]string) (string, string) {
@@ -585,11 +635,29 @@ func copilotToolLabel(data copilotMessageData) string {
 	return "unknown"
 }
 
+func copilotToolLabelWithCache(data copilotMessageData, toolNames map[string]string) string {
+	if label := toolNames[data.ToolCallID]; label != "" {
+		return label
+	}
+	return copilotToolLabel(data)
+}
+
 func copilotAgentLabel(data copilotMessageData) string {
 	if data.AgentDisplayName != "" {
 		return data.AgentDisplayName
 	}
 	return emptyDash(data.AgentName)
+}
+
+func copilotSubagentMeta(data copilotMessageData, lifecycle string) models.ActivityMeta {
+	return models.ActivityMeta{
+		Kind:          models.ActivityKindSubagent,
+		Lifecycle:     lifecycle,
+		ID:            firstNonEmpty(data.SubagentID, data.AgentID, data.ToolCallID),
+		ParentID:      data.ParentToolCallID,
+		InteractionID: data.InteractionID,
+		Label:         copilotAgentLabel(data),
+	}
 }
 
 func copilotTaskComplete(data copilotMessageData) string {
