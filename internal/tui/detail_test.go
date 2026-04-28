@@ -542,6 +542,32 @@ func TestDetailLifecycleRowShowsUsefulCompletionDetail(t *testing.T) {
 	}
 }
 
+func TestDetailLifecycleRowShowsMappedSemanticDetail(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			semanticToolLifecycleMessage("Started tool: run_in_terminal\ngoal: Inspect Chat logs", models.ActivityLifecycleStarted, "tool-1", "run_in_terminal"),
+			semanticToolLifecycleMessage("Tool completed: run_in_terminal\nresult: Chat fields mapped", models.ActivityLifecycleCompleted, "tool-1", "run_in_terminal"),
+		},
+	})
+
+	view := detail.View()
+	if !strings.Contains(view, "run_in_terminal · done") || !strings.Contains(view, "result: Chat fields mapped") {
+		t.Fatalf("expected mapped lifecycle result detail, got:\n%s", view)
+	}
+
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			semanticToolLifecycleMessage("Started tool: run_in_terminal\ngoal: Inspect Chat logs", models.ActivityLifecycleStarted, "tool-1", "run_in_terminal"),
+		},
+	})
+	if view := detail.View(); !strings.Contains(view, "goal: Inspect Chat logs") {
+		t.Fatalf("expected mapped lifecycle start detail, got:\n%s", view)
+	}
+}
+
 func TestDetailLifecycleRowShowsStartTimeWithDurationAtEnd(t *testing.T) {
 	startedAt := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 	detail := NewDetailView(120, 80)
@@ -971,6 +997,10 @@ func lineContaining(text, needle string) string {
 }
 
 func toolLifecycleMessage(content, lifecycle, id string) models.Message {
+	return semanticToolLifecycleMessage(content, lifecycle, id, "bash")
+}
+
+func semanticToolLifecycleMessage(content, lifecycle, id, label string) models.Message {
 	return models.Message{
 		Role:    "tool",
 		Content: content,
@@ -978,7 +1008,7 @@ func toolLifecycleMessage(content, lifecycle, id string) models.Message {
 			Kind:      models.ActivityKindTool,
 			Lifecycle: lifecycle,
 			ID:        id,
-			Label:     "bash",
+			Label:     label,
 		},
 	}
 }

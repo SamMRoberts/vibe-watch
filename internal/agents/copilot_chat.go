@@ -116,8 +116,8 @@ type copilotChatPart struct {
 	Value             any             `json:"value"`
 	ToolCallID        string          `json:"toolCallId"`
 	ToolID            string          `json:"toolId"`
-	InvocationMessage string          `json:"invocationMessage"`
-	PastTenseMessage  string          `json:"pastTenseMessage"`
+	InvocationMessage any             `json:"invocationMessage"`
+	PastTenseMessage  any             `json:"pastTenseMessage"`
 	IsComplete        *bool           `json:"isComplete"`
 	IsConfirmed       *bool           `json:"isConfirmed"`
 	ResultDetails     json.RawMessage `json:"resultDetails"`
@@ -147,6 +147,8 @@ type copilotChatTranscriptData struct {
 	ToolName       string               `json:"toolName"`
 	Arguments      json.RawMessage      `json:"arguments"`
 	Success        *bool                `json:"success"`
+	Result         json.RawMessage      `json:"result"`
+	ResultDetails  json.RawMessage      `json:"resultDetails"`
 }
 
 func (c *CopilotChatDetector) Detect() ([]*models.Session, error) {
@@ -355,6 +357,8 @@ func parseCopilotChatWorkspace(indexData []byte, metadata map[string]copilotChat
 		session.TotalTokens.OutputTokens = chatState.totalCompletionTokens()
 		if len(transcriptMessages) > 0 {
 			session.Messages = transcriptMessages
+		} else if stateMessages := copilotChatStateMessages(chatState); len(stateMessages) > 0 {
+			session.Messages = stateMessages
 		} else if message := copilotChatMessage(entry, metadata[sessionID], chatState); message != "" {
 			session.Messages = append(session.Messages, models.Message{
 				Role:      "user",
@@ -461,7 +465,9 @@ func parseCopilotChatTranscript(path string) ([]models.Message, time.Time, time.
 			activityData := copilotMessageData{
 				ToolCallID: data.ToolCallID,
 				ToolName:   data.ToolName,
+				Arguments:  data.Arguments,
 				Success:    data.Success,
+				Result:     firstRawMessage(data.Result, data.ResultDetails),
 			}
 			if activity, ok := copilotActivityMessage(event.Type, activityData, toolNames); ok {
 				activity.Timestamp = timestamp
@@ -632,7 +638,7 @@ func copilotChatRequestText(value any) string {
 	case string:
 		return typed
 	case map[string]any:
-		for _, key := range []string{"text", "content", "value", "message"} {
+		for _, key := range []string{"text", "content", "value", "message", "prompt", "query", "input", "description", "goal"} {
 			if text, ok := typed[key].(string); ok && text != "" {
 				return text
 			}
@@ -647,6 +653,76 @@ func copilotChatRequestText(value any) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+func copilotChatStateMessages(state copilotChatSessionState) []models.Message {
+	messages := make([]models.Message, 0, len(state.Requests)*2)
+	for _, request := range state.Requests {
+		timestamp := timeFromMillis(request.Timestamp)
+		if content := copilotChatRequestText(request.Message); content != "" {
+			messages = append(messages, models.Message{Role: "user", Content: content, Timestamp: timestamp})
+		}
+		for _, part := range request.Response {
+			if msg, ok := copilotChatPartMessage(part, timestamp); ok {
+				messages = append(messages, msg)
+			}
+		}
+	}
+	return messages
+}
+
+func copilotChatPartMessage(part copilotChatPart, timestamp time.Time) (models.Message, bool) {
+	switch part.Kind {
+	case "thinking":
+		if content := copilotChatRequestText(part.Value); content != "" {
+			return models.Message{Role: "assistant", Content: "reasoning: " + content, Timestamp: timestamp}, true
+		}
+	case "toolInvocationSerialized":
+		label := firstNonEmpty(part.ToolID, part.ToolCallID, "tool")
+		content := copilotChatRequestText(part.InvocationMessage)
+		lifecycle := models.ActivityLifecycleStarted
+		if complete := copilotChatRequestText(part.PastTenseMessage); complete != "" {
+			content = complete
+			lifecycle = models.ActivityLifecycleCompleted
+		} else if part.IsComplete != nil && *part.IsComplete {
+			lifecycle = models.ActivityLifecycleCompleted
+		}
+		if content == "" {
+			content = "Tool " + lowerChatLifecycle(lifecycle) + ": " + label
+		}
+		if result := semanticJSONSummary(part.ResultDetails, "result"); result != "" {
+			content += "\n" + result
+		}
+		return models.Message{
+			Role:      "tool",
+			Content:   content,
+			Timestamp: timestamp,
+			Meta: models.ActivityMeta{
+				Kind:      models.ActivityKindTool,
+				Lifecycle: lifecycle,
+				ID:        part.ToolCallID,
+				Label:     label,
+			},
+		}, true
+	default:
+		if content := copilotChatRequestText(part.Value); content != "" {
+			return models.Message{Role: "assistant", Content: content, Timestamp: timestamp}, true
+		}
+	}
+	return models.Message{}, false
+}
+
+func lowerChatLifecycle(lifecycle string) string {
+	switch lifecycle {
+	case models.ActivityLifecycleCompleted:
+		return "completed"
+	case models.ActivityLifecycleFailed:
+		return "failed"
+	case models.ActivityLifecycleRequested:
+		return "requested"
+	default:
+		return "started"
+	}
 }
 
 func appendCopilotChatSummary(session *models.Session, state copilotChatSessionState, entry copilotChatEntry) {

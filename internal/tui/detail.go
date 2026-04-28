@@ -1525,7 +1525,22 @@ func usefulLifecycleDetail(content string) string {
 		if strings.HasPrefix(lower, "error:") {
 			return strings.TrimSpace(line[len("error:"):])
 		}
-		if strings.HasPrefix(lower, "telemetry:") || strings.HasPrefix(lower, "parent:") {
+		if strings.HasPrefix(lower, "telemetry:") ||
+			strings.HasPrefix(lower, "parent:") ||
+			strings.HasPrefix(lower, "intent:") ||
+			strings.HasPrefix(lower, "goal:") ||
+			strings.HasPrefix(lower, "description:") ||
+			strings.HasPrefix(lower, "explanation:") ||
+			strings.HasPrefix(lower, "summary:") ||
+			strings.HasPrefix(lower, "query:") ||
+			strings.HasPrefix(lower, "pattern:") ||
+			strings.HasPrefix(lower, "prompt:") ||
+			strings.HasPrefix(lower, "input:") ||
+			strings.HasPrefix(lower, "command:") ||
+			strings.HasPrefix(lower, "filepath:") ||
+			strings.HasPrefix(lower, "path:") ||
+			strings.HasPrefix(lower, "result:") ||
+			strings.HasPrefix(lower, "output:") {
 			return line
 		}
 	}

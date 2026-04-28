@@ -426,6 +426,90 @@ updated_at: 2026-04-14T21:08:03.055Z
 	}
 }
 
+func TestCopilotDetectorMapsSemanticToolFields(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	sessionDir := filepath.Join(tmp, ".copilot", "session-state", "semantic-fields")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace := `id: session-semantic-fields
+cwd: /tmp/project
+created_at: 2026-04-14T21:05:20.436Z
+updated_at: 2026-04-14T21:08:03.055Z
+`
+	if err := os.WriteFile(filepath.Join(sessionDir, "workspace.yaml"), []byte(workspace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []map[string]interface{}{
+		{
+			"type":      "user.message",
+			"timestamp": "2026-04-14T21:07:48.000Z",
+			"data": map[string]interface{}{
+				"transformedContent": "mapped prompt",
+			},
+		},
+		{
+			"type":      "assistant.message",
+			"timestamp": "2026-04-14T21:07:49.000Z",
+			"data": map[string]interface{}{
+				"toolRequests": []map[string]interface{}{
+					{"name": "report_intent", "intentionSummary": "Compare semantic fields"},
+				},
+			},
+		},
+		{
+			"type":      "tool.execution_start",
+			"timestamp": "2026-04-14T21:07:50.000Z",
+			"data": map[string]interface{}{
+				"toolCallId": "tool-1",
+				"toolName":   "report_intent",
+				"arguments": map[string]interface{}{
+					"intent": "Find matching goal and description fields",
+				},
+			},
+		},
+		{
+			"type":      "tool.execution_complete",
+			"timestamp": "2026-04-14T21:07:51.000Z",
+			"data": map[string]interface{}{
+				"toolCallId": "tool-1",
+				"success":    true,
+				"result": map[string]interface{}{
+					"content": "Intent logged",
+				},
+			},
+		},
+	}
+	writeJSONL(t, filepath.Join(sessionDir, "events.jsonl"), entries)
+
+	d := agents.NewCopilotDetector()
+	sessions, err := d.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if got := messages[0].Content; got != "mapped prompt" {
+		t.Fatalf("expected transformed user content fallback, got %q", got)
+	}
+	if got := messages[1].Content; got != "Compare semantic fields" {
+		t.Fatalf("expected assistant tool intent summary, got %q", got)
+	}
+	if !strings.Contains(messages[2].Content, "intent: Find matching goal and description fields") {
+		t.Fatalf("expected mapped tool intent, got %q", messages[2].Content)
+	}
+	if !strings.Contains(messages[3].Content, "result: Intent logged") {
+		t.Fatalf("expected mapped tool result content, got %q", messages[3].Content)
+	}
+}
+
 func TestCopilotDetectorMarksTerminalSessionFailureMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

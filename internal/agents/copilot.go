@@ -35,6 +35,7 @@ type copilotEvent struct {
 }
 
 type copilotMessageData struct {
+	Role                  string                  `json:"role"`
 	Content               string                  `json:"content"`
 	TransformedContent    string                  `json:"transformedContent"`
 	OutputTokens          int                     `json:"outputTokens"`
@@ -52,9 +53,11 @@ type copilotMessageData struct {
 	ParentToolCallID      string                  `json:"parentToolCallId"`
 	InteractionID         string                  `json:"interactionId"`
 	ToolName              string                  `json:"toolName"`
+	Arguments             json.RawMessage         `json:"arguments"`
 	MCPServerName         string                  `json:"mcpServerName"`
 	MCPToolName           string                  `json:"mcpToolName"`
 	Success               *bool                   `json:"success"`
+	Result                json.RawMessage         `json:"result"`
 	Error                 json.RawMessage         `json:"error"`
 	Model                 string                  `json:"model"`
 	ToolTelemetry         map[string]any          `json:"toolTelemetry"`
@@ -69,6 +72,7 @@ type copilotMessageData struct {
 	PreviousModel         string                  `json:"previousModel"`
 	NewMode               string                  `json:"newMode"`
 	PreviousMode          string                  `json:"previousMode"`
+	Phase                 string                  `json:"phase"`
 	ReasoningEffort       string                  `json:"reasoningEffort"`
 	Operation             string                  `json:"operation"`
 	InfoType              string                  `json:"infoType"`
@@ -236,20 +240,14 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 
 		switch event.Type {
 		case "user.message":
-			content := data.Content
-			if content == "" {
-				content = data.TransformedContent
-			}
+			content := copilotUserContent(data)
 			session.Messages = append(session.Messages, models.Message{
 				Role:      "user",
 				Content:   content,
 				Timestamp: timestamp,
 			})
 		case "assistant.message":
-			content := data.Content
-			if content == "" && len(data.ToolRequests) > 0 {
-				content = summarizeToolRequests(data.ToolRequests)
-			}
+			content := copilotAssistantContent(data)
 			session.Messages = append(session.Messages, models.Message{
 				Role:      "assistant",
 				Content:   content,
@@ -405,6 +403,21 @@ func summarizeToolRequests(requests []copilotToolRequest) string {
 	return strings.Join(parts, "\n")
 }
 
+func copilotUserContent(data copilotMessageData) string {
+	return firstNonEmpty(data.Content, data.TransformedContent, data.Message, data.Summary)
+}
+
+func copilotAssistantContent(data copilotMessageData) string {
+	content := firstNonEmpty(data.Content, data.Message, data.Summary)
+	if content == "" && len(data.ToolRequests) > 0 {
+		content = summarizeToolRequests(data.ToolRequests)
+	}
+	if content == "" && data.Phase != "" {
+		content = "phase: " + data.Phase
+	}
+	return content
+}
+
 func copilotActivityMessage(eventType string, data copilotMessageData, toolNames map[string]string) (models.Message, bool) {
 	role, content := copilotActivity(eventType, data, toolNames)
 	if content == "" {
@@ -483,10 +496,14 @@ func copilotActivity(eventType string, data copilotMessageData, toolNames map[st
 		if data.ToolCallID != "" {
 			toolNames[data.ToolCallID] = label
 		}
+		content := "Started tool: " + label
 		if data.ParentToolCallID != "" {
-			return "tool", fmt.Sprintf("Started tool: %s\nparent: %s", label, data.ParentToolCallID)
+			content += "\nparent: " + data.ParentToolCallID
 		}
-		return "tool", "Started tool: " + label
+		if detail := semanticJSONSummary(data.Arguments, "input"); detail != "" {
+			content += "\n" + detail
+		}
+		return "tool", content
 	case "tool.user_requested":
 		label := copilotToolLabel(data)
 		if data.ToolCallID != "" {
@@ -539,6 +556,8 @@ func copilotActivity(eventType string, data copilotMessageData, toolNames map[st
 			content += "\n" + data.Message
 		}
 		return "error", content
+	case "system.message":
+		return "system", firstNonEmpty(data.Content, data.Message, "System message")
 	case "session.context_changed":
 		return "session", copilotContextChanged(data)
 	case "session.shutdown":
@@ -631,6 +650,9 @@ func copilotToolCompletion(data copilotMessageData, toolNames map[string]string)
 	}
 	if errText := copilotErrorText(data.Error); errText != "" {
 		parts = append(parts, "error: "+errText)
+	}
+	if result := semanticJSONSummary(data.Result, "result"); result != "" {
+		parts = append(parts, result)
 	}
 	if metrics := copilotTelemetrySummary(data.ToolTelemetry); metrics != "" {
 		parts = append(parts, metrics)
@@ -767,6 +789,129 @@ func copilotTelemetrySummary(telemetry map[string]any) string {
 		return ""
 	}
 	return "telemetry: " + strings.Join(parts, " ")
+}
+
+var semanticFieldOrder = []string{
+	"intent",
+	"goal",
+	"description",
+	"explanation",
+	"summary",
+	"query",
+	"pattern",
+	"prompt",
+	"input",
+	"command",
+	"filePath",
+	"path",
+	"content",
+	"text",
+	"message",
+	"value",
+	"result",
+	"output",
+	"detailedContent",
+}
+
+func semanticJSONSummary(raw json.RawMessage, fallbackLabel string) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		text := strings.TrimSpace(string(raw))
+		if text == "" {
+			return ""
+		}
+		return formatSemanticLine(fallbackLabel, text)
+	}
+	label, text := semanticValueSummary(value, fallbackLabel)
+	if text == "" {
+		return ""
+	}
+	return formatSemanticLine(label, text)
+}
+
+func firstRawMessage(values ...json.RawMessage) json.RawMessage {
+	for _, value := range values {
+		if len(value) > 0 && string(value) != "null" {
+			return value
+		}
+	}
+	return nil
+}
+
+func semanticValueSummary(value any, fallbackLabel string) (string, string) {
+	switch typed := value.(type) {
+	case string:
+		return fallbackLabel, typed
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			_, text := semanticValueSummary(item, fallbackLabel)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return fallbackLabel, strings.Join(parts, "\n")
+	case map[string]any:
+		for _, key := range semanticFieldOrder {
+			if text := semanticMapText(typed, key, fallbackLabel); text != "" {
+				return semanticDisplayLabel(key, fallbackLabel), text
+			}
+		}
+		return "", ""
+	case nil:
+		return "", ""
+	default:
+		return fallbackLabel, fmt.Sprint(typed)
+	}
+}
+
+func semanticMapText(values map[string]any, key, fallbackLabel string) string {
+	value, ok := values[key]
+	if !ok {
+		return ""
+	}
+	_, text := semanticValueSummary(value, fallbackLabel)
+	return text
+}
+
+func semanticDisplayLabel(key, fallbackLabel string) string {
+	if fallbackLabel == "result" {
+		switch key {
+		case "content", "text", "message", "value", "result", "output", "detailedContent":
+			return fallbackLabel
+		}
+	}
+	return key
+}
+
+func formatSemanticLine(label, text string) string {
+	text = summarizeSemanticText(text, 240)
+	if text == "" {
+		return ""
+	}
+	if label == "" {
+		label = "value"
+	}
+	return label + ": " + text
+}
+
+func summarizeSemanticText(text string, width int) string {
+	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " · "))
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" || len([]rune(text)) <= width {
+		return text
+	}
+	runes := []rune(text)
+	if width <= 1 {
+		return "."
+	}
+	if width <= 3 {
+		return strings.Repeat(".", width)
+	}
+	return string(runes[:width-3]) + "..."
 }
 
 func emptyDash(value string) string {
