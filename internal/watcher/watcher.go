@@ -10,6 +10,7 @@ import (
 
 type UpdateMsg struct {
 	Sessions []*models.Session
+	Err      error
 }
 
 type Watcher struct {
@@ -69,16 +70,15 @@ func (w *Watcher) Sessions() []*models.Session {
 
 func (w *Watcher) poll() {
 	sessions, err := w.registry.DetectAll()
-	if err != nil {
-		return
-	}
 
 	w.mu.Lock()
-	w.sessions = sessions
+	if err == nil {
+		w.sessions = sessions
+	}
 	w.mu.Unlock()
 
 	select {
-	case w.updates <- UpdateMsg{Sessions: sessions}:
+	case w.updates <- UpdateMsg{Sessions: sessions, Err: err}:
 	default:
 	}
 }

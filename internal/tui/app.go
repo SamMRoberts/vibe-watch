@@ -21,7 +21,11 @@ const (
 )
 
 type tickMsg time.Time
-type sessionsMsg []*models.Session
+
+type sessionsUpdateMsg struct {
+	sessions []*models.Session
+	err      error
+}
 
 type App struct {
 	watcher     *watcher.Watcher
@@ -37,6 +41,7 @@ type App struct {
 	loading     bool
 	filterInput string
 	filterMode  bool
+	lastErr     error
 }
 
 func NewApp(w *watcher.Watcher, agentFilter string) *App {
@@ -65,7 +70,7 @@ func tickCmd() tea.Cmd {
 func waitForUpdate(w *watcher.Watcher) tea.Cmd {
 	return func() tea.Msg {
 		update := <-w.Updates()
-		return sessionsMsg(update.Sessions)
+		return sessionsUpdateMsg{sessions: update.Sessions, err: update.Err}
 	}
 }
 
@@ -81,10 +86,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		cmds = append(cmds, tickCmd())
 
-	case sessionsMsg:
-		a.sessions = []*models.Session(msg)
+	case sessionsUpdateMsg:
+		if msg.err == nil {
+			a.sessions = msg.sessions
+		}
 		a.loading = false
 		a.lastRefresh = time.Now()
+		a.lastErr = msg.err
 		a.updateViews()
 		cmds = append(cmds, waitForUpdate(a.watcher))
 
@@ -303,6 +311,9 @@ func (a *App) View() string {
 	helpText := styleMuted.Render("  q quit  tab/shift+tab views  ↑↓ navigate  enter select  esc back  r refresh  / filter")
 	if a.view == viewDetail {
 		helpText = styleMuted.Render("  q quit  esc back  ↑↓ scroll  pgup/pgdn page")
+	}
+	if a.lastErr != nil {
+		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))
 	}
 
 	// Pad to bottom
