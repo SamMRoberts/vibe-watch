@@ -56,7 +56,6 @@ func NewDetailView(width, height int) *DetailView {
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
-		Background(colorSurface).
 		Padding(0, 1)
 	return &DetailView{
 		viewport:         vp,
