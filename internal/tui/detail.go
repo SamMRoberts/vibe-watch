@@ -126,7 +126,7 @@ func (d *DetailView) renderContent() {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString(styleAccent.Render("╰─ Messages") + "\n")
+	sb.WriteString(styleAccent.Render(fmt.Sprintf("╰─ Messages (%d)", len(s.Messages))) + "\n")
 
 	d.viewport.SetContent(sb.String())
 }

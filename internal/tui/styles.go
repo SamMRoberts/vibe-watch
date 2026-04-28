@@ -176,8 +176,8 @@ func styleGlowCursor() string {
 }
 
 func divider(width int) string {
-	if width < 1 {
-		width = 1
+	if width < 3 {
+		width = 3
 	}
 	return styleDivider.Render(strings.Repeat("━", width))
 }

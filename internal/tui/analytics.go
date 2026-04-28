@@ -10,6 +10,7 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
+// maxAnalyticsSectionWidth keeps chart dividers comfortably within standard 80-column terminals.
 const maxAnalyticsSectionWidth = 74
 
 type AnalyticsView struct {
