@@ -6,9 +6,51 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
+
+func TestAppShellFitsAdaptiveWidths(t *testing.T) {
+	for _, width := range []int{70, 80, 100, 140} {
+		app := &App{
+			view:     viewDashboard,
+			width:    width,
+			height:   30,
+			sessions: []*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo", IsActive: true}},
+			dashboard: func() *DashboardView {
+				d := NewDashboardView(width, 30)
+				d.SetSessions([]*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo", IsActive: true}}, "")
+				return d
+			}(),
+		}
+
+		view := app.View()
+		if got := maxRenderedLineWidth(view); got > width {
+			t.Fatalf("expected app shell to fit width %d, got max line width %d:\n%s", width, got, view)
+		}
+		if !strings.Contains(view, "vibe-watch") || !strings.Contains(view, "observatory") {
+			t.Fatalf("expected observatory shell branding, got:\n%s", view)
+		}
+	}
+}
+
+func TestAppFooterUsesGeneratedHelp(t *testing.T) {
+	app := &App{view: viewDetail, width: 110, height: 30, detail: NewDetailView(110, 30)}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity"},
+		},
+	})
+
+	view := app.View()
+	for _, want := range []string{"↑/k", "up", "[", "prev prompt", "f", "follow"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected generated detail help to include %q, got:\n%s", want, view)
+		}
+	}
+}
 
 func TestUpdateViewsRefreshesSelectedDetailSession(t *testing.T) {
 	oldSession := &models.Session{
@@ -283,4 +325,14 @@ func makeDetailMessages(count int) []models.Message {
 		})
 	}
 	return messages
+}
+
+func maxRenderedLineWidth(rendered string) int {
+	maxWidth := 0
+	for _, line := range strings.Split(rendered, "\n") {
+		if width := lipgloss.Width(line); width > maxWidth {
+			maxWidth = width
+		}
+	}
+	return maxWidth
 }

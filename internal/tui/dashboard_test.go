@@ -75,3 +75,44 @@ func TestDashboardShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 		t.Fatalf("expected unavailable input tokens marker, got %q", got)
 	}
 }
+
+func TestDashboardFilterPanelUsesCommandStyling(t *testing.T) {
+	dashboard := NewDashboardView(90, 24)
+	dashboard.filterMode = true
+	dashboard.filterInput = "copilot"
+	dashboard.SetSessions([]*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo/vibe-watch"}}, "")
+
+	view := dashboard.View("")
+	for _, want := range []string{"Filter", "copilot", "Press enter to apply", "Session grid"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected command-style filter panel with %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestAnalyticsViewFitsAdaptiveWidths(t *testing.T) {
+	sessions := []*models.Session{
+		{
+			AgentType:   models.AgentCopilot,
+			ProjectPath: "/repo/vibe-watch",
+			TotalTokens: models.TokenUsage{InputTokens: 1200, OutputTokens: 300},
+		},
+		{
+			AgentType:   models.AgentClaude,
+			ProjectPath: "/repo/vibe-watch",
+			TotalTokens: models.TokenUsage{InputTokens: 800, OutputTokens: 200},
+		},
+	}
+	for _, width := range []int{70, 90, 140} {
+		analytics := NewAnalyticsView(width, 30)
+		analytics.SetSessions(sessions)
+
+		view := analytics.View()
+		if got := maxRenderedLineWidth(view); got > width {
+			t.Fatalf("expected analytics to fit width %d, got max line width %d:\n%s", width, got, view)
+		}
+		if !strings.Contains(view, "Observatory analytics") || !strings.Contains(view, "Token usage by agent") {
+			t.Fatalf("expected restyled analytics sections, got:\n%s", view)
+		}
+	}
+}

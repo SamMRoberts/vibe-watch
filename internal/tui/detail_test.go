@@ -25,7 +25,7 @@ func TestDetailToggleSelectedThreadCollapsesRelatedAssistants(t *testing.T) {
 	if strings.Contains(view, "first response") || strings.Contains(view, "second response") {
 		t.Fatalf("expected selected user's assistant responses to be collapsed, got:\n%s", view)
 	}
-	if !strings.Contains(view, "2 activity entries collapsed") {
+	if !strings.Contains(view, "2 activity entries folded") {
 		t.Fatalf("expected collapsed activity summary, got:\n%s", view)
 	}
 	if !strings.Contains(view, "third response") {
@@ -74,7 +74,7 @@ func TestDetailCollapseAllThreads(t *testing.T) {
 	if strings.Contains(view, "first response") || strings.Contains(view, "second response") || strings.Contains(view, "third response") {
 		t.Fatalf("expected all assistant responses to be collapsed, got:\n%s", view)
 	}
-	if strings.Count(view, "activity entries collapsed") != 2 {
+	if strings.Count(view, "activity entries folded") != 2 {
 		t.Fatalf("expected both user threads to show collapsed summaries, got:\n%s", view)
 	}
 }
@@ -177,6 +177,25 @@ func TestDetailFollowModePausesAndResumes(t *testing.T) {
 	}
 }
 
+func TestDetailTimelineShowsSelectedMarkerAndFollowBadge(t *testing.T) {
+	detail := NewDetailView(120, 28)
+	detail.SetSession(&models.Session{
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "tool", Content: "ran command"},
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{"FOLLOW", "▌", "ran command"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected styled timeline state %q, got:\n%s", want, view)
+		}
+	}
+}
+
 func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
@@ -186,7 +205,7 @@ func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "Input Tokens") || !strings.Contains(view, "-") {
+	if !strings.Contains(view, "Input") || !strings.Contains(view, "-") {
 		t.Fatalf("expected unavailable input token marker in detail view, got:\n%s", view)
 	}
 }
@@ -204,7 +223,7 @@ func TestDetailHeaderStaysVisibleAfterScrolling(t *testing.T) {
 	detail.PageDown()
 	view := detail.View()
 
-	for _, want := range []string{"Copilot CLI", "/repo/project", "Input Tokens", "Output Tokens", "Cache Reads", "ACTIVE"} {
+	for _, want := range []string{"Copilot CLI", "/repo/project", "Input", "Output", "Cache", "ACTIVE"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected fixed header to remain visible with %q, got:\n%s", want, view)
 		}

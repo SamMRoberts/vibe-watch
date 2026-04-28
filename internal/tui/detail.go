@@ -53,6 +53,7 @@ func NewDetailView(width, height int) *DetailView {
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
+		Background(colorSurface).
 		Padding(0, 1)
 	return &DetailView{
 		viewport:         vp,
@@ -402,9 +403,9 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 		rendered = d.renderMessageRow(row)
 	}
 	if selected {
-		return styleSelected.Render(rendered)
+		return styleSelected.Render("▌ " + rendered)
 	}
-	return rendered
+	return styleMuted.Render("  ") + rendered
 }
 
 func (d *DetailView) renderMessageRow(row activityRow) string {
@@ -434,7 +435,7 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 		tokenBadge = "  " + tokenBadge
 	}
 	return fmt.Sprintf(
-		"%s %s %-14s %s%s",
+		"%s %s %-16s %s%s",
 		styleMuted.Render(fmt.Sprintf("%03d", row.messageIndex+1)),
 		styleMuted.Render(ts),
 		role,
@@ -445,8 +446,9 @@ func (d *DetailView) renderMessageRow(row activityRow) string {
 
 func (d *DetailView) renderCollapsedRow(row activityRow) string {
 	return fmt.Sprintf(
-		"    %s %d activity entries collapsed %s",
-		styleMuted.Render("╰─"),
+		"%s %s %d activity entries folded %s",
+		styleMuted.Render("   "),
+		styleMuted.Render("╰─◇"),
 		row.collapsedCount,
 		styleMuted.Render("(space to expand)"),
 	)
@@ -465,19 +467,19 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 	}
 
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
-		"  ",
-		metricCard("Input Tokens", detailInputTokens(s), "↘", styleAccent),
-		"  ",
-		metricCard("Output Tokens", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
-		"  ",
-		metricCard("Cache Reads", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
+		metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
+		" ",
+		metricChip("Input", detailInputTokens(s), "↘", styleAccent),
+		" ",
+		metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
+		" ",
+		metricChip("Cache", fmt.Sprintf("%d", s.TotalTokens.CacheReads), "◌", styleAccent),
 	)
 
 	return header + "\n" +
 		styleMuted.Render(fmt.Sprintf("Started: %s  Duration: %s", startStr, models.FormatDuration(s.Duration()))) + "\n" +
 		statusPill(s.IsActive) + " " + followPill(d.follow, s.IsActive) + "\n\n" +
-		tokenPanel + "\n\n" +
+		tokenPanel + "\n" +
 		divider(d.width-6)
 }
 
@@ -489,18 +491,18 @@ func (d *DetailView) threadHeader(start, messageCount int, threadTokens models.T
 	)
 
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Messages", fmt.Sprintf("%d", messageCount), "☷", styleAccent),
-		"  ",
-		metricCard("Input Tokens", fmt.Sprintf("%d", threadTokens.InputTokens), "↘", styleAccent),
-		"  ",
-		metricCard("Output Tokens", fmt.Sprintf("%d", threadTokens.OutputTokens), "↗", styleAccent),
-		"  ",
-		metricCard("Cache Reads", fmt.Sprintf("%d", threadTokens.CacheReads), "◌", styleAccent),
+		metricChip("Messages", fmt.Sprintf("%d", messageCount), "☷", styleAccent),
+		" ",
+		metricChip("Input", fmt.Sprintf("%d", threadTokens.InputTokens), "↘", styleAccent),
+		" ",
+		metricChip("Output", fmt.Sprintf("%d", threadTokens.OutputTokens), "↗", styleAccent),
+		" ",
+		metricChip("Cache", fmt.Sprintf("%d", threadTokens.CacheReads), "◌", styleAccent),
 	)
 
 	return header + "\n" +
 		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
-		tokenPanel + "\n\n" +
+		tokenPanel + "\n" +
 		divider(d.width-6)
 }
 
@@ -511,17 +513,17 @@ func (d *DetailView) eventHeader(index int, msg models.Message) string {
 		styleAccent.Render(fmt.Sprintf("Focused activity %d", index+1)),
 	)
 	tokenPanel := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Role", msg.Role, "●", styleAccent),
-		"  ",
-		metricCard("Input Tokens", fmt.Sprintf("%d", msg.Tokens.InputTokens), "↘", styleAccent),
-		"  ",
-		metricCard("Output Tokens", fmt.Sprintf("%d", msg.Tokens.OutputTokens), "↗", styleAccent),
-		"  ",
-		metricCard("Cache Reads", fmt.Sprintf("%d", msg.Tokens.CacheReads), "◌", styleAccent),
+		metricChip("Role", msg.Role, "●", styleAccent),
+		" ",
+		metricChip("Input", fmt.Sprintf("%d", msg.Tokens.InputTokens), "↘", styleAccent),
+		" ",
+		metricChip("Output", fmt.Sprintf("%d", msg.Tokens.OutputTokens), "↗", styleAccent),
+		" ",
+		metricChip("Cache", fmt.Sprintf("%d", msg.Tokens.CacheReads), "◌", styleAccent),
 	)
 	return header + "\n" +
 		styleMuted.Render(d.session.ProjectPath) + "\n\n" +
-		tokenPanel + "\n\n" +
+		tokenPanel + "\n" +
 		divider(d.width-6)
 }
 
@@ -664,29 +666,12 @@ func summarizeActivityContent(content string, width int) string {
 
 func followPill(follow, active bool) string {
 	if !active {
-		return lipgloss.NewStyle().
-			Background(colorSurfaceAlt).
-			Foreground(colorMuted).
-			Padding(0, 1).
-			Render("follow idle")
+		return quietPill("follow idle")
 	}
 	if follow {
-		return lipgloss.NewStyle().
-			Background(colorPrimary).
-			Foreground(colorBackground).
-			Bold(true).
-			Padding(0, 1).
-			Render("FOLLOW")
+		return semanticPill("FOLLOW", colorPrimary)
 	}
-	return lipgloss.NewStyle().
-		Background(colorSurfaceAlt).
-		Foreground(colorMuted).
-		Padding(0, 1).
-		Render("PAUSED")
-}
-
-func styleText(s string) string {
-	return lipgloss.NewStyle().Foreground(colorText).Render(s)
+	return semanticPill("PAUSED", colorWarning)
 }
 
 func detailInputTokens(session *models.Session) string {

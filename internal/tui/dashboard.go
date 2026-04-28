@@ -33,13 +33,13 @@ func NewDashboardView(width, height int) *DashboardView {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorSecondary).
+		BorderForeground(colorPrimary).
 		BorderBottom(true).
 		Bold(true).
 		Foreground(colorGlow)
 	s.Selected = s.Selected.
-		Foreground(colorBackground).
-		Background(colorPrimary).
+		Foreground(colorText).
+		Background(colorSurfaceGlow).
 		Bold(true)
 	t.SetStyles(s)
 
@@ -84,8 +84,9 @@ func (d *DashboardView) updateTable(agentFilter string) {
 
 		projectWidth := dashboardColumnWidth(d.table.Columns(), "Project")
 
+		agentWidth := dashboardColumnWidth(d.table.Columns(), "Agent")
 		rows = append(rows, table.Row{
-			agentLabel(string(s.AgentType)),
+			agentLabel(string(s.AgentType), agentWidth),
 			truncateStart(s.ProjectPath, projectWidth),
 			compactInt(s.MessageCount()),
 			sessionInputTokens(s),
@@ -148,15 +149,15 @@ func tableWidth(width int) int {
 	return width - 4
 }
 
-func agentLabel(agent string) string {
-	return agent
+func agentLabel(agent string, width int) string {
+	return compactAgentBadge(agent, width)
 }
 
 func statusText(active bool) string {
 	if active {
-		return "active"
+		return styleSuccess.Render("● active")
 	}
-	return "idle"
+	return styleMuted.Render("○ idle")
 }
 
 func formatLastUpdated(lastUpdated time.Time) string {
@@ -219,43 +220,47 @@ func (d *DashboardView) SelectedIndex() int {
 func (d *DashboardView) View(agentFilter string) string {
 	var sb strings.Builder
 
-	// Stats bar
 	activeCount := 0
+	recentCount := 0
 	totalTokens := 0
 	for _, s := range d.sessions {
 		if s.IsActive {
 			activeCount++
 		}
+		if !s.LastUpdated.IsZero() && time.Since(s.LastUpdated) < 10*time.Minute {
+			recentCount++
+		}
 		totalTokens += s.TotalInputTokens() + s.TotalOutputTokens()
 	}
 
+	cardWidth := clampInt((d.width-20)/4, 12, 18)
 	stats := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Sessions", fmt.Sprintf("%d", len(d.sessions)), "☷", styleAccent),
+		metricCardWidth("Sessions", fmt.Sprintf("%d", len(d.sessions)), "☷", styleAccent, cardWidth),
 		"  ",
-		metricCard("Active", fmt.Sprintf("%d", activeCount), "✦", styleSuccess),
+		metricCardWidth("Active", fmt.Sprintf("%d", activeCount), "✦", styleSuccess, cardWidth),
 		"  ",
-		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
+		metricCardWidth("Recent", fmt.Sprintf("%d", recentCount), "◌", styleInfo, cardWidth),
+		"  ",
+		metricCardWidth("Tokens", compactInt(totalTokens), "◇", styleAccent, cardWidth),
 	)
 
-	sb.WriteString(styleMuted.Render("╭─ live session telemetry") + "\n")
+	sb.WriteString(sectionHeader("Telemetry cockpit", "live agent sessions", d.width-4) + "\n\n")
 	sb.WriteString(stats)
 	sb.WriteString("\n\n")
 
 	if d.filterMode {
-		sb.WriteString(stylePanel.Width(d.width-6).Render(styleAccent.Render("Filter: ")+d.filterInput+styleGlowCursor()) + "\n\n")
+		sb.WriteString(commandPanel(d.width-6, "Filter", d.filterInput, "Type to narrow by project or agent. Press enter to apply, esc to close.") + "\n\n")
+	} else if d.filter != "" {
+		sb.WriteString(quietPill("filter: "+d.filter) + "\n\n")
 	}
 
-	sb.WriteString(styleMuted.Render("╰─ session table") + "\n")
+	sb.WriteString(sectionHeader("Session grid", agentFilter, d.width-4) + "\n")
 	if len(d.sessions) == 0 {
-		empty := styleCard.
-			Width(d.width-4).
-			Align(lipgloss.Center).
-			Padding(3, 0).
-			Render(
-				styleMuted.Render("No sessions found.\n\n") +
-					styleSubtitle.Render("✦ Run Claude Code, Codex CLI, Copilot CLI, Copilot Chat, or Amazon Q\nto see sessions appear here."),
-			)
-		sb.WriteString(empty)
+		sb.WriteString(emptyState(
+			d.width-4,
+			"No sessions found",
+			"Run Claude Code, Codex CLI, Copilot CLI, Copilot Chat, or Amazon Q to see sessions appear here.",
+		))
 	} else {
 		sb.WriteString(d.table.View())
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -103,25 +104,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
-		case msg.String() == "ctrl+c" || (msg.String() == "q" && a.view != viewDetail && a.view != viewPromptDetail):
+		case key.Matches(msg, keys.Quit) && a.view != viewDetail && a.view != viewPromptDetail:
 			a.watcher.Stop()
 			return a, tea.Quit
 
-		case msg.String() == "tab":
+		case key.Matches(msg, keys.Tab):
 			if a.view == viewDashboard {
 				a.view = viewAnalytics
 			} else {
 				a.view = viewDashboard
 			}
 
-		case msg.String() == "shift+tab":
+		case key.Matches(msg, keys.ShiftTab):
 			if a.view == viewDashboard {
 				a.view = viewAnalytics
 			} else {
 				a.view = viewDashboard
 			}
 
-		case msg.String() == "esc":
+		case key.Matches(msg, keys.Esc):
 			if a.view == viewPromptDetail {
 				a.view = viewDetail
 				a.detail.ShowSessionDetail()
@@ -129,7 +130,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.view = viewDashboard
 			}
 
-		case msg.String() == "enter":
+		case key.Matches(msg, keys.Enter):
 			if a.view == viewDashboard && a.dashboard != nil {
 				idx := a.dashboard.SelectedIndex()
 				filtered := a.filteredSessions()
@@ -146,16 +147,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case msg.String() == "r":
+		case key.Matches(msg, keys.Refresh):
 			a.watcher.Refresh()
 
-		case msg.String() == "/":
+		case key.Matches(msg, keys.Filter):
 			if a.view == viewDashboard {
 				a.filterMode = true
 				a.filterInput = ""
 			}
 
-		case msg.String() == "up" || msg.String() == "k":
+		case key.Matches(msg, keys.Up):
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveUp(1)
 			} else if a.view == viewDetail && a.detail != nil {
@@ -164,7 +165,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.ScrollUp()
 			}
 
-		case msg.String() == "down" || msg.String() == "j":
+		case key.Matches(msg, keys.Down):
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveDown(1)
 			} else if a.view == viewDetail && a.detail != nil {
@@ -173,53 +174,53 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.ScrollDown()
 			}
 
-		case msg.String() == "[":
+		case key.Matches(msg, keys.PreviousPrompt):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectPreviousUser()
 			}
 
-		case msg.String() == "]":
+		case key.Matches(msg, keys.NextPrompt):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectNextUser()
 			}
 
-		case msg.String() == "home":
+		case key.Matches(msg, keys.Home):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.SelectFirstRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.viewport.GotoTop()
 			}
 
-		case msg.String() == "end":
+		case key.Matches(msg, keys.End):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.FollowLatest()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.viewport.GotoBottom()
 			}
 
-		case msg.String() == " " || msg.String() == "space":
+		case key.Matches(msg, keys.Collapse):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.ToggleSelectedThread()
 			}
 
-		case msg.String() == "c":
+		case key.Matches(msg, keys.CollapseAll):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.CollapseAllThreads()
 			}
 
-		case msg.String() == "f":
+		case key.Matches(msg, keys.Follow):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.ToggleFollow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.PageDown()
 			}
 
-		case msg.String() == "pgup" || msg.String() == "b":
+		case key.Matches(msg, keys.PageUp):
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageUp()
 			}
 
-		case msg.String() == "pgdown":
+		case key.Matches(msg, keys.PageDown):
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageDown()
 			}
@@ -340,49 +341,7 @@ func (a *App) View() string {
 	}
 
 	var sb strings.Builder
-
-	// Header bar
-	title := styleTitle.Render("⚡ vibe-watch")
-	subtitle := styleMuted.Render("◆ Agentic Session Monitor")
-
-	tabDash := styleTab.Render("☷ Dashboard")
-	tabAnalytics := styleTab.Render("▣ Analytics")
-
-	switch a.view {
-	case viewDashboard:
-		tabDash = styleActiveTab.Render("☷ Dashboard")
-	case viewAnalytics:
-		tabAnalytics = styleActiveTab.Render("▣ Analytics")
-	case viewDetail:
-		tabDash = styleActiveTab.Render("◈ Detail")
-	case viewPromptDetail:
-		tabDash = styleActiveTab.Render("◉ Prompt Detail")
-	}
-
-	refreshStr := ""
-	if !a.lastRefresh.IsZero() {
-		refreshStr = styleMuted.Render(fmt.Sprintf("refreshed %ds ago", int(time.Since(a.lastRefresh).Seconds())))
-	}
-
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", subtitle)
-	headerTabs := lipgloss.JoinHorizontal(lipgloss.Bottom, tabDash, tabAnalytics)
-	headerRight := refreshStr
-
-	headerWidth := a.width - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
-	if headerWidth < 0 {
-		headerWidth = 0
-	}
-	headerMiddle := lipgloss.NewStyle().Width(headerWidth).Align(lipgloss.Center).Render(headerTabs)
-
-	header := lipgloss.NewStyle().
-		Background(colorSurface).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(colorPrimary).
-		Padding(0, 1).
-		Width(a.width).
-		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, headerLeft, headerMiddle, headerRight))
-
-	sb.WriteString(header + "\n\n")
+	sb.WriteString(a.renderShellHeader() + "\n\n")
 
 	// Content
 	switch a.view {
@@ -391,8 +350,10 @@ func (a *App) View() string {
 			sb.WriteString(styleMuted.Render("Initializing..."))
 		} else {
 			if a.loading {
-				sb.WriteString(stylePanel.Width(a.width - 6).Render(styleAccent.Render("✦ Loading sessions...")))
+				sb.WriteString(observatoryPanel(a.width-6, styleAccent.Render("✦ scanning session telemetry...")))
 			} else {
+				a.dashboard.filterMode = a.filterMode
+				a.dashboard.filterInput = a.filterInput
 				sb.WriteString(a.dashboard.View(a.agentFilter))
 			}
 		}
@@ -410,35 +371,138 @@ func (a *App) View() string {
 		}
 	}
 
-	// Footer help
-	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
-	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ activity  │  [/ ] prompts  │  enter detail  │  f follow")
-	}
-	if a.view == viewPromptDetail {
-		helpText = styleMuted.Render("  q quit  │  esc session detail  │  ↑↓ scroll  │  pgup/pgdn page")
-	}
-	if a.lastErr != nil {
-		helpText = styleError.Render(fmt.Sprintf("  ⚠ detection error: %v", a.lastErr))
-	}
-
 	// Pad to bottom
 	contentHeight := a.height - 2 // header + footer
-	currentLines := strings.Count(sb.String(), "\n")
-	paddingLines := contentHeight - currentLines - 1
+	currentLines := lipgloss.Height(sb.String())
+	paddingLines := contentHeight - currentLines
 	for i := 0; i < paddingLines; i++ {
 		sb.WriteString("\n")
 	}
+	if !strings.HasSuffix(sb.String(), "\n") {
+		sb.WriteString("\n")
+	}
 
-	footer := lipgloss.NewStyle().
+	sb.WriteString(a.renderShellFooter())
+
+	return sb.String()
+}
+
+func (a *App) renderShellHeader() string {
+	contentWidth := maxInt(1, a.width-2)
+	title := styleTitle.Render("◈ vibe-watch")
+	subtitleText := "agent session observatory"
+	if a.width < 90 {
+		subtitleText = "observatory"
+	}
+	subtitle := styleMuted.Render(subtitleText)
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Bottom, title, "  ", subtitle)
+	headerTabs := a.renderViewTabs()
+	headerRight := a.renderHeaderStatus()
+
+	headerWidth := contentWidth - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
+	if headerWidth < lipgloss.Width(headerTabs) {
+		headerTabs = a.renderCompactViewTab()
+		headerWidth = contentWidth - lipgloss.Width(headerLeft) - lipgloss.Width(headerRight)
+	}
+	if headerWidth < lipgloss.Width(headerTabs) {
+		headerRight = ""
+		headerWidth = contentWidth - lipgloss.Width(headerLeft)
+	}
+	if headerWidth < lipgloss.Width(headerTabs) {
+		headerTabs = ""
+		headerWidth = contentWidth - lipgloss.Width(headerLeft)
+	}
+	if headerWidth < 1 {
+		headerWidth = 1
+	}
+	headerMiddle := lipgloss.NewStyle().Width(headerWidth).Align(lipgloss.Center).Render(headerTabs)
+
+	return lipgloss.NewStyle().
+		Background(colorSurface).
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(colorPrimary).
+		Padding(0, 1).
+		Width(contentWidth).
+		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, headerLeft, headerMiddle, headerRight))
+}
+
+func (a *App) renderViewTabs() string {
+	tabDash := styleTab.Render("☷ Dashboard")
+	tabAnalytics := styleTab.Render("▣ Analytics")
+	switch a.view {
+	case viewDashboard:
+		tabDash = styleActiveTab.Render("☷ Dashboard")
+	case viewAnalytics:
+		tabAnalytics = styleActiveTab.Render("▣ Analytics")
+	case viewDetail:
+		tabDash = styleActiveTab.Render("◈ Detail")
+	case viewPromptDetail:
+		tabDash = styleActiveTab.Render("◉ Focus")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, tabDash, tabAnalytics)
+}
+
+func (a *App) renderCompactViewTab() string {
+	switch a.view {
+	case viewAnalytics:
+		return styleActiveTab.Render("▣ Analytics")
+	case viewDetail:
+		return styleActiveTab.Render("◈ Detail")
+	case viewPromptDetail:
+		return styleActiveTab.Render("◉ Focus")
+	default:
+		return styleActiveTab.Render("☷ Dashboard")
+	}
+}
+
+func (a *App) renderHeaderStatus() string {
+	active := 0
+	for _, s := range a.sessions {
+		if s.IsActive {
+			active++
+		}
+	}
+	if a.width < 90 {
+		return ""
+	}
+	parts := []string{quietPill(fmt.Sprintf("%d sessions", len(a.sessions)))}
+	if active > 0 {
+		parts = append(parts, semanticPill(fmt.Sprintf("● %d live", active), colorSuccess))
+	}
+	if !a.lastRefresh.IsZero() {
+		parts = append(parts, styleMuted.Render(fmt.Sprintf("refreshed %ds", int(time.Since(a.lastRefresh).Seconds()))))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
+}
+
+func (a *App) renderShellFooter() string {
+	helpText := a.renderHelpText()
+	if a.lastErr != nil {
+		helpText = styleError.Render(fmt.Sprintf("⚠ detection error: %v", a.lastErr)) +
+			styleMuted.Render("  Check detector paths and logs, then press r to retry.")
+	}
+	return lipgloss.NewStyle().
 		Background(colorSurface).
 		Foreground(colorMuted).
 		Border(lipgloss.NormalBorder(), true, false, false, false).
 		BorderForeground(colorPrimary).
-		Width(a.width).
+		Padding(0, 1).
+		Width(maxInt(1, a.width-2)).
 		Render(helpText)
+}
 
-	sb.WriteString(footer)
-
-	return sb.String()
+func (a *App) renderHelpText() string {
+	h := newHelpModel(a.width - 4)
+	switch {
+	case a.filterMode:
+		return h.View(filterHelp())
+	case a.view == viewDetail:
+		return h.View(detailHelp())
+	case a.view == viewPromptDetail:
+		return h.View(focusedHelp())
+	case a.view == viewAnalytics:
+		return h.View(analyticsHelp())
+	default:
+		return h.View(dashboardHelp())
+	}
 }
