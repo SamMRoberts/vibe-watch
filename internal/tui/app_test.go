@@ -51,3 +51,43 @@ func TestFindMatchingSessionFallsBackToLogPath(t *testing.T) {
 		t.Fatalf("expected session to match by log path")
 	}
 }
+
+func TestUpdateViewsScrollsActiveDetailSessionToBottom(t *testing.T) {
+	oldSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages:  makeDetailMessages(20),
+	}
+	updatedSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages:  makeDetailMessages(40),
+	}
+
+	app := &App{
+		view:     viewDetail,
+		sessions: []*models.Session{updatedSession},
+		detail:   NewDetailView(100, 20),
+	}
+	app.detail.SetSession(oldSession)
+	app.detail.viewport.GotoTop()
+
+	app.updateViews()
+
+	if !app.detail.viewport.AtBottom() {
+		t.Fatalf("expected active detail viewport to auto-scroll to bottom")
+	}
+}
+
+func makeDetailMessages(count int) []models.Message {
+	messages := make([]models.Message, 0, count)
+	for i := 0; i < count; i++ {
+		messages = append(messages, models.Message{
+			Role:    "assistant",
+			Content: "line",
+		})
+	}
+	return messages
+}

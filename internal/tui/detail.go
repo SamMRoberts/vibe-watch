@@ -45,6 +45,10 @@ func (d *DetailView) SetSession(s *models.Session) {
 	d.renderContent()
 }
 
+func (d *DetailView) ScrollToBottom() {
+	d.viewport.GotoBottom()
+}
+
 func (d *DetailView) renderContent() {
 	if d.session == nil {
 		d.viewport.SetContent(styleMuted.Render("No session selected"))

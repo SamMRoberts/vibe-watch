@@ -133,6 +133,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				filtered := a.filteredSessions()
 				if idx >= 0 && idx < len(filtered) {
 					a.detail.SetSession(filtered[idx])
+					if filtered[idx].IsActive {
+						a.detail.ScrollToBottom()
+					}
 					a.view = viewDetail
 				}
 			}
@@ -248,6 +251,9 @@ func (a *App) refreshDetailSession() {
 	}
 	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
 		a.detail.SetSession(updated)
+		if a.view == viewDetail && updated.IsActive {
+			a.detail.ScrollToBottom()
+		}
 	}
 }
 
