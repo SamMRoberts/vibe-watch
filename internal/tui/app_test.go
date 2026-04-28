@@ -142,6 +142,71 @@ func TestEnterOpensPromptDetailFromSessionDetail(t *testing.T) {
 	}
 }
 
+func TestEnterOpensFocusedEventDetailFromSessionDetail(t *testing.T) {
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "tool", Content: "tool activity"},
+			{Role: "assistant", Content: "assistant activity"},
+		},
+	})
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated := model.(*App)
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = model.(*App)
+
+	if updated.view != viewPromptDetail {
+		t.Fatalf("expected enter to open focused detail view, got %v", updated.view)
+	}
+	view := updated.detail.ThreadView()
+	if !strings.Contains(view, "Focused activity 2") || !strings.Contains(view, "tool activity") {
+		t.Fatalf("expected focused event detail, got:\n%s", view)
+	}
+	if strings.Contains(view, "assistant activity") {
+		t.Fatalf("expected focused event detail to exclude following activity, got:\n%s", view)
+	}
+}
+
+func TestBracketKeysJumpBetweenUserPrompts(t *testing.T) {
+	app := &App{
+		view:   viewDetail,
+		detail: NewDetailView(100, 40),
+	}
+	app.detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "first prompt"},
+			{Role: "assistant", Content: "first activity"},
+			{Role: "user", Content: "second prompt"},
+		},
+	})
+
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	updated := model.(*App)
+
+	row, ok := updated.detail.selectedActivityRow()
+	if !ok {
+		t.Fatalf("expected selected row")
+	}
+	if row.messageIndex != 2 {
+		t.Fatalf("expected ] to jump to next user prompt, got message index %d", row.messageIndex)
+	}
+
+	model, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	updated = model.(*App)
+	row, ok = updated.detail.selectedActivityRow()
+	if !ok {
+		t.Fatalf("expected selected row")
+	}
+	if row.messageIndex != 0 {
+		t.Fatalf("expected [ to jump to previous user prompt, got message index %d", row.messageIndex)
+	}
+}
+
 func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	app := &App{
 		view:   viewPromptDetail,
@@ -165,6 +230,47 @@ func TestEscReturnsFromPromptDetailToSessionDetail(t *testing.T) {
 	}
 	if view := updated.detail.View(); !strings.Contains(view, "prompt") || !strings.Contains(view, "activity") {
 		t.Fatalf("expected session detail content after returning, got:\n%s", view)
+	}
+}
+
+func TestUpdateViewsKeepsFocusedEventContentWhileFollowing(t *testing.T) {
+	oldSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "tool", Content: "tool activity"},
+		},
+	}
+	updatedSession := &models.Session{
+		ID:        "session-1",
+		AgentType: models.AgentCopilot,
+		IsActive:  true,
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "tool", Content: "tool activity"},
+			{Role: "assistant", Content: "new live activity"},
+		},
+	}
+	app := &App{
+		view:     viewPromptDetail,
+		sessions: []*models.Session{updatedSession},
+		detail:   NewDetailView(100, 40),
+	}
+	app.detail.SetSession(oldSession)
+	if !app.detail.OpenSelectedDetail() {
+		t.Fatalf("expected selected tool activity to open")
+	}
+
+	app.updateViews()
+	view := app.detail.ThreadView()
+
+	if !strings.Contains(view, "Focused activity 2") || !strings.Contains(view, "tool activity") {
+		t.Fatalf("expected focused event content to remain visible, got:\n%s", view)
+	}
+	if strings.Contains(view, "new live activity") {
+		t.Fatalf("expected focused event content to avoid switching back to session timeline, got:\n%s", view)
 	}
 }
 

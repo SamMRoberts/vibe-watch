@@ -136,13 +136,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx >= 0 && idx < len(filtered) {
 					a.detail.SetSession(filtered[idx])
 					if filtered[idx].IsActive {
-						a.detail.SelectLastUser()
-						a.detail.ScrollToBottom()
+						a.detail.FollowLatest()
 					}
 					a.view = viewDetail
 				}
 			} else if a.view == viewDetail && a.detail != nil {
-				if a.detail.OpenSelectedThread() {
+				if a.detail.OpenSelectedDetail() {
 					a.view = viewPromptDetail
 				}
 			}
@@ -160,7 +159,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveUp(1)
 			} else if a.view == viewDetail && a.detail != nil {
-				a.detail.SelectPreviousUser()
+				a.detail.SelectPreviousRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.ScrollUp()
 			}
@@ -169,9 +168,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.view == viewDashboard && a.dashboard != nil {
 				a.dashboard.table.MoveDown(1)
 			} else if a.view == viewDetail && a.detail != nil {
-				a.detail.SelectNextUser()
+				a.detail.SelectNextRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.ScrollDown()
+			}
+
+		case msg.String() == "[":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.SelectPreviousUser()
+			}
+
+		case msg.String() == "]":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.SelectNextUser()
+			}
+
+		case msg.String() == "home":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.SelectFirstRow()
+			} else if a.view == viewPromptDetail && a.detail != nil {
+				a.detail.viewport.GotoTop()
+			}
+
+		case msg.String() == "end":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.FollowLatest()
+			} else if a.view == viewPromptDetail && a.detail != nil {
+				a.detail.viewport.GotoBottom()
 			}
 
 		case msg.String() == " " || msg.String() == "space":
@@ -184,12 +207,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.CollapseAllThreads()
 			}
 
+		case msg.String() == "f":
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.ToggleFollow()
+			} else if a.view == viewPromptDetail && a.detail != nil {
+				a.detail.PageDown()
+			}
+
 		case msg.String() == "pgup" || msg.String() == "b":
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageUp()
 			}
 
-		case msg.String() == "pgdown" || msg.String() == "f":
+		case msg.String() == "pgdown":
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageDown()
 			}
@@ -271,12 +301,15 @@ func (a *App) refreshDetailSession() {
 		return
 	}
 	if updated := findMatchingSession(a.detail.session, a.sessions); updated != nil {
+		shouldFollow := a.detail.Following()
 		wasAtBottom := a.detail.AtBottom()
 		a.detail.SetSession(updated)
 		if a.view == viewPromptDetail {
-			a.detail.RefreshSelectedThread()
+			a.detail.RefreshFocusedDetail()
 		}
-		if (a.view == viewDetail || a.view == viewPromptDetail) && updated.IsActive && wasAtBottom {
+		if a.view == viewDetail && updated.IsActive && (shouldFollow || wasAtBottom) {
+			a.detail.FollowLatest()
+		} else if a.view == viewPromptDetail && updated.IsActive && (shouldFollow || wasAtBottom) {
 			a.detail.ScrollToBottom()
 		}
 	}
@@ -380,7 +413,7 @@ func (a *App) View() string {
 	// Footer help
 	helpText := styleMuted.Render("  q quit  │  tab/shift+tab views  │  ↑↓ navigate  │  enter select  │  r refresh  │  / filter")
 	if a.view == viewDetail {
-		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ user prompt  │  enter detail  │  space toggle  │  c collapse all")
+		helpText = styleMuted.Render("  q quit  │  esc back  │  ↑↓ activity  │  [/ ] prompts  │  enter detail  │  f follow")
 	}
 	if a.view == viewPromptDetail {
 		helpText = styleMuted.Render("  q quit  │  esc session detail  │  ↑↓ scroll  │  pgup/pgdn page")
