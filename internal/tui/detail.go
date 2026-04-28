@@ -542,6 +542,12 @@ func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
 		rowIndex: start,
 		label:    d.renderTimelineTreeLabel(start, d.rows[start]),
 	}
+	for _, detail := range d.timelineExpandedRowDetails(d.rows[start]) {
+		root.children = append(root.children, &timelineTreeNode{
+			rowIndex: -1,
+			label:    styleMuted.Render(detail),
+		})
+	}
 	var currentAssistant *timelineTreeNode
 	for i := start + 1; i < end; i++ {
 		row := d.rows[i]
@@ -555,7 +561,7 @@ func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
 				label:    styleMuted.Render(summarizeActivityContent(detail, d.width-24)),
 			})
 		}
-		if detail := d.timelineExpandedRowDetail(row); detail != "" {
+		for _, detail := range d.timelineExpandedRowDetails(row) {
 			node.children = append(node.children, &timelineTreeNode{
 				rowIndex: -1,
 				label:    styleMuted.Render(detail),
@@ -607,28 +613,112 @@ func (d *DetailView) timelineActionDetail(row activityRow) string {
 	return actionLifecycleDetail(start, end, hasEnd)
 }
 
-func (d *DetailView) timelineExpandedRowDetail(row activityRow) string {
-	if d.detailLevel != timelineDetailExpanded || row.kind != activityRowMessage || !isMessageIndex(d.session, row.messageIndex) {
-		return ""
+func (d *DetailView) timelineExpandedRowDetails(row activityRow) []string {
+	if d.detailLevel != timelineDetailExpanded || d.session == nil {
+		return nil
 	}
-	msg := d.session.Messages[row.messageIndex]
-	parts := make([]string, 0, 4)
+	switch row.kind {
+	case activityRowMessage:
+		if !isMessageIndex(d.session, row.messageIndex) {
+			return nil
+		}
+		return d.expandedMessageDetails(d.session.Messages[row.messageIndex])
+	case activityRowActionGroup:
+		return d.expandedActionDetails(row)
+	default:
+		return nil
+	}
+}
+
+func (d *DetailView) expandedMessageDetails(msg models.Message) []string {
+	details := make([]string, 0, 4)
+	meta := []string{"role " + msg.Role}
+	if !msg.Timestamp.IsZero() {
+		meta = append(meta, "time "+msg.Timestamp.Format("2006-01-02 15:04:05"))
+	}
+	details = append(details, summarizeActivityContent(strings.Join(meta, " · "), d.width-24))
+
+	if content := summarizeActivityContent(msg.Content, maxInt(32, d.width-24)); content != "" {
+		details = append(details, "content "+content)
+	}
+
 	if total := tokenUsageTotal(msg.Tokens); total > 0 {
-		parts = append(parts, fmt.Sprintf("tokens in:%d out:%d cache:%s", msg.Tokens.InputTokens, msg.Tokens.OutputTokens, detailCacheTokens(msg.Tokens)))
+		details = append(details, fmt.Sprintf("tokens total:%d input:%d output:%d cache-read:%d cache-write:%d",
+			total,
+			msg.Tokens.InputTokens,
+			msg.Tokens.OutputTokens,
+			msg.Tokens.CacheReads,
+			msg.Tokens.CacheWrites,
+		))
 	}
-	if msg.Meta.Kind != "" {
-		parts = append(parts, activityKindLabel(msg))
+
+	if meta := expandedActivityMeta(msg.Meta); meta != "" {
+		details = append(details, summarizeActivityContent(meta, d.width-24))
 	}
-	if msg.Meta.ID != "" {
-		parts = append(parts, "id "+msg.Meta.ID)
+	return details
+}
+
+func (d *DetailView) expandedActionDetails(row activityRow) []string {
+	start := d.session.Messages[row.messageIndex]
+	end, hasEnd := messageAt(d.session.Messages, row.endMessageIndex)
+	state := groupedActionState(start, end, hasEnd)
+	details := make([]string, 0, 5)
+
+	timing := []string{"state " + lowerStatusLabel(indicatorSpec(lifecycleIndicatorState(state)).Label)}
+	if !start.Timestamp.IsZero() {
+		timing = append(timing, "started "+start.Timestamp.Format("2006-01-02 15:04:05"))
 	}
-	if msg.Meta.ParentID != "" {
-		parts = append(parts, "parent "+msg.Meta.ParentID)
+	if hasEnd && !end.Timestamp.IsZero() {
+		timing = append(timing, "ended "+end.Timestamp.Format("2006-01-02 15:04:05"))
+	}
+	if duration := actionLifecycleDuration(start, end, hasEnd, time.Now()); duration != "" {
+		timing = append(timing, "duration "+duration)
+	}
+	details = append(details, summarizeActivityContent(strings.Join(timing, " · "), d.width-24))
+
+	if meta := expandedActivityMeta(start.Meta); meta != "" {
+		details = append(details, summarizeActivityContent(meta, d.width-24))
+	}
+	if hasEnd {
+		if meta := expandedActivityMeta(end.Meta); meta != "" && meta != expandedActivityMeta(start.Meta) {
+			details = append(details, summarizeActivityContent("completion "+meta, d.width-24))
+		}
+	}
+	if content := summarizeActivityContent(start.Content, maxInt(32, d.width-24)); content != "" {
+		details = append(details, "start "+content)
+	}
+	if hasEnd {
+		if content := summarizeActivityContent(end.Content, maxInt(32, d.width-24)); content != "" {
+			details = append(details, "end "+content)
+		}
+	}
+	return details
+}
+
+func expandedActivityMeta(meta models.ActivityMeta) string {
+	parts := make([]string, 0, 6)
+	if meta.Kind != "" {
+		parts = append(parts, "kind "+meta.Kind)
+	}
+	if meta.Lifecycle != "" {
+		parts = append(parts, "lifecycle "+meta.Lifecycle)
+	}
+	if meta.Label != "" {
+		parts = append(parts, "label "+meta.Label)
+	}
+	if meta.ID != "" {
+		parts = append(parts, "id "+meta.ID)
+	}
+	if meta.ParentID != "" {
+		parts = append(parts, "parent "+meta.ParentID)
+	}
+	if meta.InteractionID != "" {
+		parts = append(parts, "interaction "+meta.InteractionID)
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return summarizeActivityContent(strings.Join(parts, " · "), d.width-24)
+	return strings.Join(parts, " · ")
 }
 
 func (d *DetailView) recordTimelineTreeOffsets(node *timelineTreeNode, line int) {

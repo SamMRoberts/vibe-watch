@@ -111,13 +111,38 @@ func TestDetailToggleAllThreadsCollapsed(t *testing.T) {
 }
 
 func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
+	startedAt := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 	detail := NewDetailView(140, 80)
 	detail.SetSession(&models.Session{
 		Messages: []models.Message{
-			{Role: "user", Content: "prompt", Tokens: models.TokenUsage{InputTokens: 100}},
-			{Role: "assistant", Content: "assistant response", Tokens: models.TokenUsage{OutputTokens: 200, CacheReads: 300}},
-			toolLifecycleMessage("Started tool: bash", models.ActivityLifecycleStarted, "tool-1"),
-			toolLifecycleMessage("Tool completed: bash\ntelemetry: resultLength:12", models.ActivityLifecycleCompleted, "tool-1"),
+			{Role: "user", Content: "prompt", Timestamp: startedAt, Tokens: models.TokenUsage{InputTokens: 100}},
+			{Role: "assistant", Content: "assistant response", Timestamp: startedAt.Add(time.Second), Tokens: models.TokenUsage{OutputTokens: 200, CacheReads: 300}},
+			{
+				Role:      "tool",
+				Content:   "Started tool: bash",
+				Timestamp: startedAt.Add(2 * time.Second),
+				Meta: models.ActivityMeta{
+					Kind:          models.ActivityKindTool,
+					Lifecycle:     models.ActivityLifecycleStarted,
+					ID:            "tool-1",
+					ParentID:      "prompt-1",
+					InteractionID: "turn-1",
+					Label:         "bash",
+				},
+			},
+			{
+				Role:      "tool",
+				Content:   "Tool completed: bash\ntelemetry: resultLength:12",
+				Timestamp: startedAt.Add(5 * time.Second),
+				Meta: models.ActivityMeta{
+					Kind:          models.ActivityKindTool,
+					Lifecycle:     models.ActivityLifecycleCompleted,
+					ID:            "tool-1",
+					ParentID:      "prompt-1",
+					InteractionID: "turn-1",
+					Label:         "bash",
+				},
+			},
 		},
 	})
 
@@ -128,8 +153,18 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 
 	detail.ToggleTimelineDetailLevel()
 	expanded := detail.View()
-	if !strings.Contains(expanded, "detail expanded") || !strings.Contains(expanded, "tokens in:0 out:200 cache:300") {
-		t.Fatalf("expected expanded detail to show token detail, got:\n%s", expanded)
+	for _, want := range []string{
+		"detail expanded",
+		"role assistant · time 2026-04-28 12:00:01",
+		"content assistant response",
+		"tokens total:500 input:0 output:200 cache-read:300 cache-write:0",
+		"state done · started 2026-04-28 12:00:02 · ended 2026-04-28 12:00:05 · duration 3s",
+		"kind tool · lifecycle started · label bash · id tool-1 · parent prompt-1 · interaction turn-1",
+		"end Tool completed: bash · telemetry: resultLength:12",
+	} {
+		if !strings.Contains(expanded, want) {
+			t.Fatalf("expected expanded detail to show %q, got:\n%s", want, expanded)
+		}
 	}
 
 	detail.ToggleTimelineDetailLevel()
@@ -137,7 +172,7 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 	if !strings.Contains(compact, "detail compact") {
 		t.Fatalf("expected compact detail label, got:\n%s", compact)
 	}
-	if strings.Contains(compact, "telemetry: resultLength:12") || strings.Contains(compact, "tokens in:0 out:200 cache:300") {
+	if strings.Contains(compact, "telemetry: resultLength:12") || strings.Contains(compact, "tokens total:500") {
 		t.Fatalf("expected compact detail to suppress secondary detail lines, got:\n%s", compact)
 	}
 
