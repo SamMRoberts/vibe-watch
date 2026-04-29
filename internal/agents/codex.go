@@ -94,6 +94,26 @@ type codexTokenUsage struct {
 }
 
 func (c *CodexDetector) Detect() ([]*models.Session, error) {
+	candidates, err := c.sessionCandidates()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*models.Session
+	for _, candidate := range candidates {
+		candidateSessions, err := candidate.Parse()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, candidateSessions...)
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
+	})
+	return sessions, nil
+}
+
+func (c *CodexDetector) sessionCandidates() ([]sessionCandidate, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -104,7 +124,7 @@ func (c *CodexDetector) Detect() ([]*models.Session, error) {
 		return nil, nil
 	}
 
-	var sessions []*models.Session
+	var candidates []sessionCandidate
 	err = filepath.WalkDir(sessionsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -112,21 +132,28 @@ func (c *CodexDetector) Detect() ([]*models.Session, error) {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
 			return nil
 		}
-		session, err := c.parseSession(path)
-		if err != nil || session == nil {
+		info, err := d.Info()
+		if err != nil {
 			return nil
 		}
-		sessions = append(sessions, session)
+		logPath := path
+		candidates = append(candidates, sessionCandidate{
+			UpdatedAt: info.ModTime(),
+			Parse: func() ([]*models.Session, error) {
+				session, err := c.parseSession(logPath)
+				if err != nil || session == nil {
+					return nil, err
+				}
+				return []*models.Session{session}, nil
+			},
+		})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
-	})
-	return sessions, nil
+	return candidates, nil
 }
 
 func (c *CodexDetector) parseSession(logPath string) (*models.Session, error) {

@@ -40,6 +40,23 @@ type claudeEntry struct {
 }
 
 func (c *ClaudeDetector) Detect() ([]*models.Session, error) {
+	candidates, err := c.sessionCandidates()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*models.Session
+	for _, candidate := range candidates {
+		candidateSessions, err := candidate.Parse()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, candidateSessions...)
+	}
+	return sessions, nil
+}
+
+func (c *ClaudeDetector) sessionCandidates() ([]sessionCandidate, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -50,13 +67,12 @@ func (c *ClaudeDetector) Detect() ([]*models.Session, error) {
 		return nil, nil
 	}
 
-	var sessions []*models.Session
-
 	projectEntries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return nil, err
 	}
 
+	var candidates []sessionCandidate
 	for _, projectEntry := range projectEntries {
 		if !projectEntry.IsDir() {
 			continue
@@ -73,15 +89,25 @@ func (c *ClaudeDetector) Detect() ([]*models.Session, error) {
 			}
 
 			logPath := filepath.Join(projectDir, f.Name())
-			session, err := c.parseSession(logPath, projectEntry.Name())
-			if err != nil || session == nil {
+			info, err := f.Info()
+			if err != nil {
 				continue
 			}
-			sessions = append(sessions, session)
+			projectName := projectEntry.Name()
+			candidates = append(candidates, sessionCandidate{
+				UpdatedAt: info.ModTime(),
+				Parse: func() ([]*models.Session, error) {
+					session, err := c.parseSession(logPath, projectName)
+					if err != nil || session == nil {
+						return nil, err
+					}
+					return []*models.Session{session}, nil
+				},
+			})
 		}
 	}
 
-	return sessions, nil
+	return candidates, nil
 }
 
 func (c *ClaudeDetector) parseSession(logPath, projectName string) (*models.Session, error) {

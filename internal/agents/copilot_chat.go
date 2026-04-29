@@ -152,6 +152,27 @@ type copilotChatTranscriptData struct {
 }
 
 func (c *CopilotChatDetector) Detect() ([]*models.Session, error) {
+	candidates, err := c.sessionCandidates()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*models.Session
+	for _, candidate := range candidates {
+		candidateSessions, err := candidate.Parse()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, candidateSessions...)
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
+	})
+	return sessions, nil
+}
+
+func (c *CopilotChatDetector) sessionCandidates() ([]sessionCandidate, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -163,23 +184,26 @@ func (c *CopilotChatDetector) Detect() ([]*models.Session, error) {
 		return nil, err
 	}
 
-	var sessions []*models.Session
+	var candidates []sessionCandidate
 	for _, workspace := range workspaces {
-		indexData, err := readVSCodeStateValue(workspace.StateDBPath, copilotChatStateKey)
-		if err != nil || len(strings.TrimSpace(string(indexData))) == 0 {
-			continue
-		}
-		workspaceSessions, err := parseCopilotChatWorkspace(indexData, nil, workspace.ProjectPath, workspace.StateDBPath, workspace.Root)
+		info, err := os.Stat(workspace.StateDBPath)
 		if err != nil {
 			continue
 		}
-		sessions = append(sessions, workspaceSessions...)
+		workspace := workspace
+		candidates = append(candidates, sessionCandidate{
+			UpdatedAt: info.ModTime(),
+			Parse: func() ([]*models.Session, error) {
+				indexData, err := readVSCodeStateValue(workspace.StateDBPath, copilotChatStateKey)
+				if err != nil || len(strings.TrimSpace(string(indexData))) == 0 {
+					return nil, err
+				}
+				return parseCopilotChatWorkspace(indexData, nil, workspace.ProjectPath, workspace.StateDBPath, workspace.Root)
+			},
+		})
 	}
 
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
-	})
-	return sessions, nil
+	return candidates, nil
 }
 
 func discoverCopilotChatWorkspaces(workspaceStorageDir string) ([]copilotChatWorkspace, error) {

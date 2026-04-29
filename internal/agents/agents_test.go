@@ -865,6 +865,68 @@ func TestRegistryDetectAll(t *testing.T) {
 	_ = sessions
 }
 
+func TestRegistryDetectAllIncrementalPublishesMostRecentDayFirst(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	recent := time.Date(2026, 4, 28, 10, 15, 0, 0, time.UTC)
+	older := recent.AddDate(0, 0, -1)
+	writeCodexSession := func(id string, ts time.Time) string {
+		t.Helper()
+		sessionDir := filepath.Join(tmp, ".codex", "sessions", ts.Format("2006"), ts.Format("01"), ts.Format("02"))
+		if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(sessionDir, id+".jsonl")
+		writeJSONL(t, path, []map[string]interface{}{
+			{
+				"type":      "session_meta",
+				"timestamp": ts.Format(time.RFC3339Nano),
+				"payload": map[string]interface{}{
+					"id":  id,
+					"cwd": "/repo/" + id,
+				},
+			},
+			{
+				"type":      "event_msg",
+				"timestamp": ts.Add(time.Minute).Format(time.RFC3339Nano),
+				"payload": map[string]interface{}{
+					"type":    "user_message",
+					"message": id,
+				},
+			},
+		})
+		if err := os.Chtimes(path, ts, ts); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	writeCodexSession("older-session", older)
+	writeCodexSession("recent-session", recent)
+
+	var snapshots [][]*models.Session
+	sessions, err := agents.NewRegistry().DetectAllIncremental(func(partial []*models.Session) {
+		snapshots = append(snapshots, append([]*models.Session(nil), partial...))
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected final result to include both sessions, got %d", len(sessions))
+	}
+	if sessions[0].ID != "recent-session" || sessions[1].ID != "older-session" {
+		t.Fatalf("expected final sessions sorted by start date descending, got %q then %q", sessions[0].ID, sessions[1].ID)
+	}
+	if len(snapshots) == 0 {
+		t.Fatalf("expected incremental snapshot after most recent day")
+	}
+	first := snapshots[0]
+	if len(first) != 1 || first[0].ID != "recent-session" {
+		t.Fatalf("expected first snapshot to contain only the most recent day, got %#v", first)
+	}
+}
+
 func TestRegistryDetectors(t *testing.T) {
 	r := agents.NewRegistry()
 	dets := r.Detectors()

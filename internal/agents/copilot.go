@@ -134,23 +134,40 @@ type modelMetric struct {
 }
 
 func (c *CopilotDetector) Detect() ([]*models.Session, error) {
+	candidates, err := c.sessionCandidates()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*models.Session
+	for _, candidate := range candidates {
+		candidateSessions, err := candidate.Parse()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, candidateSessions...)
+	}
+	return sessions, nil
+}
+
+func (c *CopilotDetector) sessionCandidates() ([]sessionCandidate, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
-	sessions, err := c.detectSessionState(filepath.Join(home, ".copilot", "session-state"))
+	candidates, err := c.sessionStateCandidates(filepath.Join(home, ".copilot", "session-state"))
 	if err != nil {
 		return nil, err
 	}
-	if len(sessions) > 0 {
-		return sessions, nil
+	if len(candidates) > 0 {
+		return candidates, nil
 	}
 
-	return c.detectLogFiles(filepath.Join(home, ".copilot", "logs"))
+	return c.logFileCandidates(filepath.Join(home, ".copilot", "logs"))
 }
 
-func (c *CopilotDetector) detectSessionState(sessionsDir string) ([]*models.Session, error) {
+func (c *CopilotDetector) sessionStateCandidates(sessionsDir string) ([]sessionCandidate, error) {
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -160,26 +177,34 @@ func (c *CopilotDetector) detectSessionState(sessionsDir string) ([]*models.Sess
 		return nil, err
 	}
 
-	var sessions []*models.Session
+	var candidates []sessionCandidate
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		sessionDir := filepath.Join(sessionsDir, entry.Name())
+		sessionID := entry.Name()
+		sessionDir := filepath.Join(sessionsDir, sessionID)
 		eventsPath := filepath.Join(sessionDir, "events.jsonl")
-		if _, err := os.Stat(eventsPath); os.IsNotExist(err) {
+		info, err := os.Stat(eventsPath)
+		if err != nil {
 			continue
 		}
 
 		workspace := parseCopilotWorkspace(filepath.Join(sessionDir, "workspace.yaml"))
-		session, err := c.parseEventsSession(eventsPath, entry.Name(), workspace)
-		if err != nil || session == nil {
-			continue
-		}
-		sessions = append(sessions, session)
+		updatedAt := latestTime(workspace.UpdatedAt, info.ModTime())
+		candidates = append(candidates, sessionCandidate{
+			UpdatedAt: updatedAt,
+			Parse: func() ([]*models.Session, error) {
+				session, err := c.parseEventsSession(eventsPath, sessionID, workspace)
+				if err != nil || session == nil {
+					return nil, err
+				}
+				return []*models.Session{session}, nil
+			},
+		})
 	}
-	return sessions, nil
+	return candidates, nil
 }
 
 func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, workspace copilotWorkspace) (*models.Session, error) {
@@ -294,7 +319,7 @@ func (c *CopilotDetector) parseEventsSession(eventsPath, sessionID string, works
 	return session, nil
 }
 
-func (c *CopilotDetector) detectLogFiles(logsDir string) ([]*models.Session, error) {
+func (c *CopilotDetector) logFileCandidates(logsDir string) ([]sessionCandidate, error) {
 	if _, err := os.Stat(logsDir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -304,7 +329,7 @@ func (c *CopilotDetector) detectLogFiles(logsDir string) ([]*models.Session, err
 		return nil, err
 	}
 
-	var sessions []*models.Session
+	var candidates []sessionCandidate
 	for _, f := range files {
 		if f.IsDir() {
 			continue
@@ -314,20 +339,25 @@ func (c *CopilotDetector) detectLogFiles(logsDir string) ([]*models.Session, err
 		if err != nil {
 			continue
 		}
-
-		id := fmt.Sprintf("%x", md5.Sum([]byte(logPath)))
-		session := &models.Session{
-			ID:          id,
-			AgentType:   models.AgentCopilot,
-			ProjectPath: strings.TrimSuffix(f.Name(), filepath.Ext(f.Name())),
-			LogPath:     logPath,
-			StartTime:   info.ModTime(),
-			LastUpdated: info.ModTime(),
-			IsActive:    time.Since(info.ModTime()) < 5*time.Minute,
-		}
-		sessions = append(sessions, session)
+		fileName := f.Name()
+		modTime := info.ModTime()
+		candidates = append(candidates, sessionCandidate{
+			UpdatedAt: modTime,
+			Parse: func() ([]*models.Session, error) {
+				id := fmt.Sprintf("%x", md5.Sum([]byte(logPath)))
+				return []*models.Session{{
+					ID:          id,
+					AgentType:   models.AgentCopilot,
+					ProjectPath: strings.TrimSuffix(fileName, filepath.Ext(fileName)),
+					LogPath:     logPath,
+					StartTime:   modTime,
+					LastUpdated: modTime,
+					IsActive:    time.Since(modTime) < 5*time.Minute,
+				}}, nil
+			},
+		})
 	}
-	return sessions, nil
+	return candidates, nil
 }
 
 func parseCopilotWorkspace(path string) copilotWorkspace {

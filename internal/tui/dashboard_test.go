@@ -127,6 +127,40 @@ func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {
 	}
 }
 
+func TestDashboardGroupsSessionsByStartDate(t *testing.T) {
+	dayOne := time.Date(2026, 4, 28, 9, 0, 0, 0, time.Local)
+	dayTwo := dayOne.AddDate(0, 0, -1)
+	updated := dayOne.Add(6 * time.Hour)
+	dashboard := NewDashboardView(120, 30)
+	dashboard.SetSessions([]*models.Session{
+		{
+			ID:          "older-start",
+			AgentType:   models.AgentCopilot,
+			ProjectPath: "/repo/older",
+			StartTime:   dayTwo,
+			LastUpdated: updated,
+		},
+		{
+			ID:          "newer-start",
+			AgentType:   models.AgentCopilot,
+			ProjectPath: "/repo/newer",
+			StartTime:   dayOne,
+			LastUpdated: updated,
+		},
+	}, "")
+
+	rows := dashboard.table.Rows()
+	if len(rows) != 6 {
+		t.Fatalf("expected two date groups with agent and session rows, got %d: %#v", len(rows), rows)
+	}
+	if !strings.Contains(rows[0][0], "Apr 28, 2026") || dashboard.rowSessions[2].ID != "newer-start" {
+		t.Fatalf("expected newest start date first, got rows %#v sessions %#v", rows, dashboard.rowSessions)
+	}
+	if !strings.Contains(rows[3][0], "Apr 27, 2026") || dashboard.rowSessions[5].ID != "older-start" {
+		t.Fatalf("expected older start date second even with same update time, got rows %#v sessions %#v", rows, dashboard.rowSessions)
+	}
+}
+
 func TestDashboardNarrowRowsShowStateAndUpdated(t *testing.T) {
 	updated := time.Date(2026, 4, 28, 10, 15, 0, 0, time.Local)
 	session := &models.Session{

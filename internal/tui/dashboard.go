@@ -316,10 +316,10 @@ func dashboardGroupTime(session *models.Session) time.Time {
 	if session == nil {
 		return time.Time{}
 	}
-	if !session.LastUpdated.IsZero() {
-		return session.LastUpdated
+	if !session.StartTime.IsZero() {
+		return session.StartTime
 	}
-	return session.StartTime
+	return session.LastUpdated
 }
 
 func sameDay(a, b time.Time) bool {

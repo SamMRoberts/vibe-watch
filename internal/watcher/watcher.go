@@ -17,6 +17,7 @@ type Watcher struct {
 	registry *agents.Registry
 	interval time.Duration
 	mu       sync.RWMutex
+	pollMu   sync.Mutex
 	sessions []*models.Session
 	updates  chan UpdateMsg
 	quit     chan struct{}
@@ -69,20 +70,28 @@ func (w *Watcher) Sessions() []*models.Session {
 }
 
 func (w *Watcher) poll() {
-	sessions, err := w.registry.DetectAll()
+	w.pollMu.Lock()
+	defer w.pollMu.Unlock()
 
+	sessions, err := w.registry.DetectAllIncremental(func(partial []*models.Session) {
+		w.publish(partial, nil)
+	})
+	w.publish(sessions, err)
+}
+
+func (w *Watcher) publish(sessions []*models.Session, err error) {
+	copied := append([]*models.Session(nil), sessions...)
 	w.mu.Lock()
 	if err == nil {
-		w.sessions = sessions
+		w.sessions = copied
 	}
 	w.mu.Unlock()
-
 	select {
-	case w.updates <- UpdateMsg{Sessions: sessions, Err: err}:
+	case w.updates <- UpdateMsg{Sessions: copied, Err: err}:
 	default:
 	}
 }
 
 func (w *Watcher) Refresh() {
-	w.poll()
+	go w.poll()
 }
