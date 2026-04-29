@@ -1,1 +1,10 @@
 .harness-validation/
+
+# Local/generated analysis outputs.
+.vibe-watch/
+reports/
+exports/
+
+# Never commit real session-history exports.
+*.session.jsonl
+*.sessions.jsonl

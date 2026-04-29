@@ -30,3 +30,7 @@ Common flags:
 ## Privacy
 
 Real session files are treated as private local history. Tests use synthetic fixtures under `testdata/`; real Codex session JSONL files must not be committed.
+
+## Knowledge Base
+
+Repo knowledge lives under [`docs/`](docs/README.md). Start there for product direction, architecture, Codex session assumptions, analytics definitions, privacy rules, and runbooks.
