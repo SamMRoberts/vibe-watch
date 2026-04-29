@@ -42,14 +42,22 @@ type keyMap struct {
 	Up      key.Binding
 	Down    key.Binding
 	Select  key.Binding
+	Back    key.Binding
+	Dash    key.Binding
+	List    key.Binding
+	Detail  key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.NextTab, k.Refresh, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Select, k.Back, k.NextTab, k.Refresh, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Up, k.Down, k.Select}, {k.NextTab, k.PrevTab, k.Refresh, k.Quit}}
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Select, k.Back},
+		{k.Dash, k.List, k.Detail},
+		{k.NextTab, k.PrevTab, k.Refresh, k.Quit},
+	}
 }
 
 type snapshotMsg struct {
@@ -76,6 +84,10 @@ func NewModel(opts Options) Model {
 			Up:      key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("up/k", "up")),
 			Down:    key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("down/j", "down")),
 			Select:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "details")),
+			Back:    key.NewBinding(key.WithKeys("esc", "backspace", "b"), key.WithHelp("b/esc", "back")),
+			Dash:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
+			List:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "sessions")),
+			Detail:  key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "detail")),
 			Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		},
 		help: help.New(),
@@ -114,24 +126,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tab = (m.tab + len(tabs) - 1) % len(tabs)
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
-			if m.tab == tabSessions && m.selected > 0 {
-				m.selected--
-				m.detailID = m.selectedSessionID()
-			}
+			m.moveSelection(-1)
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			if m.tab == tabSessions && m.selected < len(m.snapshot.Sessions)-1 {
-				m.selected++
-				m.detailID = m.selectedSessionID()
-			}
+			m.moveSelection(1)
 			return m, nil
 		case key.Matches(msg, m.keys.Select):
-			if m.tab == tabSessions && len(m.snapshot.Sessions) > 0 {
+			if m.tab != tabDetail && len(m.snapshot.Sessions) > 0 {
+				m.detailID = m.selectedSessionID()
+				m.tab = tabDetail
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Back):
+			if m.tab == tabDetail {
+				m.tab = tabSessions
+			} else {
+				m.tab = tabDashboard
+			}
+			return m, nil
+		case key.Matches(msg, m.keys.Dash):
+			m.tab = tabDashboard
+			return m, nil
+		case key.Matches(msg, m.keys.List):
+			m.tab = tabSessions
+			return m, nil
+		case key.Matches(msg, m.keys.Detail):
+			if len(m.snapshot.Sessions) > 0 {
 				m.detailID = m.selectedSessionID()
 				m.tab = tabDetail
 			}
 			return m, nil
 		}
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.moveSelection(-1)
+		case tea.MouseButtonWheelDown:
+			m.moveSelection(1)
+		case tea.MouseButtonWheelLeft:
+			m.tab = (m.tab + len(tabs) - 1) % len(tabs)
+		case tea.MouseButtonWheelRight:
+			m.tab = (m.tab + 1) % len(tabs)
+		}
+		return m, nil
 	case snapshotMsg:
 		m.snapshot = msg.snapshot
 		m.loaded = true
@@ -176,6 +213,8 @@ func (m Model) View() string {
 	}
 
 	switch m.tab {
+	case tabDashboard:
+		b.WriteString(renderDashboard(m.snapshot, m.selectedDetail(), width))
 	case tabSessions:
 		b.WriteString(renderSessionList(m.snapshot.Sessions, m.selected, width))
 	case tabDetail:
@@ -258,6 +297,20 @@ func (m Model) selectedSessionID() string {
 	return m.snapshot.Sessions[m.selected].ID
 }
 
+func (m *Model) moveSelection(delta int) {
+	if len(m.snapshot.Sessions) == 0 {
+		return
+	}
+	m.selected += delta
+	if m.selected < 0 {
+		m.selected = 0
+	}
+	if m.selected >= len(m.snapshot.Sessions) {
+		m.selected = len(m.snapshot.Sessions) - 1
+	}
+	m.detailID = m.selectedSessionID()
+}
+
 func (m Model) selectedDetail() watcher.SessionDetail {
 	if m.detailID != "" {
 		if detail, ok := m.snapshot.Details[m.detailID]; ok {
@@ -292,13 +345,14 @@ func (m Model) contentWidth() int {
 }
 
 func renderHeader(width int) string {
-	left := titleStyle.Render("vibe-watch")
-	right := subtleStyle.Render("real-time Codex JSONL monitor")
+	left := titleStyle.Render(" vibe-watch ")
+	right := monitorStyle.Render(" real-time Codex JSONL monitor ")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return left + "\n" + right
 	}
-	return left + strings.Repeat(" ", gap) + right
+	line := left + strings.Repeat(" ", gap) + right
+	return headerBarStyle.Width(width).Render(line)
 }
 
 func renderMeta(snapshot watcher.Snapshot, width int) string {
@@ -308,9 +362,9 @@ func renderMeta(snapshot watcher.Snapshot, width int) string {
 		checked = snapshot.CheckedAt.Format("15:04:05")
 	}
 	cells := []string{
-		metricBox("sessions", fmt.Sprintf("%d", len(snapshot.Sessions))),
-		metricBox("checked", checked),
-		metricBox("root", root),
+		metricBox("sessions", fmt.Sprintf("%d", len(snapshot.Sessions)), "cyan"),
+		metricBox("checked", checked, "green"),
+		metricBox("root", root, "violet"),
 	}
 	return joinCards(cells, width)
 }
@@ -322,9 +376,41 @@ func renderTabs(active int, width int) string {
 		if i == active {
 			style = activeTabStyle
 		}
-		items = append(items, style.Render(tab))
+		items = append(items, style.Render(fmt.Sprintf("%d %s", i+1, tab)))
 	}
-	return lipgloss.NewStyle().Width(width - 2).Render(strings.Join(items, " "))
+	return lipgloss.NewStyle().Width(width - 2).Render(strings.Join(items, "  "))
+}
+
+func renderDashboard(snapshot watcher.Snapshot, detail watcher.SessionDetail, width int) string {
+	activeCount := 0
+	badCount := 0
+	totalEvents := 0
+	for _, session := range snapshot.Sessions {
+		if session.Status == "active" {
+			activeCount++
+		}
+		if session.Bad > 0 {
+			badCount++
+		}
+		totalEvents += session.Events
+	}
+	idleCount := len(snapshot.Sessions) - activeCount
+	cells := []string{
+		miniStat("active", fmt.Sprintf("%d", activeCount), activeStatusStyle),
+		miniStat("idle", fmt.Sprintf("%d", idleCount), idleStatusStyle),
+		miniStat("events", fmt.Sprintf("%d", totalEvents), accentStyle),
+		miniStat("data", qualityLabel(badCount), qualityStyle(badCount)),
+	}
+	body := strings.Join([]string{
+		lipgloss.JoinHorizontal(lipgloss.Top, cells...),
+		"",
+		barLine("active", activeCount, len(snapshot.Sessions), width-16, activeStatusStyle),
+		barLine("idle", idleCount, len(snapshot.Sessions), width-16, idleStatusStyle),
+		barLine("bad lines", badCount, len(snapshot.Sessions), width-16, warningStyle),
+		"",
+		selectedPreview(detail, width-4),
+	}, "\n")
+	return sectionPanel(width, "Dashboard", body)
 }
 
 func renderSessionList(sessions []watcher.SessionSummary, selected int, width int) string {
@@ -343,7 +429,7 @@ func renderSessionRow(session watcher.SessionSummary, selected bool, width int) 
 	cursor := " "
 	style := sessionRowStyle
 	if selected {
-		cursor = ">"
+		cursor = "▶"
 		style = selectedRowStyle
 	}
 	status := statusStyle(session.Status).Render(padRight(session.Status, 6))
@@ -430,8 +516,62 @@ func renderEventLine(event watcher.EventSummary, width int) string {
 	return eventTypeStyle.Render(headRaw) + "  " + subtleStyle.Render(trimRight(metaRaw, metaWidth))
 }
 
-func metricBox(label, value string) string {
-	return cardStyle.Render(labelStyle.Render(label) + "\n" + valueStyle.Render(value))
+func selectedPreview(detail watcher.SessionDetail, width int) string {
+	if detail.ID == "" {
+		return accentStyle.Render("Select a session to open the detail dashboard.")
+	}
+	state := statusStyle(detail.Status).Render(blankDefault(detail.Status, "unknown"))
+	repo := trimMiddle(blankDefault(detail.RepoPath, "-"), max(16, width-22))
+	return strings.Join([]string{
+		accentStyle.Render("selected session"),
+		"  " + valueStyle.Render(trimMiddle(detail.ID, max(16, width-4))),
+		"  state " + state + "  events " + valueStyle.Render(fmt.Sprintf("%d", detail.Events)),
+		"  repo  " + repo,
+	}, "\n")
+}
+
+func miniStat(label, value string, style lipgloss.Style) string {
+	return miniCardStyle.Render(labelStyle.Render(label) + "\n" + style.Render(value))
+}
+
+func barLine(label string, value, total, width int, style lipgloss.Style) string {
+	if total <= 0 {
+		total = 1
+	}
+	barWidth := max(8, min(28, width-lipgloss.Width(label)-10))
+	filled := value * barWidth / total
+	if value > 0 && filled == 0 {
+		filled = 1
+	}
+	bar := style.Render(strings.Repeat("█", filled)) + trackStyle.Render(strings.Repeat("░", barWidth-filled))
+	return fmt.Sprintf("%-9s %s %d/%d", label, bar, value, total)
+}
+
+func qualityLabel(badCount int) string {
+	if badCount == 0 {
+		return "clean"
+	}
+	return fmt.Sprintf("%d flagged", badCount)
+}
+
+func qualityStyle(badCount int) lipgloss.Style {
+	if badCount == 0 {
+		return activeStatusStyle
+	}
+	return warningStyle
+}
+
+func metricBox(label, value string, tone string) string {
+	style := cardStyle
+	switch tone {
+	case "cyan":
+		style = style.BorderForeground(lipgloss.Color("45"))
+	case "green":
+		style = style.BorderForeground(lipgloss.Color("42"))
+	case "violet":
+		style = style.BorderForeground(lipgloss.Color("141"))
+	}
+	return style.Render(labelStyle.Render(label) + "\n" + valueStyle.Render(value))
 }
 
 func joinCards(cards []string, width int) string {
@@ -460,13 +600,13 @@ func panelStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Width(width-2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8")).
+		BorderForeground(lipgloss.Color("63")).
 		Padding(0, 1).
 		MarginTop(1)
 }
 
 func errorPanel(width int) lipgloss.Style {
-	return panelStyle(width).BorderForeground(lipgloss.Color("9"))
+	return panelStyle(width).BorderForeground(lipgloss.Color("203"))
 }
 
 func labelValue(label, value string) string {
@@ -543,25 +683,32 @@ func min(a, b int) int {
 }
 
 var (
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	sectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	subtleStyle       = lipgloss.NewStyle().Faint(true)
-	labelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	valueStyle        = lipgloss.NewStyle().Bold(true)
-	eventTypeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	cardStyle         = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("8")).Padding(0, 1).MarginRight(1)
-	footerStyle       = lipgloss.NewStyle().Faint(true).MarginTop(1)
-	tabStyle          = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("8"))
-	activeTabStyle    = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
-	sessionRowStyle   = lipgloss.NewStyle()
-	selectedRowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("10"))
-	activeStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	idleStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	headerBarStyle    = lipgloss.NewStyle().Background(lipgloss.Color("17")).Foreground(lipgloss.Color("255"))
+	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
+	monitorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63"))
+	sectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("228"))
+	subtleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	labelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("159")).Bold(true)
+	valueStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Bold(true)
+	accentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
+	eventTypeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
+	cardStyle         = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("45")).Padding(0, 1).MarginRight(1)
+	miniCardStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63")).Padding(0, 1).MarginRight(1).Width(14)
+	footerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).MarginTop(1)
+	tabStyle          = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("250"))
+	activeTabStyle    = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
+	sessionRowStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	selectedRowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
+	activeStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
+	idleStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("222")).Bold(true)
+	warningStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	trackStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 const (
-	tabSessions = iota
+	tabDashboard = iota
+	tabSessions
 	tabDetail
 )
 
-var tabs = []string{"Sessions", "Detail"}
+var tabs = []string{"Dashboard", "Sessions", "Detail"}

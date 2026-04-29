@@ -25,6 +25,6 @@ func Run(opts RunOptions) error {
 			})
 		},
 	})
-	_, err := tea.NewProgram(model).Run()
+	_, err := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

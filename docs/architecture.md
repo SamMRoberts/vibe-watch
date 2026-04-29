@@ -78,16 +78,17 @@ The `tui` command opens a real-time, user-friendly session monitor backed by per
 Current behavior:
 
 - Uses Bubble Tea, Bubbles, and Lip Gloss.
+- Starts the interactive program in Bubble Tea's alternate screen buffer so the prior console content is cleared from view while the TUI runs.
 - Loads live session state through bounded async work.
 - Keep file I/O out of `View`.
 - Tracks width, height, loaded state, errors, selected tab, selected session, and current sanitized watcher snapshot.
-- Supports tabs, manual refresh, up/down session navigation, enter-to-detail, and quit keys.
+- Supports dashboard, session list, and detail tabs; manual refresh; up/down and mouse-wheel session navigation; numeric tab shortcuts; enter-to-detail; back navigation; and quit keys.
 - Supports `--once` for non-interactive sanitized snapshot rendering.
-- Renders a Lip Gloss dashboard with status cards, an active-session panel, and a recent-events panel.
+- Renders high-contrast Lip Gloss dashboard cards, status bars, a session table, and recent-event detail panels.
 
 Future behavior:
 
-- Track active filters, current event stream scroll position, and pending watch identity in model state.
+- Track active filters, current event stream scroll position, mouse-click hit areas, and pending watch identity in model state.
 - Add richer direct model transition tests as views become interactive.
 - Run a manual terminal smoke test for resize, quit keys, filtering, focus movement, loading/error states, help display, and monochrome readability.
 

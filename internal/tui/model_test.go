@@ -115,3 +115,55 @@ func TestModelSelectsSessionWithArrowKeys(t *testing.T) {
 		t.Fatalf("expected detail tab for session-one, got tab=%d detail=%q", updated.tab, updated.detailID)
 	}
 }
+
+func TestModelSupportsDashboardShortcutsAndBack(t *testing.T) {
+	model := NewModel(Options{})
+	next, _ := model.Update(snapshotMsg{snapshot: watcher.Snapshot{
+		Sessions: []watcher.SessionSummary{{ID: "session-one", Status: "active", Agent: "Codex"}},
+		Active:   &watcher.SessionDetail{SessionSummary: watcher.SessionSummary{ID: "session-one", Status: "active"}},
+	}})
+	updated := next.(Model)
+	if updated.tab != tabDashboard {
+		t.Fatalf("expected dashboard tab by default, got %d", updated.tab)
+	}
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	updated = next.(Model)
+	if updated.tab != tabSessions {
+		t.Fatalf("expected sessions tab from shortcut, got %d", updated.tab)
+	}
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	updated = next.(Model)
+	if updated.tab != tabDetail {
+		t.Fatalf("expected detail tab from shortcut, got %d", updated.tab)
+	}
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated = next.(Model)
+	if updated.tab != tabSessions {
+		t.Fatalf("expected back to sessions, got %d", updated.tab)
+	}
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	updated = next.(Model)
+	if updated.tab != tabDashboard {
+		t.Fatalf("expected back to dashboard, got %d", updated.tab)
+	}
+}
+
+func TestModelMouseWheelMovesSelection(t *testing.T) {
+	model := NewModel(Options{})
+	next, _ := model.Update(snapshotMsg{snapshot: watcher.Snapshot{
+		Sessions: []watcher.SessionSummary{
+			{ID: "session-one", Status: "idle", Agent: "Codex"},
+			{ID: "session-two", Status: "active", Agent: "Codex"},
+		},
+		Active: &watcher.SessionDetail{SessionSummary: watcher.SessionSummary{ID: "session-one"}},
+	}})
+	updated := next.(Model)
+	if updated.selected != 0 {
+		t.Fatalf("expected first session selected, got %d", updated.selected)
+	}
+	next, _ = updated.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	updated = next.(Model)
+	if updated.selected != 1 || updated.detailID != "session-two" {
+		t.Fatalf("expected wheel down to select session-two, got selected=%d detail=%q", updated.selected, updated.detailID)
+	}
+}
