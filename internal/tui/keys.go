@@ -21,6 +21,7 @@ type keyMap struct {
 	Collapse       key.Binding
 	CollapseAll    key.Binding
 	DetailLevel    key.Binding
+	AnalyticsPanel key.Binding
 	Timestamps     key.Binding
 	Follow         key.Binding
 }
@@ -111,6 +112,10 @@ var keys = keyMap{
 		key.WithKeys("d"),
 		key.WithHelp("d", "detail"),
 	),
+	AnalyticsPanel: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "analytics"),
+	),
 	Timestamps: key.NewBinding(
 		key.WithKeys("t"),
 		key.WithHelp("t", "time"),
@@ -137,7 +142,7 @@ func detailHelp() helpKeyMap {
 		short: []key.Binding{keys.Esc, keys.Tab, keys.Enter, keys.Follow},
 		full: [][]key.Binding{
 			{keys.Up, keys.Down, keys.PreviousPrompt, keys.NextPrompt, keys.Enter},
-			{keys.Collapse, keys.CollapseAll, keys.DetailLevel, keys.Timestamps, keys.Follow},
+			{keys.Collapse, keys.CollapseAll, keys.DetailLevel, keys.AnalyticsPanel, keys.Timestamps, keys.Follow},
 			{keys.PageUp, keys.PageDown, keys.Home, keys.End, keys.Tab, keys.ShiftTab, keys.Esc},
 		},
 	}

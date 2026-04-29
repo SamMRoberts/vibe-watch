@@ -250,6 +250,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.ToggleTimelineDetailLevel()
 			}
 
+		case key.Matches(msg, keys.AnalyticsPanel):
+			if a.view == viewDetail && a.detail != nil {
+				a.detail.ToggleSessionAnalytics()
+			}
+
 		case key.Matches(msg, keys.Timestamps):
 			if a.view == viewDetail && a.detail != nil {
 				a.detail.ToggleTimestamps()

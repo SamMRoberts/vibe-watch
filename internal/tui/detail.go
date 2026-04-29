@@ -65,6 +65,7 @@ type DetailView struct {
 	userPausedFollow bool // tracks if user explicitly paused follow vs it being false for other reasons
 	detailLevel      timelineDetailLevel
 	showTimestamps   bool
+	showAnalytics    bool
 	animationFrame   int
 	width            int
 	height           int
@@ -293,6 +294,16 @@ func (d *DetailView) ToggleTimestamps() {
 	d.scrollSelectedRowIntoView()
 }
 
+func (d *DetailView) ToggleSessionAnalytics() {
+	d.showAnalytics = !d.showAnalytics
+	d.renderContent()
+	if d.showAnalytics {
+		d.viewport.GotoTop()
+		return
+	}
+	d.scrollSelectedRowIntoView()
+}
+
 func (d *DetailView) AdvanceAnimation() {
 	d.animationFrame++
 	if d.focusedMode == focusNone {
@@ -440,6 +451,10 @@ func (d *DetailView) renderContent() {
 
 	if len(s.Messages) == 0 {
 		write(styleMuted.Render("No activity found in this session.\n"))
+	}
+
+	if d.showAnalytics {
+		write(renderSessionAnalyticsPanel(s, d.width-10) + "\n\n")
 	}
 
 	for i := 0; i < len(d.rows); {
@@ -1187,11 +1202,29 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 }
 
 func detailSummaryMetrics(s *models.Session, width int) string {
+	stats := analyzeSessionData(s)
 	metrics := []string{
 		metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
 		metricChip("Input", detailInputTokens(s), "↘", styleAccent),
 		metricChip("Output", fmt.Sprintf("%d", s.TotalOutputTokens()), "↗", styleAccent),
 		metricChip("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent),
+	}
+	if width >= 108 {
+		successValue := "—"
+		successStyle := styleAccent
+		if stats.ToolSuccessRate >= 0 {
+			successValue = fmt.Sprintf("%.0f%%", stats.ToolSuccessRate)
+			successStyle = toolSuccessStyle(stats.ToolSuccessRate)
+		}
+		latencyValue := "—"
+		if stats.AvgFirstResponseLatency > 0 {
+			latencyValue = models.FormatDuration(stats.AvgFirstResponseLatency)
+		}
+		metrics = append(metrics,
+			metricChip("Prompts", fmt.Sprintf("%d", stats.Prompts), "✎", styleInfo),
+			metricChip("Latency", latencyValue, "⏱", styleAccent),
+			metricChip("Tool success", successValue, "✓", successStyle),
+		)
 	}
 	if width < 72 {
 		first := lipgloss.JoinHorizontal(lipgloss.Top, metrics[0], " ", metrics[1])
@@ -2170,6 +2203,9 @@ func (d *DetailView) FooterStatus() string {
 		"detail " + d.timelineDetailLabel(),
 		d.timestampLabel(),
 		followLabel,
+	}
+	if d.showAnalytics {
+		parts = append(parts, "session analytics")
 	}
 	if context := d.selectedRowContextLabel(); context != "" {
 		parts = append(parts, context)

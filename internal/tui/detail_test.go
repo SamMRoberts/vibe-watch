@@ -208,6 +208,38 @@ func TestDetailTimelineDetailLevelCyclesThroughThreeModes(t *testing.T) {
 	}
 }
 
+func TestDetailToggleSessionAnalyticsRendersInteractivePanel(t *testing.T) {
+	detail := NewDetailView(120, 80)
+	detail.SetSession(analyticsTestSession())
+
+	if strings.Contains(detail.View(), "Session data analytics") {
+		t.Fatalf("expected session analytics to be hidden by default, got:\n%s", detail.View())
+	}
+
+	detail.ToggleSessionAnalytics()
+	rendered := detail.View()
+	for _, want := range []string{
+		"Session data analytics",
+		"Prompt token trend",
+		"Message mix",
+		"Prompt categories",
+		"Tool outcomes",
+		"Tool success",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected session analytics panel to include %q, got:\n%s", want, rendered)
+		}
+	}
+	if status := detail.FooterStatus(); !strings.Contains(status, "session analytics") {
+		t.Fatalf("expected footer to reflect analytics panel state, got %q", status)
+	}
+
+	detail.ToggleSessionAnalytics()
+	if strings.Contains(detail.View(), "Session data analytics") {
+		t.Fatalf("expected session analytics to hide after second toggle, got:\n%s", detail.View())
+	}
+}
+
 func TestDetailSelectNextRowNavigatesActivityRows(t *testing.T) {
 	detail := NewDetailView(120, 80)
 	detail.SetSession(&models.Session{
