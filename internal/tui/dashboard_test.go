@@ -45,6 +45,9 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	row := rows[0]
+	if got := row[0]; !strings.Contains(got, "◈") || !strings.Contains(got, "Copilot") {
+		t.Fatalf("expected Copilot agent label with icon, got %q", got)
+	}
 	if got := row[5]; got != "1h30m" {
 		t.Fatalf("expected duration to be populated, got %q", got)
 	}
@@ -85,14 +88,14 @@ func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {
 	if len(rows) != 8 {
 		t.Fatalf("expected date, agent, and session rows, got %d rows: %#v", len(rows), rows)
 	}
-	if rows[0][0] != "Apr 28, 2026" || rows[0][1] != "2 sessions" {
+	if !strings.Contains(rows[0][0], "◷") || !strings.Contains(rows[0][0], "Apr 28, 2026") || rows[0][1] != "2 sessions" {
 		t.Fatalf("expected first date group to be Apr 28 with 2 sessions, got %#v", rows[0])
 	}
-	if !strings.Contains(rows[1][0], "Claude") || rows[1][1] != "1 session" {
-		t.Fatalf("expected Claude agent group under Apr 28, got %#v", rows[1])
+	if !strings.Contains(rows[1][0], "✹") || !strings.Contains(rows[1][0], "Claude") || rows[1][1] != "1 session" {
+		t.Fatalf("expected Claude agent group with icon under Apr 28, got %#v", rows[1])
 	}
-	if !strings.Contains(rows[2][0], "Claude") || dashboard.rowSessions[2] != claude {
-		t.Fatalf("expected Claude session row after date and agent headers, got row %#v sessions %#v", rows[2], dashboard.rowSessions[:3])
+	if strings.Contains(rows[2][0], "Claude") || !strings.Contains(rows[2][0], "└") || dashboard.rowSessions[2] != claude {
+		t.Fatalf("expected Claude session row to use branch guide without repeating agent name, got row %#v sessions %#v", rows[2], dashboard.rowSessions[:3])
 	}
 	if dashboard.rowSessions[0] != nil || dashboard.rowSessions[1] != nil {
 		t.Fatalf("expected date and agent headers to be non-selectable, got %#v", dashboard.rowSessions[:2])
@@ -103,7 +106,7 @@ func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {
 	if !strings.Contains(rows[3][0], "Copilot") || rows[3][1] != "1 session" {
 		t.Fatalf("expected Copilot agent group under Apr 28, got %#v", rows[3])
 	}
-	if rows[5][0] != "Apr 27, 2026" || rows[5][1] != "1 session" {
+	if !strings.Contains(rows[5][0], "◷") || !strings.Contains(rows[5][0], "Apr 27, 2026") || rows[5][1] != "1 session" {
 		t.Fatalf("expected second date group to be Apr 27 with 1 session, got %#v", rows[5])
 	}
 	if !strings.Contains(rows[6][0], "Codex") || rows[6][1] != "1 session" {

@@ -147,9 +147,9 @@ func (d *DashboardView) dashboardSessionRow(s *models.Session, grouped, lastInAg
 	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
 	stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
 	updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
-	agentCell := agentLabel(string(s.AgentType), agentWidth)
+	agentCell := styledAgentLabel(string(s.AgentType), agentWidth)
 	if grouped {
-		agentCell = sessionBranchLabel(string(s.AgentType), agentWidth, lastInAgent)
+		agentCell = sessionBranchLabel(agentWidth, lastInAgent)
 	}
 	return table.Row{
 		agentCell,
@@ -167,7 +167,7 @@ func (d *DashboardView) dashboardDateRow(s *models.Session, count int) table.Row
 	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
 	sessionWidth := dashboardColumnWidth(d.table.Columns(), dashboardSessionColumnTitle)
 	return table.Row{
-		truncateEnd(dashboardGroupDate(s), agentWidth),
+		dateGroupLabel(dashboardGroupDate(s), agentWidth),
 		truncateEnd(sessionCountLabel(count), sessionWidth),
 		"",
 		"",
@@ -201,23 +201,48 @@ func agentBranchLabel(agent string, width int, lastInDate bool) string {
 	return prefixedAgentLabel(prefix, agent, width)
 }
 
-func sessionBranchLabel(agent string, width int, lastInAgent bool) string {
-	prefix := "  ├ "
+func sessionBranchLabel(width int, lastInAgent bool) string {
+	prefix := "  ├─"
 	if lastInAgent {
-		prefix = "  └ "
+		prefix = "  └─"
 	}
-	return prefixedAgentLabel(prefix, agent, width)
+	return styleMuted.Render(truncateEnd(prefix, width))
 }
 
 func prefixedAgentLabel(prefix, agent string, width int) string {
 	if width <= 0 {
-		return prefix + agentLabel(agent, 0)
+		return styleMuted.Render(prefix) + styledAgentLabel(agent, 0)
 	}
 	available := width - lipgloss.Width(prefix)
 	if available < 1 {
-		return truncateEnd(prefix, width)
+		return styleMuted.Render(truncateEnd(prefix, width))
 	}
-	return truncateEnd(prefix+agentLabel(agent, available), width)
+	return styleMuted.Render(prefix) + styledAgentLabel(agent, available)
+}
+
+func dateGroupLabel(date string, width int) string {
+	label := "◷ " + date
+	if width > 0 && lipgloss.Width(label) > width {
+		label = "◷ " + compactDateLabel(date)
+	}
+	if width > 0 && lipgloss.Width(label) > width {
+		label = "◷"
+	}
+	return lipgloss.NewStyle().
+		Foreground(colorGlow).
+		Bold(true).
+		Render(truncateEnd(label, width))
+}
+
+func compactDateLabel(date string) string {
+	if date == "Unknown" {
+		return date
+	}
+	t, err := time.Parse("Jan 02, 2006", date)
+	if err != nil {
+		return date
+	}
+	return t.Format("Jan 02")
 }
 
 func (d *DashboardView) filteredSessions(agentFilter string) []*models.Session {
@@ -298,9 +323,9 @@ func dashboardColumns(width int) []table.Column {
 		contentBudget = 0
 	}
 
-	agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth := 12, 4, 6, 6, 7, 8, 8
+	agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth := 15, 4, 6, 6, 7, 8, 8
 	fixedWidth := agentWidth + msgWidth + inputWidth + outputWidth + durationWidth + stateWidth + updatedWidth
-	if contentBudget < fixedWidth+8 {
+	if contentBudget < fixedWidth+4 {
 		agentWidth, msgWidth, inputWidth, outputWidth, durationWidth, stateWidth, updatedWidth = 8, 3, 4, 4, 5, 4, 5
 		fixedWidth = agentWidth + msgWidth + inputWidth + outputWidth + durationWidth + stateWidth + updatedWidth
 	}
@@ -347,6 +372,10 @@ func agentLabel(agent string, width int) string {
 		label = agentIcon(agent)
 	}
 	return label
+}
+
+func styledAgentLabel(agent string, width int) string {
+	return agentStyle(agent).Render(agentLabel(agent, width))
 }
 
 func statusText(session *models.Session, width int) string {
