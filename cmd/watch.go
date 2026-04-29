@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/SamMRoberts/vibe-watch/internal/agents"
+	"github.com/SamMRoberts/vibe-watch/internal/demo"
 	"github.com/SamMRoberts/vibe-watch/internal/tui"
 	"github.com/SamMRoberts/vibe-watch/internal/watcher"
 )
@@ -16,14 +17,20 @@ import (
 var (
 	flagAgent   string
 	flagRefresh int
+	flagDemo    bool
 )
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Start the TUI dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		registry := agents.NewRegistry()
-		w := watcher.New(registry, time.Duration(flagRefresh)*time.Second)
+		var w *watcher.Watcher
+		if flagDemo {
+			w = watcher.NewStatic(demo.Sessions())
+		} else {
+			registry := agents.NewRegistry()
+			w = watcher.New(registry, time.Duration(flagRefresh)*time.Second)
+		}
 
 		m := tui.NewApp(w, flagAgent)
 		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -39,4 +46,5 @@ var watchCmd = &cobra.Command{
 func init() {
 	watchCmd.Flags().StringVar(&flagAgent, "agent", "", "Filter to specific agent (claude, codex, copilot, chat, amazonq)")
 	watchCmd.Flags().IntVar(&flagRefresh, "refresh", 2, "Refresh interval in seconds")
+	watchCmd.Flags().BoolVar(&flagDemo, "demo", false, "Load simulated sessions for demo and screenshots (no files read from disk)")
 }
