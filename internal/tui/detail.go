@@ -1202,7 +1202,6 @@ func (d *DetailView) sessionHeader(s *models.Session) string {
 }
 
 func detailSummaryMetrics(s *models.Session, width int) string {
-	stats := analyzeSessionData(s)
 	metrics := []string{
 		metricChip("Messages", fmt.Sprintf("%d", len(s.Messages)), "☷", styleAccent),
 		metricChip("Input", detailInputTokens(s), "↘", styleAccent),
@@ -1210,6 +1209,7 @@ func detailSummaryMetrics(s *models.Session, width int) string {
 		metricChip("Cache", detailCacheTokens(s.TotalTokens), "◌", styleAccent),
 	}
 	if width >= 108 {
+		stats := analyzeSessionData(s)
 		successValue := "—"
 		successStyle := styleAccent
 		if stats.ToolSuccessRate >= 0 {

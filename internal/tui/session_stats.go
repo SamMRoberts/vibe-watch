@@ -15,7 +15,7 @@ const (
 	sessionAnalyticsMaxWidth = 120
 )
 
-var sessionMessageRoleOrder = []string{"user", "assistant", "tool", "subagent", "error", "session", "system"}
+var sessionStatMessageRoleDisplayOrder = []string{"user", "assistant", "tool", "subagent", "error", "session", "system"}
 
 type sessionDataStats struct {
 	Prompts                 int
@@ -25,6 +25,7 @@ type sessionDataStats struct {
 	Threads                 []promptThread
 	Categories              []categorySummary
 	Tools                   []toolSummary
+	TotalFailures           int
 	MessageCounts           map[string]int
 	TokenTrend              []int
 	HourlyActivity          [sessionAnalyticsHours]int
@@ -36,7 +37,7 @@ func analyzeSessionData(session *models.Session) sessionDataStats {
 	}
 	threads := buildPromptThreads([]*models.Session{session})
 	categories := summarizePromptCategories(threads)
-	tools, _ := summarizeToolActivity([]*models.Session{session})
+	tools, failures := summarizeToolActivity([]*models.Session{session})
 	stats := sessionDataStats{
 		Prompts:                 len(threads),
 		AvgFirstResponseLatency: averageThreadLatency(threads),
@@ -44,6 +45,7 @@ func analyzeSessionData(session *models.Session) sessionDataStats {
 		Threads:                 threads,
 		Categories:              categories,
 		Tools:                   tools,
+		TotalFailures:           failures,
 		MessageCounts:           make(map[string]int),
 		TokenTrend:              make([]int, 0, len(threads)),
 	}
@@ -149,7 +151,7 @@ func renderSessionMessageMix(stats sessionDataStats, width int) string {
 	barWidth := clampInt(width-28, 8, 36)
 	var b strings.Builder
 	b.WriteString("  " + styleMuted.Render("Message mix") + "\n")
-	for _, role := range sessionMessageRoleOrder {
+	for _, role := range sessionStatMessageRoleDisplayOrder {
 		count := stats.MessageCounts[role]
 		if count == 0 {
 			continue
