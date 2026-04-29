@@ -24,27 +24,32 @@ type AnalyticsView struct {
 }
 
 type promptThread struct {
-	SessionID    string
-	Agent        string
-	Project      string
-	Prompt       string
-	Category     string
-	Start        time.Time
-	End          time.Time
-	Duration     time.Duration
-	MessageCount int
-	ToolEvents   int
-	FailedEvents int
-	Tokens       int
+	SessionID            string
+	Agent                string
+	Project              string
+	Prompt               string
+	Category             string
+	Start                time.Time
+	End                  time.Time
+	Duration             time.Duration
+	FirstResponseLatency time.Duration
+	MessageCount         int
+	ToolEvents           int
+	FailedEvents         int
+	Tokens               int
+	InputTokens          int
+	OutputTokens         int
 }
 
 type categorySummary struct {
-	Name     string
-	Count    int
-	Tokens   int
-	Duration time.Duration
-	Tools    int
-	Failures int
+	Name           string
+	Count          int
+	Tokens         int
+	Duration       time.Duration
+	Tools          int
+	Failures       int
+	LatencySum     time.Duration
+	LatencySamples int
 }
 
 type toolSummary struct {
@@ -181,11 +186,49 @@ func (a *AnalyticsView) renderBody() string {
 	}
 	barWidth := clampInt(sectionWidth-46, 18, 54)
 	insights := analyzeSessions(a.sessions)
+	timeline := buildActivityTimeline(a.sessions)
+	cacheUsage := summarizeCacheUsage(a.sessions)
+	projectsByTokens := summarizeProjectsByTokens(a.sessions)
+	stateBreakdown := sessionStateCounts(a.sessions)
+	agentEfficiency := summarizeAgentEfficiency(insights.Threads)
 
+	avgLatency := averageThreadLatency(insights.Threads)
+	latencyValue := "—"
+	if avgLatency > 0 {
+		latencyValue = models.FormatDuration(avgLatency)
+	}
+	successValue := "—"
+	successStyle := styleAccent
+	if rate := toolSuccessRate(insights.Tools); rate >= 0 {
+		successValue = fmt.Sprintf("%.0f%%", rate)
+		switch {
+		case rate < 50:
+			successStyle = styleError
+		case rate < 80:
+			successStyle = styleWarning
+		default:
+			successStyle = styleSuccess
+		}
+	}
+
+	cardWidth := clampInt((a.width-20)/4, 14, 22)
 	statsRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCardWidth("Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent, clampInt((a.width-8)/2, 16, 22)),
+		metricCardWidth("Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent, cardWidth),
 		"  ",
-		metricCardWidth("Tokens", compactInt(totalTokens), "◇", styleAccent, clampInt((a.width-8)/2, 16, 22)),
+		metricCardWidth("Prompts", fmt.Sprintf("%d", len(insights.Threads)), "✎", styleInfo, cardWidth),
+		"  ",
+		metricCardWidth("Avg latency", latencyValue, "⏱", styleAccent, cardWidth),
+		"  ",
+		metricCardWidth("Tool success", successValue, "✓", successStyle, cardWidth),
+	)
+	tokenRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCardWidth("Tokens", compactInt(totalTokens), "◇", styleAccent, cardWidth),
+		"  ",
+		metricCardWidth("Failures", fmt.Sprintf("%d", insights.TotalFailures), "⚠", styleError, cardWidth),
+		"  ",
+		metricCardWidth("Tools", fmt.Sprintf("%d", len(insights.Tools)), "⚙", styleInfo, cardWidth),
+		"  ",
+		metricCardWidth("Outliers", fmt.Sprintf("%d", len(insights.Outliers)), "◆", styleWarning, cardWidth),
 	)
 	analyticsSubtitle := "prompt insights"
 	if sectionWidth >= 84 {
@@ -193,6 +236,10 @@ func (a *AnalyticsView) renderBody() string {
 	}
 	sb.WriteString(sectionHeader("Observatory analytics", analyticsSubtitle, sectionWidth) + "\n\n")
 	sb.WriteString(statsRow + "\n\n")
+	sb.WriteString(tokenRow + "\n\n")
+	if chipRow := renderSessionStateChips(stateBreakdown); chipRow != "" {
+		sb.WriteString("  " + chipRow + "\n\n")
+	}
 
 	var agentChart strings.Builder
 	agentChart.WriteString(sectionHeader("Sessions by agent", "", sectionWidth-4) + "\n")
@@ -218,8 +265,13 @@ func (a *AnalyticsView) renderBody() string {
 	}
 
 	sb.WriteString(quietPanel(sectionWidth, agentChart.String()) + "\n\n")
+	sb.WriteString(renderActivityTrend(sectionWidth, timeline) + "\n\n")
 	sb.WriteString(renderPromptThreadSummary(sectionWidth, insights.Threads) + "\n\n")
+	sb.WriteString(renderEfficiencyPanel(sectionWidth, insights.Threads, agentEfficiency) + "\n\n")
 	sb.WriteString(renderPromptCategoryBreakdown(sectionWidth, insights.Categories) + "\n\n")
+	if cachePanel := renderCacheUtilizationPanel(sectionWidth, cacheUsage); cachePanel != "" {
+		sb.WriteString(cachePanel + "\n\n")
+	}
 	sb.WriteString(renderOutlierPanel(sectionWidth, insights.Outliers) + "\n\n")
 	sb.WriteString(renderToolActivitySummary(sectionWidth, insights.Tools, insights.TotalFailures) + "\n\n")
 	sb.WriteString(renderActionableHints(sectionWidth, insights.Hints) + "\n\n")
@@ -259,6 +311,9 @@ func (a *AnalyticsView) renderBody() string {
 	}
 
 	sb.WriteString(quietPanel(sectionWidth, projects.String()) + "\n\n")
+	if tokensPanel := renderProjectsByTokens(sectionWidth, projectsByTokens, 10); tokensPanel != "" {
+		sb.WriteString(tokensPanel + "\n\n")
+	}
 
 	var tokens strings.Builder
 	tokens.WriteString(sectionHeader("Token usage by agent", "", sectionWidth-4) + "\n")
@@ -332,6 +387,8 @@ func buildPromptThreads(sessions []*models.Session) []promptThread {
 					End:          message.Timestamp,
 					MessageCount: 1,
 					Tokens:       messageTokens(message),
+					InputTokens:  message.Tokens.InputTokens,
+					OutputTokens: message.Tokens.OutputTokens,
 				}
 				continue
 			}
@@ -340,6 +397,8 @@ func buildPromptThreads(sessions []*models.Session) []promptThread {
 			}
 			current.MessageCount++
 			current.Tokens += messageTokens(message)
+			current.InputTokens += message.Tokens.InputTokens
+			current.OutputTokens += message.Tokens.OutputTokens
 			if !message.Timestamp.IsZero() {
 				current.End = message.Timestamp
 			}
@@ -348,6 +407,11 @@ func buildPromptThreads(sessions []*models.Session) []promptThread {
 			}
 			if isFailedActivity(message) {
 				current.FailedEvents++
+			}
+			if current.FirstResponseLatency == 0 && message.Role == "assistant" &&
+				!message.Timestamp.IsZero() && !current.Start.IsZero() &&
+				message.Timestamp.After(current.Start) {
+				current.FirstResponseLatency = message.Timestamp.Sub(current.Start)
 			}
 		}
 		if current != nil {
@@ -387,6 +451,10 @@ func summarizePromptCategories(threads []promptThread) []categorySummary {
 		summary.Duration += thread.Duration
 		summary.Tools += thread.ToolEvents
 		summary.Failures += thread.FailedEvents
+		if thread.FirstResponseLatency > 0 {
+			summary.LatencySum += thread.FirstResponseLatency
+			summary.LatencySamples++
+		}
 	}
 
 	var categories []categorySummary
@@ -600,11 +668,16 @@ func renderPromptCategoryBreakdown(width int, categories []categorySummary) stri
 		if category.Count > 0 {
 			avgDuration = category.Duration / time.Duration(category.Count)
 		}
-		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s\n",
+		latencyLabel := "—"
+		if category.LatencySamples > 0 {
+			latencyLabel = models.FormatDuration(category.LatencySum / time.Duration(category.LatencySamples))
+		}
+		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s  %s\n",
 			lipgloss.NewStyle().Width(16).Render(styleText(category.Name)),
 			styleAccent.Render(fmt.Sprintf("%d prompts", category.Count)),
 			styleMuted.Render(compactInt(avgTokens)+" avg tokens"),
 			styleMuted.Render(models.FormatDuration(avgDuration)+" avg"),
+			styleMuted.Render(latencyLabel+" lat"),
 			styleMuted.Render(fmt.Sprintf("%d tools", category.Tools)),
 		))
 	}
@@ -646,12 +719,25 @@ func renderToolActivitySummary(width int, tools []toolSummary, failures int) str
 	}
 	b.WriteString("  " + metricChip("Failed events", fmt.Sprintf("%d", failures), "⚠", styleError) + "\n\n")
 	for _, tool := range tools {
-		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s\n",
+		finished := tool.Completed + tool.Failed
+		successLabel := styleMuted.Render("— success")
+		if finished > 0 {
+			pct := float64(tool.Completed) * 100.0 / float64(finished)
+			style := styleSuccess
+			if pct < 50 {
+				style = styleError
+			} else if pct < 80 {
+				style = styleWarning
+			}
+			successLabel = style.Render(fmt.Sprintf("%.0f%% success", pct))
+		}
+		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s  %s\n",
 			lipgloss.NewStyle().Width(24).Render(styleText(truncateEnd(tool.Name, 24))),
 			styleAccent.Render(fmt.Sprintf("%d events", tool.Count)),
 			styleMuted.Render(fmt.Sprintf("%d start", tool.Started)),
 			styleMuted.Render(fmt.Sprintf("%d done", tool.Completed)),
 			failureLabel(tool.Failed),
+			successLabel,
 		))
 	}
 	return quietPanel(width, b.String())
