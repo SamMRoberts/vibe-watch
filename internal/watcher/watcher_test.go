@@ -43,3 +43,59 @@ func TestStaticWatcherPublishesCompletedSessionUpdate(t *testing.T) {
 		t.Fatalf("expected static session update, got %#v", update.Sessions)
 	}
 }
+
+func TestWatcherPartialRefreshMergesWithExistingSessions(t *testing.T) {
+	unchanged := &models.Session{ID: "unchanged", AgentType: models.AgentCopilot, ProjectPath: "/repo/unchanged"}
+	oldChanged := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	changed := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+	added := &models.Session{ID: "added", AgentType: models.AgentCodex, ProjectPath: "/repo/added"}
+	w := &Watcher{
+		sessions: []*models.Session{unchanged, oldChanged},
+		updates:  make(chan UpdateMsg, 1),
+	}
+
+	w.publish([]*models.Session{changed, added}, nil, true, false)
+
+	update := <-w.Updates()
+	if !update.Refreshing || update.Done {
+		t.Fatalf("expected partial refresh update, got %#v", update)
+	}
+	if len(update.Sessions) != 3 {
+		t.Fatalf("expected unchanged, changed, and added sessions, got %#v", update.Sessions)
+	}
+	if update.Sessions[0] != unchanged {
+		t.Fatalf("expected unchanged session to be preserved during partial refresh")
+	}
+	if update.Sessions[1] != changed {
+		t.Fatalf("expected changed session to be replaced during partial refresh")
+	}
+	if update.Sessions[2] != added {
+		t.Fatalf("expected new session to be appended during partial refresh")
+	}
+	if cached := w.Sessions(); len(cached) != 3 || cached[0] != unchanged || cached[1] != changed || cached[2] != added {
+		t.Fatalf("expected watcher cache to hold merged partial refresh, got %#v", cached)
+	}
+}
+
+func TestWatcherFinalRefreshRemovesDeletedSessions(t *testing.T) {
+	deleted := &models.Session{ID: "deleted", AgentType: models.AgentCopilot}
+	oldKept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	kept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+	w := &Watcher{
+		sessions: []*models.Session{deleted, oldKept},
+		updates:  make(chan UpdateMsg, 1),
+	}
+
+	w.publish([]*models.Session{kept}, nil, false, true)
+
+	update := <-w.Updates()
+	if update.Refreshing || !update.Done {
+		t.Fatalf("expected final refresh update, got %#v", update)
+	}
+	if len(update.Sessions) != 1 || update.Sessions[0] != kept {
+		t.Fatalf("expected final refresh to remove deleted sessions and keep updated session, got %#v", update.Sessions)
+	}
+	if cached := w.Sessions(); len(cached) != 1 || cached[0] != kept {
+		t.Fatalf("expected watcher cache to reconcile deletions, got %#v", cached)
+	}
+}

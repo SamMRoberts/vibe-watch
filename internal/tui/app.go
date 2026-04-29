@@ -106,7 +106,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsUpdateMsg:
 		a.refreshing = msg.refreshing
 		if msg.hasSessions && msg.err == nil {
-			a.sessions = msg.sessions
+			a.sessions = models.MergeSessionUpdates(a.sessions, msg.sessions, msg.done)
 		}
 		if msg.hasSessions {
 			a.loading = false
@@ -431,13 +431,7 @@ func findMatchingSession(target *models.Session, sessions []*models.Session) *mo
 }
 
 func sameSession(a, b *models.Session) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	if a.ID != "" && b.ID == a.ID {
-		return a.AgentType == "" || b.AgentType == a.AgentType
-	}
-	return a.LogPath != "" && b.LogPath == a.LogPath
+	return models.SameSession(a, b)
 }
 
 func (a *App) View() string {

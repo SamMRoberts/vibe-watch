@@ -88,6 +88,58 @@ func (s *Session) MessageCount() int {
 	return len(s.Messages)
 }
 
+func SameSession(a, b *Session) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.ID != "" && b.ID == a.ID {
+		return a.AgentType == "" || b.AgentType == a.AgentType
+	}
+	return a.LogPath != "" && b.LogPath == a.LogPath
+}
+
+func MergeSessionUpdates(current, incoming []*Session, removeMissing bool) []*Session {
+	if len(current) == 0 {
+		return append([]*Session(nil), incoming...)
+	}
+
+	out := append([]*Session(nil), current...)
+	matched := make([]bool, len(out))
+	for _, session := range incoming {
+		if session == nil {
+			continue
+		}
+		if idx := MatchingSessionIndex(out, session); idx >= 0 {
+			out[idx] = session
+			matched[idx] = true
+			continue
+		}
+		out = append(out, session)
+		matched = append(matched, true)
+	}
+
+	if !removeMissing {
+		return out
+	}
+
+	reconciled := out[:0]
+	for i, session := range out {
+		if matched[i] || MatchingSessionIndex(incoming, session) >= 0 {
+			reconciled = append(reconciled, session)
+		}
+	}
+	return append([]*Session(nil), reconciled...)
+}
+
+func MatchingSessionIndex(sessions []*Session, target *Session) int {
+	for i, session := range sessions {
+		if SameSession(session, target) {
+			return i
+		}
+	}
+	return -1
+}
+
 func FormatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

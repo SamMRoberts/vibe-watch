@@ -108,6 +108,7 @@ func (w *Watcher) publish(sessions []*models.Session, err error, refreshing, don
 	copied := append([]*models.Session(nil), sessions...)
 	w.mu.Lock()
 	if err == nil {
+		copied = models.MergeSessionUpdates(w.sessions, copied, done)
 		w.sessions = copied
 	}
 	w.mu.Unlock()

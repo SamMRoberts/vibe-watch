@@ -53,6 +53,42 @@ func TestSessionTotalTokens(t *testing.T) {
 	}
 }
 
+func TestMergeSessionUpdatesPreservesUnseenSessionsDuringPartialRefresh(t *testing.T) {
+	unchanged := &models.Session{ID: "unchanged", AgentType: models.AgentCopilot, ProjectPath: "/repo/unchanged"}
+	oldChanged := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	changed := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+	added := &models.Session{ID: "added", AgentType: models.AgentCodex, ProjectPath: "/repo/added"}
+
+	merged := models.MergeSessionUpdates(
+		[]*models.Session{unchanged, oldChanged},
+		[]*models.Session{changed, added},
+		false,
+	)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected unchanged, changed, and added sessions, got %#v", merged)
+	}
+	if merged[0] != unchanged || merged[1] != changed || merged[2] != added {
+		t.Fatalf("expected partial merge to update in place and preserve old sessions, got %#v", merged)
+	}
+}
+
+func TestMergeSessionUpdatesRemovesMissingSessionsOnFinalRefresh(t *testing.T) {
+	deleted := &models.Session{ID: "deleted", AgentType: models.AgentCopilot}
+	oldKept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	kept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+
+	merged := models.MergeSessionUpdates(
+		[]*models.Session{deleted, oldKept},
+		[]*models.Session{kept},
+		true,
+	)
+
+	if len(merged) != 1 || merged[0] != kept {
+		t.Fatalf("expected final merge to remove deleted sessions, got %#v", merged)
+	}
+}
+
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		d    time.Duration

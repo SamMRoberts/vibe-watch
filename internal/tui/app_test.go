@@ -169,6 +169,56 @@ func TestFindMatchingSessionFallsBackToLogPath(t *testing.T) {
 	}
 }
 
+func TestSessionUpdateMergesPartialRefreshWithoutDroppingUnseenSessions(t *testing.T) {
+	unchanged := &models.Session{ID: "unchanged", AgentType: models.AgentCopilot, ProjectPath: "/repo/unchanged"}
+	oldChanged := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	changed := &models.Session{ID: "changed", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+	added := &models.Session{ID: "added", AgentType: models.AgentCodex, ProjectPath: "/repo/added"}
+	app := &App{
+		sessions:  []*models.Session{unchanged, oldChanged},
+		dashboard: NewDashboardView(100, 30),
+	}
+
+	app.Update(sessionsUpdateMsg{
+		sessions:    []*models.Session{changed, added},
+		hasSessions: true,
+		refreshing:  true,
+	})
+
+	if len(app.sessions) != 3 {
+		t.Fatalf("expected partial refresh to preserve unseen sessions, got %#v", app.sessions)
+	}
+	if app.sessions[0] != unchanged {
+		t.Fatalf("expected unchanged session to remain visible during partial refresh")
+	}
+	if app.sessions[1] != changed {
+		t.Fatalf("expected changed session to update in place during partial refresh")
+	}
+	if app.sessions[2] != added {
+		t.Fatalf("expected added session to appear during partial refresh")
+	}
+}
+
+func TestSessionUpdateReconcilesDeletedSessionsOnCompletedRefresh(t *testing.T) {
+	deleted := &models.Session{ID: "deleted", AgentType: models.AgentCopilot}
+	oldKept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/old"}
+	kept := &models.Session{ID: "kept", AgentType: models.AgentCopilot, ProjectPath: "/repo/new"}
+	app := &App{
+		sessions:  []*models.Session{deleted, oldKept},
+		dashboard: NewDashboardView(100, 30),
+	}
+
+	app.Update(sessionsUpdateMsg{
+		sessions:    []*models.Session{kept},
+		hasSessions: true,
+		done:        true,
+	})
+
+	if len(app.sessions) != 1 || app.sessions[0] != kept {
+		t.Fatalf("expected completed refresh to remove deleted sessions and update kept session, got %#v", app.sessions)
+	}
+}
+
 func TestUpdateViewsScrollsActiveDetailSessionToBottom(t *testing.T) {
 	oldSession := &models.Session{
 		ID:        "session-1",
