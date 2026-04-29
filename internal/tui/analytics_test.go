@@ -27,23 +27,48 @@ func TestAnalyticsViewRendersPromptInsights(t *testing.T) {
 		TotalTokens: models.TokenUsage{InputTokens: 1600, OutputTokens: 700},
 	}
 
-	view := NewAnalyticsView(120, 40)
+	view := NewAnalyticsView(120, 120)
 	view.SetSessions([]*models.Session{session})
 	rendered := view.View()
 
 	for _, want := range []string{
 		"Prompt thread analytics",
-		"Prompt category breakdown",
-		"Outlier sessions",
-		"Tool activity summary",
-		"Prompt refinement hints",
 		"Implementation",
 		"Debugging",
-		"Bash",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected analytics view to include %q, got:\n%s", want, rendered)
 		}
+	}
+
+	for _, want := range []string{
+		"Tool activity summary",
+		"Prompt refinement hints",
+		"Bash",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected scrolled analytics view to include %q, got:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestAnalyticsViewScrollsContent(t *testing.T) {
+	view := NewAnalyticsView(120, 14)
+	view.SetSessions([]*models.Session{analyticsTestSession()})
+
+	if view.viewport.YOffset != 0 {
+		t.Fatalf("expected analytics viewport to start at top, got offset %d", view.viewport.YOffset)
+	}
+
+	view.ScrollDown()
+	if view.viewport.YOffset == 0 {
+		t.Fatalf("expected analytics viewport to scroll down")
+	}
+
+	downOffset := view.viewport.YOffset
+	view.ScrollUp()
+	if view.viewport.YOffset >= downOffset {
+		t.Fatalf("expected analytics viewport to scroll up from %d, got %d", downOffset, view.viewport.YOffset)
 	}
 }
 
@@ -76,6 +101,26 @@ func TestBuildPromptThreadsSummarizesUserSpans(t *testing.T) {
 	}
 	if threads[1].Category != "Exploration" || threads[1].Tokens != 10 {
 		t.Fatalf("expected second thread exploration with tokens, got %#v", threads[1])
+	}
+}
+
+func analyticsTestSession() *models.Session {
+	start := time.Date(2026, 4, 29, 1, 0, 0, 0, time.UTC)
+	return &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/vibe-watch",
+		StartTime:   start,
+		LastUpdated: start.Add(20 * time.Minute),
+		Messages: []models.Message{
+			{Role: "user", Content: "Implement analytics for prompt quality", Timestamp: start},
+			{Role: "tool", Content: "read files", Timestamp: start.Add(time.Minute), Meta: models.ActivityMeta{Kind: models.ActivityKindTool, Label: "Read", Lifecycle: models.ActivityLifecycleStarted}},
+			{Role: "assistant", Content: "done", Timestamp: start.Add(2 * time.Minute), Tokens: models.TokenUsage{InputTokens: 1000, OutputTokens: 500}},
+			{Role: "user", Content: "Fix the failing test", Timestamp: start.Add(3 * time.Minute)},
+			{Role: "tool", Content: "go test", Timestamp: start.Add(4 * time.Minute), Meta: models.ActivityMeta{Kind: models.ActivityKindTool, Label: "Bash", Lifecycle: models.ActivityLifecycleFailed}},
+			{Role: "assistant", Content: "fixed", Timestamp: start.Add(5 * time.Minute), Tokens: models.TokenUsage{InputTokens: 600, OutputTokens: 200}},
+		},
+		TotalTokens: models.TokenUsage{InputTokens: 1600, OutputTokens: 700},
 	}
 }
 

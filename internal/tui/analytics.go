@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/SamMRoberts/vibe-watch/internal/models"
@@ -16,6 +17,7 @@ const maxAnalyticsSectionWidth = 120
 var promptCategoryOrder = []string{"Implementation", "Debugging", "Planning", "Exploration", "Refactor", "Review", "General"}
 
 type AnalyticsView struct {
+	viewport viewport.Model
 	sessions []*models.Session
 	width    int
 	height   int
@@ -70,19 +72,76 @@ type analyticsInsights struct {
 }
 
 func NewAnalyticsView(width, height int) *AnalyticsView {
-	return &AnalyticsView{width: width, height: height}
+	vp := viewport.New(analyticsViewportWidth(width), analyticsViewportHeight(height))
+	a := &AnalyticsView{viewport: vp, width: width, height: height}
+	a.renderContent()
+	return a
 }
 
 func (a *AnalyticsView) SetSize(width, height int) {
 	a.width = width
 	a.height = height
+	a.viewport.Width = analyticsViewportWidth(width)
+	a.viewport.Height = analyticsViewportHeight(height)
+	a.renderContent()
 }
 
 func (a *AnalyticsView) SetSessions(sessions []*models.Session) {
 	a.sessions = sessions
+	a.renderContent()
 }
 
 func (a *AnalyticsView) View() string {
+	return a.viewport.View()
+}
+
+func (a *AnalyticsView) ScrollDown() {
+	a.viewport.ScrollDown(3)
+}
+
+func (a *AnalyticsView) ScrollUp() {
+	a.viewport.ScrollUp(3)
+}
+
+func (a *AnalyticsView) PageDown() {
+	a.viewport.HalfViewDown()
+}
+
+func (a *AnalyticsView) PageUp() {
+	a.viewport.HalfViewUp()
+}
+
+func (a *AnalyticsView) GotoTop() {
+	a.viewport.GotoTop()
+}
+
+func (a *AnalyticsView) GotoBottom() {
+	a.viewport.GotoBottom()
+}
+
+func (a *AnalyticsView) FooterStatus() string {
+	if a == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d%%  analytics", int(a.viewport.ScrollPercent()*100))
+}
+
+func analyticsViewportWidth(width int) int {
+	return maxInt(1, width-4)
+}
+
+func analyticsViewportHeight(height int) int {
+	if height < 6 {
+		return maxInt(1, height-2)
+	}
+	return maxInt(3, height-8)
+}
+
+func (a *AnalyticsView) renderContent() {
+	a.viewport.SetContent(a.renderBody())
+}
+
+func (a *AnalyticsView) renderBody() string {
 	var sb strings.Builder
 
 	if len(a.sessions) == 0 {

@@ -638,6 +638,54 @@ func TestRefreshIndicatorFollowsUpdateLifecycle(t *testing.T) {
 	}
 }
 
+func TestMouseWheelScrollsActiveViewport(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		view   viewState
+		offset func(*App) int
+	}{
+		{
+			name: "detail",
+			view: viewDetail,
+			offset: func(app *App) int {
+				return app.detail.viewport.YOffset
+			},
+		},
+		{
+			name: "focused detail",
+			view: viewPromptDetail,
+			offset: func(app *App) int {
+				return app.detail.viewport.YOffset
+			},
+		},
+		{
+			name: "analytics",
+			view: viewAnalytics,
+			offset: func(app *App) int {
+				return app.analytics.viewport.YOffset
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := appWithScrollableViews(tc.view)
+			before := tc.offset(app)
+
+			model, _ := app.Update(tea.MouseMsg{Type: tea.MouseWheelDown, Button: tea.MouseButtonWheelDown})
+			app = model.(*App)
+			afterDown := tc.offset(app)
+			if afterDown <= before {
+				t.Fatalf("expected wheel down to increase offset from %d, got %d", before, afterDown)
+			}
+
+			model, _ = app.Update(tea.MouseMsg{Type: tea.MouseWheelUp, Button: tea.MouseButtonWheelUp})
+			app = model.(*App)
+			if afterUp := tc.offset(app); afterUp >= afterDown {
+				t.Fatalf("expected wheel up to decrease offset from %d, got %d", afterDown, afterUp)
+			}
+		})
+	}
+}
+
 func makeDetailMessages(count int) []models.Message {
 	messages := make([]models.Message, 0, count)
 	for i := 0; i < count; i++ {
@@ -647,6 +695,43 @@ func makeDetailMessages(count int) []models.Message {
 		})
 	}
 	return messages
+}
+
+func appWithScrollableViews(state viewState) *App {
+	width, height := 100, 18
+	detail := NewDetailView(width, height)
+	if state == viewPromptDetail {
+		detail.SetSession(&models.Session{
+			ID:        "session-1",
+			AgentType: models.AgentCopilot,
+			Messages: []models.Message{
+				{Role: "user", Content: "prompt"},
+				{Role: "assistant", Content: strings.Repeat("long activity line\n", 80)},
+			},
+		})
+		detail.OpenSelectedThread()
+	} else {
+		detail.SetSession(&models.Session{
+			ID:        "session-1",
+			AgentType: models.AgentCopilot,
+			Messages:  makeDetailMessages(80),
+		})
+	}
+	analytics := NewAnalyticsView(width, height)
+	analytics.SetSessions([]*models.Session{analyticsTestSession()})
+	dashboard := NewDashboardView(width, height)
+	dashboard.SetSessions([]*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo"}}, "")
+	return &App{
+		view:              state,
+		width:             width,
+		height:            height,
+		loading:           false,
+		sessions:          []*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo"}},
+		analyticsSessions: []*models.Session{analyticsTestSession()},
+		dashboard:         dashboard,
+		detail:            detail,
+		analytics:         analytics,
+	}
 }
 
 func maxRenderedLineWidth(rendered string) int {

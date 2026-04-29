@@ -296,15 +296,19 @@ func TestAnalyticsViewFitsAdaptiveWidths(t *testing.T) {
 		},
 	}
 	for _, width := range []int{70, 90, 140} {
-		analytics := NewAnalyticsView(width, 30)
+		analytics := NewAnalyticsView(width, 80)
 		analytics.SetSessions(sessions)
 
 		view := analytics.View()
 		if got := maxRenderedLineWidth(view); got > width {
 			t.Fatalf("expected analytics to fit width %d, got max line width %d:\n%s", width, got, view)
 		}
-		if !strings.Contains(view, "Observatory analytics") || !strings.Contains(view, "Token usage by agent") {
-			t.Fatalf("expected restyled analytics sections, got:\n%s", view)
+		if !strings.Contains(view, "Observatory analytics") {
+			t.Fatalf("expected restyled analytics header, got:\n%s", view)
+		}
+		analytics.GotoBottom()
+		if bottom := analytics.View(); !strings.Contains(bottom, "Token usage by agent") {
+			t.Fatalf("expected analytics token section after scrolling, got:\n%s", bottom)
 		}
 	}
 }

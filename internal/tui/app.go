@@ -120,6 +120,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, waitForUpdate(a.watcher))
 
+	case tea.MouseMsg:
+		a.handleMouse(msg)
+
 	case tea.KeyMsg:
 		if a.filterMode {
 			return a.handleFilterInput(msg)
@@ -189,6 +192,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.SelectPreviousRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.ScrollUp()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.ScrollUp()
 			}
 
 		case key.Matches(msg, keys.Down):
@@ -198,6 +203,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.SelectNextRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.ScrollDown()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.ScrollDown()
 			}
 
 		case key.Matches(msg, keys.PreviousPrompt):
@@ -215,6 +222,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.SelectFirstRow()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.viewport.GotoTop()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.GotoTop()
 			}
 
 		case key.Matches(msg, keys.End):
@@ -222,6 +231,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.detail.FollowLatest()
 			} else if a.view == viewPromptDetail && a.detail != nil {
 				a.detail.viewport.GotoBottom()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.GotoBottom()
 			}
 
 		case key.Matches(msg, keys.Collapse):
@@ -252,16 +263,60 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.PageUp):
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageUp()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.PageUp()
 			}
 
 		case key.Matches(msg, keys.PageDown):
 			if (a.view == viewDetail || a.view == viewPromptDetail) && a.detail != nil {
 				a.detail.PageDown()
+			} else if a.view == viewAnalytics && a.analytics != nil {
+				a.analytics.PageDown()
 			}
 		}
 	}
 
 	return a, tea.Batch(cmds...)
+}
+
+func (a *App) handleMouse(msg tea.MouseMsg) {
+	switch {
+	case isMouseWheelUp(msg):
+		a.scrollActiveViewport(-1)
+	case isMouseWheelDown(msg):
+		a.scrollActiveViewport(1)
+	}
+}
+
+func (a *App) scrollActiveViewport(direction int) {
+	switch {
+	case a.view == viewDetail && a.detail != nil:
+		if direction < 0 {
+			a.detail.ScrollUp()
+		} else {
+			a.detail.ScrollDown()
+		}
+	case a.view == viewPromptDetail && a.detail != nil:
+		if direction < 0 {
+			a.detail.ScrollUp()
+		} else {
+			a.detail.ScrollDown()
+		}
+	case a.view == viewAnalytics && a.analytics != nil:
+		if direction < 0 {
+			a.analytics.ScrollUp()
+		} else {
+			a.analytics.ScrollDown()
+		}
+	}
+}
+
+func isMouseWheelUp(msg tea.MouseMsg) bool {
+	return msg.Button == tea.MouseButtonWheelUp || msg.Type == tea.MouseWheelUp
+}
+
+func isMouseWheelDown(msg tea.MouseMsg) bool {
+	return msg.Button == tea.MouseButtonWheelDown || msg.Type == tea.MouseWheelDown
 }
 
 func (a *App) handleFilterInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -617,6 +672,8 @@ func (a *App) renderFooterStatusText() string {
 		viewStatus = a.detail.FooterStatus()
 	case a.view == viewPromptDetail && a.detail != nil:
 		viewStatus = a.detail.FocusedFooterStatus()
+	case a.view == viewAnalytics && a.analytics != nil:
+		viewStatus = a.analytics.FooterStatus()
 	}
 	switch {
 	case refreshStatus != "" && viewStatus != "":
