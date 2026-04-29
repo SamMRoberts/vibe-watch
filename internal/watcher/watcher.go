@@ -14,14 +14,15 @@ type UpdateMsg struct {
 }
 
 type Watcher struct {
-	registry *agents.Registry
-	interval time.Duration
-	mu       sync.RWMutex
-	pollMu   sync.Mutex
-	sessions []*models.Session
-	updates  chan UpdateMsg
-	quit     chan struct{}
-	stopOnce sync.Once
+	registry       *agents.Registry
+	staticSessions []*models.Session // non-nil means demo/static mode — no polling
+	interval       time.Duration
+	mu             sync.RWMutex
+	pollMu         sync.Mutex
+	sessions       []*models.Session
+	updates        chan UpdateMsg
+	quit           chan struct{}
+	stopOnce       sync.Once
 }
 
 func New(registry *agents.Registry, interval time.Duration) *Watcher {
@@ -36,9 +37,26 @@ func New(registry *agents.Registry, interval time.Duration) *Watcher {
 	}
 }
 
+// NewStatic returns a Watcher that immediately publishes a fixed set of
+// sessions and never re-polls from disk. Intended for demo and screenshot use.
+func NewStatic(sessions []*models.Session) *Watcher {
+	return &Watcher{
+		staticSessions: sessions,
+		interval:       365 * 24 * time.Hour, // never fires
+		updates:        make(chan UpdateMsg, 10),
+		quit:           make(chan struct{}),
+	}
+}
+
 func (w *Watcher) Start() {
 	go func() {
-		// Initial load
+		if w.staticSessions != nil {
+			w.publish(w.staticSessions, nil)
+			<-w.quit
+			return
+		}
+
+		// Normal polling
 		w.poll()
 
 		ticker := time.NewTicker(w.interval)
@@ -70,6 +88,9 @@ func (w *Watcher) Sessions() []*models.Session {
 }
 
 func (w *Watcher) poll() {
+	if w.registry == nil {
+		return
+	}
 	w.pollMu.Lock()
 	defer w.pollMu.Unlock()
 
