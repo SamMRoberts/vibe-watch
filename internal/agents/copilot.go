@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -531,7 +532,7 @@ func copilotActivity(eventType string, data copilotMessageData, toolNames map[st
 		if data.ParentToolCallID != "" {
 			content += "\nparent: " + data.ParentToolCallID
 		}
-		if detail := semanticJSONSummary(data.Arguments, "input"); detail != "" {
+		if detail := semanticJSONSummary(data.Arguments, "arguments"); detail != "" {
 			content += "\n" + detail
 		}
 		return "tool", content
@@ -823,6 +824,7 @@ func copilotTelemetrySummary(telemetry map[string]any) string {
 }
 
 var semanticFieldOrder = []string{
+	"reasoning",
 	"intent",
 	"goal",
 	"description",
@@ -856,11 +858,54 @@ func semanticJSONSummary(raw json.RawMessage, fallbackLabel string) string {
 		}
 		return formatSemanticLine(fallbackLabel, text)
 	}
+	if fallbackLabel == "arguments" {
+		return semanticArgumentsSummary(value)
+	}
 	label, text := semanticValueSummary(value, fallbackLabel)
 	if text == "" {
 		return ""
 	}
 	return formatSemanticLine(label, text)
+}
+
+func semanticArgumentsSummary(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		seen := make(map[string]bool, len(typed))
+		lines := make([]string, 0, len(typed))
+		for _, key := range semanticFieldOrder {
+			value, ok := typed[key]
+			if !ok {
+				continue
+			}
+			_, text := semanticValueSummary(value, "arguments")
+			if text == "" {
+				continue
+			}
+			seen[key] = true
+			lines = append(lines, formatSemanticLine(semanticDisplayLabel(key, "arguments"), text))
+		}
+		var remaining []string
+		for key := range typed {
+			if !seen[key] {
+				remaining = append(remaining, key)
+			}
+		}
+		sort.Strings(remaining)
+		for _, key := range remaining {
+			_, text := semanticValueSummary(typed[key], "arguments")
+			if text == "" {
+				continue
+			}
+			lines = append(lines, formatSemanticLine(key, text))
+		}
+		return strings.Join(lines, "\n")
+	case nil:
+		return ""
+	default:
+		label, text := semanticValueSummary(value, "arguments")
+		return formatSemanticLine(label, text)
+	}
 }
 
 func firstRawMessage(values ...json.RawMessage) json.RawMessage {

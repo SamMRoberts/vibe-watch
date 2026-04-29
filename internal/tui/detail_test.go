@@ -618,8 +618,11 @@ func TestDetailLifecycleRowShowsMappedSemanticDetail(t *testing.T) {
 	})
 
 	view := detail.View()
-	if !strings.Contains(view, "run_in_terminal · done") || !strings.Contains(view, "result: Chat fields mapped") {
-		t.Fatalf("expected mapped lifecycle result detail, got:\n%s", view)
+	if !strings.Contains(view, "run_in_terminal · goal: Inspect Chat logs · done") {
+		t.Fatalf("expected mapped lifecycle intent in tool summary, got:\n%s", view)
+	}
+	if strings.Contains(view, "result: Chat fields mapped") {
+		t.Fatalf("expected mapped lifecycle row to suppress result detail when start intent is available, got:\n%s", view)
 	}
 
 	detail.SetSession(&models.Session{
@@ -630,6 +633,41 @@ func TestDetailLifecycleRowShowsMappedSemanticDetail(t *testing.T) {
 	})
 	if view := detail.View(); !strings.Contains(view, "goal: Inspect Chat logs") {
 		t.Fatalf("expected mapped lifecycle start detail, got:\n%s", view)
+	}
+}
+
+func TestDetailToolLifecycleShowsIntentAndArgumentsInsteadOfResult(t *testing.T) {
+	detail := NewDetailView(140, 80)
+	detail.SetSession(&models.Session{
+		Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			semanticToolLifecycleMessage(
+				"Started tool: run_in_terminal\nintent: Run focused tests\ncommand: go test ./internal/tui\npath: internal/tui",
+				models.ActivityLifecycleStarted,
+				"tool-1",
+				"run_in_terminal",
+			),
+			semanticToolLifecycleMessage(
+				"Tool completed: run_in_terminal\nresult: verbose test output",
+				models.ActivityLifecycleCompleted,
+				"tool-1",
+				"run_in_terminal",
+			),
+		},
+	})
+
+	view := detail.View()
+	for _, want := range []string{
+		"run_in_terminal · intent: Run focused tests · done",
+		"command: go test ./internal/tui",
+		"path: internal/tui",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected tool lifecycle to show %q, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "result: verbose test output") {
+		t.Fatalf("expected tool lifecycle to hide completion result when arguments are available, got:\n%s", view)
 	}
 }
 

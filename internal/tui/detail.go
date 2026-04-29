@@ -1518,7 +1518,14 @@ func actionLifecycleSummary(start, end models.Message, hasEnd bool) string {
 	state := groupedActionState(start, end, hasEnd)
 	stateText := lowerStatusLabel(indicatorSpec(lifecycleIndicatorState(state)).Label)
 
-	return strings.Join([]string{label, stateText}, " · ")
+	parts := []string{label}
+	if start.Meta.Kind == models.ActivityKindTool {
+		if intent := toolIntentSummary(start.Content); intent != "" {
+			parts = append(parts, intent)
+		}
+	}
+	parts = append(parts, stateText)
+	return strings.Join(parts, " · ")
 }
 
 func actionLifecycleLabel(start models.Message) string {
@@ -1572,6 +1579,22 @@ func appendRightAligned(line, suffix string, width int) string {
 }
 
 func actionLifecycleDetail(start, end models.Message, hasEnd bool) string {
+	if start.Meta.Kind == models.ActivityKindTool {
+		if hasEnd {
+			if detail := lifecycleErrorDetail(end.Content); detail != "" {
+				return detail
+			}
+		}
+		if detail := toolArgumentDetail(start.Content); detail != "" {
+			return detail
+		}
+		if toolIntentSummary(start.Content) != "" {
+			return ""
+		}
+		if !hasEnd {
+			return usefulLifecycleDetail(start.Content)
+		}
+	}
 	if hasEnd {
 		if detail := usefulLifecycleDetail(end.Content); detail != "" {
 			return detail
@@ -1580,18 +1603,44 @@ func actionLifecycleDetail(start, end models.Message, hasEnd bool) string {
 	return usefulLifecycleDetail(start.Content)
 }
 
-func usefulLifecycleDetail(content string) string {
+func lifecycleErrorDetail(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || isLifecycleSummaryLine(line) {
-			continue
+		if strings.HasPrefix(strings.ToLower(line), "error:") {
+			return strings.TrimSpace(line[len("error:"):])
 		}
+	}
+	return ""
+}
+
+func toolIntentSummary(content string) string {
+	for _, line := range usefulLifecycleLines(content) {
+		if isToolIntentLine(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+func toolArgumentDetail(content string) string {
+	lines := make([]string, 0, 4)
+	for _, line := range usefulLifecycleLines(content) {
+		if isToolArgumentLine(line) {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " · ")
+}
+
+func usefulLifecycleDetail(content string) string {
+	for _, line := range usefulLifecycleLines(content) {
 		lower := strings.ToLower(line)
 		if strings.HasPrefix(lower, "error:") {
 			return strings.TrimSpace(line[len("error:"):])
 		}
 		if strings.HasPrefix(lower, "telemetry:") ||
 			strings.HasPrefix(lower, "parent:") ||
+			strings.HasPrefix(lower, "reasoning:") ||
 			strings.HasPrefix(lower, "intent:") ||
 			strings.HasPrefix(lower, "goal:") ||
 			strings.HasPrefix(lower, "description:") ||
@@ -1610,6 +1659,57 @@ func usefulLifecycleDetail(content string) string {
 		}
 	}
 	return ""
+}
+
+func usefulLifecycleLines(content string) []string {
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isLifecycleSummaryLine(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func isToolIntentLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, prefix := range []string{
+		"reasoning:",
+		"intent:",
+		"goal:",
+		"description:",
+		"explanation:",
+		"summary:",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isToolArgumentLine(line string) bool {
+	lower := strings.ToLower(line)
+	if isToolIntentLine(line) || strings.HasPrefix(lower, "parent:") {
+		return false
+	}
+	for _, prefix := range []string{
+		"arguments:",
+		"input:",
+		"command:",
+		"filepath:",
+		"path:",
+		"query:",
+		"pattern:",
+		"prompt:",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isLifecycleSummaryLine(line string) bool {
