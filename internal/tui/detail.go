@@ -449,12 +449,12 @@ func (d *DetailView) renderContent() {
 		line += strings.Count(text, "\n")
 	}
 
-	if len(s.Messages) == 0 {
-		write(styleMuted.Render("No activity found in this session.\n"))
-	}
-
 	if d.showAnalytics {
 		write(renderSessionAnalyticsPanel(s, d.width-10) + "\n\n")
+	}
+
+	if len(s.Messages) == 0 {
+		write(styleMuted.Render("No activity found in this session.\n"))
 	}
 
 	for i := 0; i < len(d.rows); {

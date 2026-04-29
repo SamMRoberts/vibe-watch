@@ -10,6 +10,13 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
+const (
+	sessionAnalyticsHours    = 24
+	sessionAnalyticsMaxWidth = 120
+)
+
+var sessionMessageRoleOrder = []string{"user", "assistant", "tool", "subagent", "error", "session", "system"}
+
 type sessionDataStats struct {
 	Prompts                 int
 	AvgFirstResponseLatency time.Duration
@@ -20,7 +27,7 @@ type sessionDataStats struct {
 	Tools                   []toolSummary
 	MessageCounts           map[string]int
 	TokenTrend              []int
-	HourlyActivity          [hoursPerDay]int
+	HourlyActivity          [sessionAnalyticsHours]int
 }
 
 func analyzeSessionData(session *models.Session) sessionDataStats {
@@ -68,7 +75,7 @@ func renderSessionAnalyticsPanel(session *models.Session, width int) string {
 	if session == nil {
 		return ""
 	}
-	width = clampInt(width, 44, maxAnalyticsSectionWidth)
+	width = clampInt(width, 44, sessionAnalyticsMaxWidth)
 	stats := analyzeSessionData(session)
 
 	var b strings.Builder
@@ -130,7 +137,6 @@ func renderSessionTokenTrend(stats sessionDataStats, width int) string {
 }
 
 func renderSessionMessageMix(stats sessionDataStats, width int) string {
-	roles := []string{"user", "assistant", "tool", "subagent", "error", "session", "system"}
 	maxCount := 0
 	for _, count := range stats.MessageCounts {
 		if count > maxCount {
@@ -143,7 +149,7 @@ func renderSessionMessageMix(stats sessionDataStats, width int) string {
 	barWidth := clampInt(width-28, 8, 36)
 	var b strings.Builder
 	b.WriteString("  " + styleMuted.Render("Message mix") + "\n")
-	for _, role := range roles {
+	for _, role := range sessionMessageRoleOrder {
 		count := stats.MessageCounts[role]
 		if count == 0 {
 			continue
