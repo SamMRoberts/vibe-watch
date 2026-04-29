@@ -76,6 +76,8 @@ The current parser/analyzer code can extract these fields. Analytics use is park
 - Verification signals from text containing `go test`, `verification`, or `passed`.
 - Final response signals from event types containing `final` or text containing `final answer` or `final response`.
 
+The TUI session list currently surfaces per-session metadata derived from these fields: active or idle state, agent name, model, repo or workdir path when detected, event count, update time, and last event type.
+
 These are heuristics. When they are wrong or noisy, add a synthetic fixture and update parser behavior or display rules with the code change.
 
 ## Fixture Policy

@@ -82,7 +82,10 @@ func TestTUIOnceWithSyntheticRoot(t *testing.T) {
 	if !strings.Contains(out.String(), "vibe-watch") {
 		t.Fatalf("expected rendered TUI output, got %q", out.String())
 	}
-	if !strings.Contains(out.String(), "Recent events") {
-		t.Fatalf("expected recent events section, got %q", out.String())
+	if !strings.Contains(out.String(), "Sessions") {
+		t.Fatalf("expected sessions tab, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "active") {
+		t.Fatalf("expected active session state, got %q", out.String())
 	}
 }

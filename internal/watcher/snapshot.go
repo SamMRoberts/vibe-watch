@@ -18,19 +18,25 @@ type Options struct {
 }
 
 type Snapshot struct {
-	Root      string           `json:"root"`
-	CheckedAt time.Time        `json:"checked_at"`
-	Sessions  []SessionSummary `json:"sessions"`
-	Active    *SessionDetail   `json:"active,omitempty"`
+	Root      string                   `json:"root"`
+	CheckedAt time.Time                `json:"checked_at"`
+	Sessions  []SessionSummary         `json:"sessions"`
+	Active    *SessionDetail           `json:"active,omitempty"`
+	Details   map[string]SessionDetail `json:"details,omitempty"`
 }
 
 type SessionSummary struct {
-	ID      string    `json:"id"`
-	Date    time.Time `json:"date"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"mod_time"`
-	Events  int       `json:"events"`
-	Bad     int       `json:"bad"`
+	ID            string    `json:"id"`
+	Date          time.Time `json:"date"`
+	Size          int64     `json:"size"`
+	ModTime       time.Time `json:"mod_time"`
+	Events        int       `json:"events"`
+	Bad           int       `json:"bad"`
+	Status        string    `json:"status"`
+	Agent         string    `json:"agent"`
+	RepoPath      string    `json:"repo_path,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	LastEventType string    `json:"last_event_type,omitempty"`
 }
 
 type SessionDetail struct {
@@ -45,6 +51,7 @@ type EventSummary struct {
 	Tool      string `json:"tool,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Repo      string `json:"repo,omitempty"`
+	RepoPath  string `json:"repo_path,omitempty"`
 }
 
 func Capture(opts Options) (Snapshot, error) {
@@ -62,6 +69,7 @@ func Capture(opts Options) (Snapshot, error) {
 		Root:      opts.Root,
 		CheckedAt: time.Now(),
 		Sessions:  make([]SessionSummary, 0, len(files)),
+		Details:   map[string]SessionDetail{},
 	}
 	if len(files) == 0 {
 		return snapshot, nil
@@ -71,29 +79,42 @@ func Capture(opts Options) (Snapshot, error) {
 	for index, file := range files {
 		parsed, err := parseFile(file.Path)
 		if err != nil {
-			snapshot.Sessions = append(snapshot.Sessions, SessionSummary{
+			summary := SessionSummary{
 				ID:      file.ID,
 				Date:    file.Date,
 				Size:    file.Size,
 				ModTime: file.ModTime,
+				Status:  statusFor(index, activeIndex),
+				Agent:   "Codex",
 				Bad:     1,
-			})
+			}
+			snapshot.Sessions = append(snapshot.Sessions, summary)
+			snapshot.Details[file.ID] = SessionDetail{SessionSummary: summary}
 			continue
 		}
+		allEvents := summarizeRecent(parsed.Events, len(parsed.Events))
+		recent := summarizeRecent(parsed.Events, opts.EventLimit)
 		summary := SessionSummary{
-			ID:      file.ID,
-			Date:    file.Date,
-			Size:    file.Size,
-			ModTime: file.ModTime,
-			Events:  len(parsed.Events),
-			Bad:     parsed.MalformedLines,
+			ID:            file.ID,
+			Date:          file.Date,
+			Size:          file.Size,
+			ModTime:       file.ModTime,
+			Events:        len(parsed.Events),
+			Bad:           parsed.MalformedLines,
+			Status:        statusFor(index, activeIndex),
+			Agent:         "Codex",
+			RepoPath:      latestField(allEvents, func(event EventSummary) string { return event.RepoPath }),
+			Model:         latestField(allEvents, func(event EventSummary) string { return event.Model }),
+			LastEventType: latestEventType(allEvents),
 		}
 		snapshot.Sessions = append(snapshot.Sessions, summary)
+		detail := SessionDetail{
+			SessionSummary: summary,
+			Recent:         recent,
+		}
+		snapshot.Details[file.ID] = detail
 		if index == activeIndex {
-			snapshot.Active = &SessionDetail{
-				SessionSummary: summary,
-				Recent:         summarizeRecent(parsed.Events, opts.EventLimit),
-			}
+			snapshot.Active = &detail
 		}
 	}
 	return snapshot, nil
@@ -135,14 +156,39 @@ func summarizeRecent(source []events.Event, limit int) []EventSummary {
 }
 
 func Summarize(event events.Event) EventSummary {
+	repoPath := firstNestedString(event.Raw, "cwd", "workdir", "repo", "repository")
 	return EventSummary{
 		Line:      event.Line,
 		Type:      firstString(event.Raw, "type", "event", "kind", "unknown"),
 		Timestamp: firstString(event.Raw, "timestamp", "time", "created_at"),
 		Tool:      firstNestedString(event.Raw, "tool", "tool_name", "recipient_name"),
 		Model:     firstNestedString(event.Raw, "model"),
-		Repo:      cleanRepo(firstNestedString(event.Raw, "cwd", "workdir", "repo", "repository")),
+		Repo:      cleanRepo(repoPath),
+		RepoPath:  repoPath,
 	}
+}
+
+func statusFor(index, activeIndex int) string {
+	if index == activeIndex {
+		return "active"
+	}
+	return "idle"
+}
+
+func latestField(events []EventSummary, value func(EventSummary) string) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if candidate := strings.TrimSpace(value(events[i])); candidate != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func latestEventType(events []EventSummary) string {
+	if len(events) == 0 {
+		return ""
+	}
+	return events[len(events)-1].Type
 }
 
 func firstString(raw map[string]any, keys ...string) string {

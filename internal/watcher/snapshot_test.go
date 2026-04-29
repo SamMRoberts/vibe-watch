@@ -19,6 +19,21 @@ func TestCaptureSummarizesActiveSessionWithoutRawContent(t *testing.T) {
 	if snapshot.Active == nil {
 		t.Fatal("expected active session")
 	}
+	if snapshot.Active.Agent != "Codex" {
+		t.Fatalf("expected Codex agent, got %q", snapshot.Active.Agent)
+	}
+	if snapshot.Active.Status != "active" {
+		t.Fatalf("expected active status, got %q", snapshot.Active.Status)
+	}
+	if snapshot.Active.RepoPath == "" {
+		t.Fatal("expected repo path metadata")
+	}
+	if snapshot.Active.LastEventType == "" {
+		t.Fatal("expected last event type metadata")
+	}
+	if _, ok := snapshot.Details[snapshot.Active.ID]; !ok {
+		t.Fatalf("expected details for active session %q", snapshot.Active.ID)
+	}
 	if len(snapshot.Active.Recent) != 2 {
 		t.Fatalf("expected 2 recent events, got %d", len(snapshot.Active.Recent))
 	}

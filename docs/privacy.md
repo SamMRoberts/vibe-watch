@@ -23,6 +23,7 @@ Default command or TUI output may include:
 - Counts.
 - Date ranges.
 - Session identifiers or derived aggregate categories.
+- Repo or workdir path metadata when it is needed for session identification.
 - Data-quality signals.
 - Sanitized event type, timestamp, tool, model, and repository basename fields.
 - Rule-based suggestions with evidence expressed as aggregate numbers.
@@ -35,6 +36,8 @@ Default command output must not include:
 - Command output copied from sessions.
 - Secrets, tokens, credentials, or private file contents.
 - Large raw event payloads.
+
+Repo/workdir paths can reveal local project names. Keep them limited to session metadata displays and do not copy them into docs, fixtures, or handoffs unless explicitly needed.
 
 ## Live Smoke Tests
 

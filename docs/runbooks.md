@@ -26,7 +26,7 @@ Analytics, metrics, reports, and suggestions are parked. The runbooks for those 
 2. Add Bubble Tea, Bubbles, and Lip Gloss dependencies only with a real interactive model.
 3. Put TUI logic under `internal/tui/` or another narrow package.
 4. Keep file I/O out of `View`.
-5. Model live session state, width, height, focus, current event stream, selected session, loading state, errors, and watch identity explicitly.
+5. Model live session state, width, height, active tab, selected session, current event stream, loading state, errors, and watch identity explicitly.
 6. Add direct model transition tests under `internal/tui/`.
 7. Run `go test ./...`.
 8. Run `scripts/harness_compliance.sh`.

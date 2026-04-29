@@ -68,5 +68,5 @@ Common flags:
 
 ## Open Product Decisions
 
-- First expanded TUI workflow beyond active session stream: session list, event detail, or data-quality inspection.
+- Next expanded TUI workflow beyond session list and detail dashboard: filtering, event search, or data-quality inspection.
 - File-watching strategy details beyond polling: exact watcher library and active-file detection refinements.

@@ -80,14 +80,14 @@ Current behavior:
 - Uses Bubble Tea, Bubbles, and Lip Gloss.
 - Loads live session state through bounded async work.
 - Keep file I/O out of `View`.
-- Tracks width, height, loaded state, errors, and current sanitized watcher snapshot.
-- Supports manual refresh and quit keys.
+- Tracks width, height, loaded state, errors, selected tab, selected session, and current sanitized watcher snapshot.
+- Supports tabs, manual refresh, up/down session navigation, enter-to-detail, and quit keys.
 - Supports `--once` for non-interactive sanitized snapshot rendering.
 - Renders a Lip Gloss dashboard with status cards, an active-session panel, and a recent-events panel.
 
 Future behavior:
 
-- Track focus, selected session, active filters, current event stream, and pending watch identity in model state.
+- Track active filters, current event stream scroll position, and pending watch identity in model state.
 - Add richer direct model transition tests as views become interactive.
 - Run a manual terminal smoke test for resize, quit keys, filtering, focus movement, loading/error states, help display, and monochrome readability.
 
