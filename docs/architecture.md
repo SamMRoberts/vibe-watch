@@ -1,6 +1,12 @@
 # Architecture
 
-`vibe-watch` is organized as a Cobra CLI with domain logic in `internal/`.
+`vibe-watch` is organized as a Go CLI/TUI with domain logic in `internal/`.
+
+## Current Scope
+
+Active architecture work should prioritize real-time JSONL watching, parser improvements, TUI views, tests, and docs.
+
+Analytics, metrics, suggestions, and reports are parked for possible future scope. Existing packages may remain, but new work should not expand those areas unless the user explicitly reactivates them.
 
 ## Package Map
 
@@ -19,6 +25,10 @@ internal/
       discover.go
     events/
       parse.go
+  watcher/
+    (planned)
+  tui/
+    (planned)
   analysis/
     build.go
     run.go
@@ -33,13 +43,23 @@ testdata/
 
 ## Data Flow
 
+Current historical CLI flow:
+
 1. `cmd` parses flags and validates command inputs.
 2. `internal/codex/sessions` discovers candidate JSONL files under the session root.
 3. `internal/codex/events` parses each JSONL file line by line.
 4. `internal/analysis` aggregates scan summary, metrics, and suggestions.
 5. `internal/report` formats text or JSON output.
 
-Commands should orchestrate. They should not own scanning, parsing, aggregation, suggestion, or privacy logic.
+Target real-time TUI flow:
+
+1. Watch the active Codex JSONL file for appended lines.
+2. Poll the session directory for new or changed JSONL files.
+3. Parse appended JSONL incrementally.
+4. Maintain in-memory session state.
+5. Render TUI views from in-memory state.
+
+Commands should orchestrate. They should not own watching, parsing, TUI state, aggregation, suggestion, or privacy logic.
 
 ## CLI Rules
 
@@ -50,22 +70,23 @@ Commands should orchestrate. They should not own scanning, parsing, aggregation,
 - Write diagnostics, skipped-file warnings, and progress to stderr when those exist.
 - Keep JSON output stable enough for scripting.
 
-## TUI Status
+## TUI Direction
 
-The current `tui` command is a placeholder. Do not add Bubble Tea, Bubbles, or Lip Gloss dependencies until implementing the first real interactive model.
+The current `tui` command is a placeholder. The next product direction is a real-time, user-friendly session monitor.
 
 When TUI work starts:
 
-- Load summaries through bounded async work.
+- Use Bubble Tea, Bubbles, and Lip Gloss when implementing the first real interactive model.
+- Load live session state through bounded async work.
 - Keep file I/O out of `View`.
-- Track width, height, focus, selected session, active filters, loading state, errors, and pending request identity in model state.
+- Track width, height, focus, selected session, current event stream, active filters, loading state, errors, and pending watch identity in model state.
 - Add direct model transition tests.
 - Run a manual terminal smoke test for resize, quit keys, filtering, focus movement, loading/error states, help display, and monochrome readability.
 
 ## Extension Points
 
 - New Codex event shapes: add synthetic fixture lines under `testdata/codex/`, then update parser or metric extraction.
-- New metrics: add fields to `analysis.Metrics`, update aggregation, reports, docs, and tests.
-- New suggestions: add deterministic rules in `internal/analysis/suggest.go`, with triggering and non-triggering tests where practical.
-- New output formats: add report formatters without exposing raw private content by default.
+- New watcher behavior: add synthetic JSONL append/polling tests before live checks.
+- New TUI behavior: add model tests and a manual terminal smoke check.
+- New metrics, suggestions, or output formats: currently out of scope unless explicitly reactivated.
 - Future agents: add a new adapter boundary after Codex ingestion is stable.

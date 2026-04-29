@@ -2,6 +2,36 @@
 
 Use these workflows when changing `vibe-watch`.
 
+## Current Scope
+
+Active work is real-time JSONL watching, parser improvements, TUI views, tests, and docs.
+
+Analytics, metrics, reports, and suggestions are parked. The runbooks for those areas remain for future reuse, but do not use them for new implementation unless the user explicitly reactivates that scope.
+
+## Add Real-Time Watching
+
+1. Define whether the change watches an active file, polls the session directory, or both.
+2. Keep live state in memory.
+3. Add synthetic JSONL fixtures for append, new-file, malformed-line, and partial-line cases where relevant.
+4. Add focused watcher tests.
+5. Keep raw private content out of logs and output.
+6. Update [Codex Sessions](codex-sessions.md), [Architecture](architecture.md), and [Privacy](privacy.md) if behavior changes.
+7. Run `go test ./...`.
+8. Run `scripts/harness_compliance.sh`.
+9. Run a bounded live JSONL check only if needed for compatibility.
+
+## Add TUI Behavior
+
+1. Keep CLI helpers scriptable.
+2. Add Bubble Tea, Bubbles, and Lip Gloss dependencies only with a real interactive model.
+3. Put TUI logic under `internal/tui/` or another narrow package.
+4. Keep file I/O out of `View`.
+5. Model live session state, width, height, focus, current event stream, selected session, loading state, errors, and watch identity explicitly.
+6. Add direct model transition tests.
+7. Run `go test ./...`.
+8. Run `scripts/harness_compliance.sh`.
+9. Run a real terminal smoke test for resize, quit keys, focus movement, live updates, loading/error states, help, and monochrome readability.
+
 ## Add A Metric
 
 1. Identify the source event field or heuristic.
@@ -11,7 +41,8 @@ Use these workflows when changing `vibe-watch`.
 5. Update text reporting in `internal/report/text.go` if needed.
 6. Update [Analytics](analytics.md).
 7. Run `go test ./...`.
-8. Run a relevant CLI smoke check, such as `go run . stats --session-root testdata/codex`.
+8. Run `scripts/harness_compliance.sh`.
+9. Run a relevant CLI smoke check, such as `go run . stats --session-root testdata/codex`.
 
 ## Add A Suggestion
 
@@ -22,7 +53,8 @@ Use these workflows when changing `vibe-watch`.
 5. Add tests for triggering and non-triggering cases where practical.
 6. Update [Analytics](analytics.md).
 7. Run `go test ./...`.
-8. Check `go run . suggest --session-root testdata/codex`.
+8. Run `scripts/harness_compliance.sh`.
+9. Check `go run . suggest --session-root testdata/codex`.
 
 ## Add Codex Event Shape Support
 
@@ -32,7 +64,8 @@ Use these workflows when changing `vibe-watch`.
 4. Add tests that fail without the new support.
 5. Update [Codex Sessions](codex-sessions.md) if heuristics changed.
 6. Run `go test ./...`.
-7. Run a bounded live scan only if the change affects live compatibility.
+7. Run `scripts/harness_compliance.sh`.
+8. Run a bounded live check only if the change affects live compatibility.
 
 ## Change Command Behavior
 
@@ -42,7 +75,8 @@ Use these workflows when changing `vibe-watch`.
 4. Add or update command tests under `cmd/`.
 5. Update `README.md` and [Product Direction](product.md) if user-facing usage changes.
 6. Run `go test ./...`.
-7. Run `go run . <command> --help`.
+7. Run `scripts/harness_compliance.sh`.
+8. Run `go run . <command> --help`.
 
 ## Add A Report Or Output Format
 
@@ -52,21 +86,11 @@ Use these workflows when changing `vibe-watch`.
 4. Add tests or golden checks for privacy-sensitive output where practical.
 5. Update [Privacy](privacy.md) and [Analytics](analytics.md) if fields change.
 6. Run `go test ./...`.
+7. Run `scripts/harness_compliance.sh`.
 
-## Start The Real TUI
+## Bounded Live JSONL Check
 
-1. Keep the CLI commands working; the TUI should not replace scriptable workflows.
-2. Add Bubble Tea, Bubbles, and Lip Gloss dependencies only when implementing an actual model.
-3. Put TUI domain-independent logic under `internal/tui/` or another narrow package.
-4. Keep file I/O out of `View`.
-5. Model width, height, focus, filters, selected item, loading state, errors, and pending request identity explicitly.
-6. Test `Update` with key, resize, load-success, and load-error messages.
-7. Run `go test ./...` and `go test -race ./...` when async commands or shared state are involved.
-8. Run a real terminal smoke test for resize, quit keys, filtering, focus movement, loading/error states, help, and monochrome readability.
-
-## Bounded Live Scan
-
-Use live scans only to validate compatibility with local Codex history.
+Use live checks only to validate compatibility with local Codex history.
 
 ```bash
 go run . scan --session-root ~/.codex/sessions --limit 2
@@ -75,9 +99,26 @@ go run . scan --session-root ~/.codex/sessions --limit 2
 Rules:
 
 - Use `--limit` or a narrow date range.
-- Report aggregate output only.
+- Report aggregate or structural output only.
 - Do not paste raw session content into handoffs.
 - Convert useful schema observations into synthetic fixtures.
+
+## Harness Compliance
+
+Run the compliance script before reporting completion for harness, parser, watcher, TUI, docs, and privacy-sensitive work:
+
+```bash
+scripts/harness_compliance.sh
+```
+
+The script currently checks:
+
+- Every `docs/*.md` file has a `Current Scope` section.
+- Committed JSONL files only live under `testdata/codex/`.
+- Docs and fixtures do not contain obvious private session paths or credential patterns.
+- `go test ./...` passes.
+
+If it fails, make another pass until it succeeds.
 
 ## Documentation Update Checklist
 
@@ -85,10 +126,11 @@ Update docs when changing:
 
 - Command names, flags, or output behavior.
 - Session discovery or parser heuristics.
-- Metric definitions.
-- Suggestion rules.
+- Watcher behavior.
+- TUI interaction model.
+- Metric definitions if analytics are reactivated.
+- Suggestion rules if suggestions are reactivated.
 - Privacy behavior, cache paths, or export paths.
-- TUI status or interaction model.
 
 Docs to consider:
 

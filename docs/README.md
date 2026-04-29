@@ -18,6 +18,12 @@ Use it with `AGENTS.md`:
 - [Privacy](privacy.md): data handling rules and output boundaries.
 - [Runbooks](runbooks.md): common workflows for adding metrics, suggestions, parser support, reports, and future TUI behavior.
 
+## Current Scope
+
+Active scope is real-time Codex JSONL watching, parser improvements, TUI views, tests, and docs.
+
+Analytics, metrics, suggestions, and reports are parked for possible future scope. Keep their docs accurate, but do not implement new work in those areas unless the user explicitly reactivates them.
+
 ## Maintenance Rules
 
 - Update these docs when command behavior, data handling, metric definitions, suggestion rules, output formats, or privacy behavior changes.

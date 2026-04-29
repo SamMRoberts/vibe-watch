@@ -12,9 +12,13 @@ Real Codex sessions live under:
 
 The app may read these files for local analysis. It must not modify, delete, rewrite, relocate, upload, or commit them.
 
+## Current Scope
+
+Active work should focus on live JSONL watching and TUI display. Live state should be in memory only for now.
+
 ## Default Output Contract
 
-Default command output may include:
+Default command or TUI output may include:
 
 - Counts.
 - Date ranges.
@@ -33,25 +37,25 @@ Default command output must not include:
 
 ## Live Smoke Tests
 
-Live scans against `~/.codex/sessions` should be bounded:
+Live JSONL checks against `~/.codex/sessions` should be bounded:
 
 ```bash
 go run . scan --session-root ~/.codex/sessions --limit 2
 ```
 
-or constrained with a narrow date range.
+or constrained with a narrow date range or a known active test file.
 
 Handoffs should describe the live scope without exposing content. Example:
 
 ```text
-bounded live scan of 2 local Codex session files; output was aggregate counts only
+bounded live JSONL check of 2 local Codex session files; output was aggregate or structural only
 ```
 
 ## Fixtures
 
 Tests must use synthetic fixtures under `testdata/codex/`.
 
-Do not create fixtures by copying real session lines. Instead, preserve only the structural properties needed for the parser or metric.
+Do not create fixtures by copying real session lines. Instead, preserve only the structural properties needed for parser, watcher, TUI, or privacy behavior.
 
 ## Generated Files
 

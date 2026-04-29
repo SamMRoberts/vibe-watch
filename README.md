@@ -8,7 +8,9 @@ The initial source is Codex JSONL session files under:
 ~/.codex/sessions/YYYY/MM/DD/*.jsonl
 ```
 
-The first implementation slice is CLI-first and privacy-preserving: commands emit aggregate metrics and rule-based suggestions without printing raw prompts, answers, code, tool output, or secrets.
+The active direction is a user-friendly TUI for real-time session data. Real-time monitoring should watch active Codex JSONL files and poll the session directory while keeping data in memory for now.
+
+Analytics, metrics, and reports exist from an earlier slice but are currently parked unless explicitly reactivated.
 
 ## Commands
 

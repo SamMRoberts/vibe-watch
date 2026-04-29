@@ -13,9 +13,9 @@ This file is the agent entrypoint for `vibe-watch`. Keep it short. Durable produ
 
 ## Current Mission
 
-`vibe-watch` is a local Go CLI/TUI for monitoring coding-agent sessions. The first source is Codex JSONL history under `~/.codex/sessions/YYYY/MM/DD/*.jsonl`. The app produces aggregate scan summaries, analytics, and rule-based suggestions without exposing raw private session content by default.
+`vibe-watch` is a local Go CLI/TUI for monitoring coding-agent sessions. The first source is Codex JSONL history under `~/.codex/sessions/YYYY/MM/DD/*.jsonl`. The app should provide a user-friendly TUI for real-time session data while preserving privacy by default.
 
-The current implementation is CLI-first. `scan`, `stats`, `report`, and `suggest` are active commands; `tui` is a placeholder until real interactive behavior is implemented.
+Current active scope is real-time session file watching, parser improvements, TUI views, tests, and docs. Analytics, metrics, and reports are parked for possible future scope and should not drive new implementation unless the user explicitly reactivates them.
 
 ## Non-Negotiable Rules
 
@@ -23,12 +23,13 @@ The current implementation is CLI-first. `scan`, `stats`, `report`, and `suggest
 - Do not print raw prompts, answers, code, command output, secrets, or private file contents unless the user explicitly asks for a specific excerpt.
 - Use synthetic fixtures under `testdata/codex/` for tests. When live history reveals a new event shape, capture only a minimal synthetic structure.
 - Keep Cobra command handlers thin. Scanning, parsing, metrics, suggestions, reports, privacy behavior, and future TUI logic belong outside `cmd/`.
-- Do not add Bubble Tea, Bubbles, or Lip Gloss just to keep the placeholder `tui` command alive. Add them with the first real interactive model.
+- Bubble Tea, Bubbles, Lip Gloss, and Go file-watching libraries are allowed when implementing real-time TUI behavior.
+- Real-time monitoring should remain in memory for now. Do not add persistent caches unless the user explicitly asks.
 - Keep `.harness-validation/` local and ignored. It is a review workspace, not committed knowledge.
 
 ## Working Flow
 
-1. Classify the task: ingestion, parsing, metrics, suggestions, reporting, TUI, docs, tests, or harness work.
+1. Classify the task: real-time watching, ingestion, parsing, TUI, docs, tests, or harness work. Treat analytics, metrics, and reports as out of scope for new work.
 2. Read the relevant docs listed above before editing. Prefer repo docs and existing package patterns over re-inventing guidance in this file.
 3. State the constraints that affect the change: data source, privacy posture, schema assumptions, command surface, output format, tests, and overlapping user changes.
 4. Make scoped edits. Preserve unrelated user changes.
@@ -41,8 +42,7 @@ Minimum for code changes:
 
 ```bash
 go test ./...
-go run . --help
-go run . <command> --help
+scripts/harness_compliance.sh
 ```
 
 Run as relevant:
@@ -52,10 +52,9 @@ go fmt ./...
 go vet ./...
 go test -race ./...
 go mod tidy
-go run . scan --session-root ~/.codex/sessions --limit 2
 ```
 
-Use bounded live scans only for compatibility checks, and report aggregate output only. For parser, metric, suggestion, report, or privacy changes, add focused synthetic fixture tests.
+Use bounded live JSONL inspection only for compatibility checks, and report scope rather than raw content. For parser, watcher, TUI, or privacy changes, add focused synthetic fixture tests.
 
 ## Handoff
 

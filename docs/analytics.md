@@ -1,5 +1,9 @@
 # Analytics
 
+## Current Scope
+
+Analytics, metrics, reports, and rule-based suggestions are currently parked. Keep this document accurate for existing code, but do not implement new analytics work unless the user explicitly reactivates this area.
+
 Analytics are deterministic aggregates over local Codex session JSONL files.
 
 The source of truth for result structures is `internal/analysis/types.go`.
