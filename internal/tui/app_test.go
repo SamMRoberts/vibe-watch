@@ -504,6 +504,140 @@ func TestUpdateViewsKeepsFocusedEventContentWhileFollowing(t *testing.T) {
 	}
 }
 
+func TestAnalyticsSnapshotIgnoresAutomaticSessionUpdates(t *testing.T) {
+	initialSession := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/old",
+		TotalTokens: models.TokenUsage{InputTokens: 10},
+	}
+	updatedSession := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/new",
+		TotalTokens: models.TokenUsage{InputTokens: 99},
+	}
+	app := &App{
+		view:      viewAnalytics,
+		width:     120,
+		height:    40,
+		analytics: NewAnalyticsView(120, 40),
+	}
+
+	app.Update(sessionsUpdateMsg{sessions: []*models.Session{initialSession}, hasSessions: true, done: true})
+	app.Update(sessionsUpdateMsg{sessions: []*models.Session{updatedSession}, hasSessions: true, done: true})
+
+	if app.sessions[0] != updatedSession {
+		t.Fatalf("expected live sessions to update from automatic refresh")
+	}
+	if len(app.analyticsSessions) != 1 || app.analyticsSessions[0] != initialSession {
+		t.Fatalf("expected analytics snapshot to remain on initial data")
+	}
+	if app.analytics.sessions[0] != initialSession {
+		t.Fatalf("expected analytics view to keep rendering the initial snapshot")
+	}
+}
+
+func TestAnalyticsSnapshotUpdatesAfterManualAnalyticsRefresh(t *testing.T) {
+	initialSession := &models.Session{
+		ID:          "session-1",
+		AgentType:   models.AgentCopilot,
+		ProjectPath: "/repo/old",
+	}
+	refreshedSession := &models.Session{
+		ID:          "session-2",
+		AgentType:   models.AgentCodex,
+		ProjectPath: "/repo/new",
+	}
+	app := &App{
+		view:      viewAnalytics,
+		width:     120,
+		height:    40,
+		analytics: NewAnalyticsView(120, 40),
+	}
+
+	app.Update(sessionsUpdateMsg{sessions: []*models.Session{initialSession}, hasSessions: true, done: true})
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	app = model.(*App)
+	if !app.analyticsRefreshPending {
+		t.Fatalf("expected analytics refresh to be pending after pressing r")
+	}
+
+	app.Update(sessionsUpdateMsg{sessions: []*models.Session{refreshedSession}, hasSessions: true, refreshing: true})
+	if app.analyticsSessions[0] != initialSession {
+		t.Fatalf("expected partial refresh data not to update analytics snapshot")
+	}
+
+	app.Update(sessionsUpdateMsg{sessions: []*models.Session{refreshedSession}, hasSessions: true, done: true})
+	if app.analyticsRefreshPending {
+		t.Fatalf("expected analytics refresh pending state to clear after final refresh")
+	}
+	if len(app.analyticsSessions) != 1 || app.analyticsSessions[0] != refreshedSession {
+		t.Fatalf("expected manual analytics refresh to update snapshot")
+	}
+}
+
+func TestRefreshIndicatorAppearsOnEveryView(t *testing.T) {
+	for _, state := range []viewState{viewDashboard, viewDetail, viewPromptDetail, viewAnalytics} {
+		detail := NewDetailView(80, 24)
+		detail.SetSession(&models.Session{Messages: []models.Message{
+			{Role: "user", Content: "prompt"},
+			{Role: "assistant", Content: "activity"},
+		}})
+		if state == viewPromptDetail && !detail.OpenSelectedThread() {
+			t.Fatalf("expected prompt detail to open")
+		}
+		dashboard := NewDashboardView(80, 24)
+		dashboard.SetSessions([]*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo"}}, "")
+		app := &App{
+			view:       state,
+			width:      80,
+			height:     24,
+			loading:    false,
+			refreshing: true,
+			sessions:   []*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo"}},
+			dashboard:  dashboard,
+			detail:     detail,
+			analytics:  NewAnalyticsView(80, 24),
+		}
+		app.analytics.SetSessions(app.sessions)
+
+		if view := app.View(); !strings.Contains(view, "refreshing") {
+			t.Fatalf("expected refresh indicator on view %v, got:\n%s", state, view)
+		}
+	}
+}
+
+func TestRefreshIndicatorFollowsUpdateLifecycle(t *testing.T) {
+	app := &App{
+		view:      viewDashboard,
+		width:     140,
+		height:    24,
+		loading:   true,
+		dashboard: NewDashboardView(140, 24),
+	}
+
+	app.Update(sessionsUpdateMsg{refreshing: true})
+	if !app.refreshing {
+		t.Fatalf("expected refresh indicator to turn on when refresh starts")
+	}
+	if view := app.View(); !strings.Contains(view, "REFRESH") {
+		t.Fatalf("expected header refresh chip while refreshing, got:\n%s", view)
+	}
+
+	app.Update(sessionsUpdateMsg{
+		sessions:    []*models.Session{{AgentType: models.AgentCopilot, ProjectPath: "/repo"}},
+		hasSessions: true,
+		done:        true,
+	})
+	if app.refreshing {
+		t.Fatalf("expected refresh indicator to turn off when refresh completes")
+	}
+	if view := app.View(); strings.Contains(view, "↻ refreshing") || strings.Contains(view, "REFRESH") {
+		t.Fatalf("expected refresh indicator to be hidden after completion, got:\n%s", view)
+	}
+}
+
 func makeDetailMessages(count int) []models.Message {
 	messages := make([]models.Message, 0, count)
 	for i := 0; i < count; i++ {

@@ -9,14 +9,15 @@ import (
 )
 
 const (
-	statusActive    = "active"
-	statusIdle      = "idle"
-	statusFollow    = "follow"
-	statusPaused    = "paused"
-	statusRequested = "requested"
-	statusRunning   = "running"
-	statusDone      = "done"
-	statusFailed    = "failed"
+	statusActive     = "active"
+	statusIdle       = "idle"
+	statusFollow     = "follow"
+	statusPaused     = "paused"
+	statusRequested  = "requested"
+	statusRunning    = "running"
+	statusDone       = "done"
+	statusFailed     = "failed"
+	statusRefreshing = "refreshing"
 )
 
 type statusSpec struct {
@@ -53,6 +54,8 @@ func indicatorSpec(state string) statusSpec {
 		return statusSpec{"DONE", "done", "✓", colorSuccess, colorBackground, styleSuccess}
 	case statusFailed:
 		return statusSpec{"FAILED", "fail", "⚠", colorError, colorBackground, styleError}
+	case statusRefreshing:
+		return statusSpec{"REFRESH", "ref", "↻", colorInfo, colorBackground, styleInfo}
 	default:
 		return statusSpec{state, state, "●", colorSurfaceAlt, colorMuted, styleMuted}
 	}

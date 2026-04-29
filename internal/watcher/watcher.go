@@ -9,8 +9,11 @@ import (
 )
 
 type UpdateMsg struct {
-	Sessions []*models.Session
-	Err      error
+	Sessions    []*models.Session
+	Err         error
+	HasSessions bool
+	Refreshing  bool
+	Done        bool
 }
 
 type Watcher struct {
@@ -51,7 +54,7 @@ func NewStatic(sessions []*models.Session) *Watcher {
 func (w *Watcher) Start() {
 	go func() {
 		if w.staticSessions != nil {
-			w.publish(w.staticSessions, nil)
+			w.publish(w.staticSessions, nil, false, true)
 			<-w.quit
 			return
 		}
@@ -94,13 +97,14 @@ func (w *Watcher) poll() {
 	w.pollMu.Lock()
 	defer w.pollMu.Unlock()
 
+	w.publishStatus(true)
 	sessions, err := w.registry.DetectAllIncremental(func(partial []*models.Session) {
-		w.publish(partial, nil)
+		w.publish(partial, nil, true, false)
 	})
-	w.publish(sessions, err)
+	w.publish(sessions, err, false, true)
 }
 
-func (w *Watcher) publish(sessions []*models.Session, err error) {
+func (w *Watcher) publish(sessions []*models.Session, err error, refreshing, done bool) {
 	copied := append([]*models.Session(nil), sessions...)
 	w.mu.Lock()
 	if err == nil {
@@ -108,7 +112,14 @@ func (w *Watcher) publish(sessions []*models.Session, err error) {
 	}
 	w.mu.Unlock()
 	select {
-	case w.updates <- UpdateMsg{Sessions: copied, Err: err}:
+	case w.updates <- UpdateMsg{Sessions: copied, Err: err, HasSessions: true, Refreshing: refreshing, Done: done}:
+	default:
+	}
+}
+
+func (w *Watcher) publishStatus(refreshing bool) {
+	select {
+	case w.updates <- UpdateMsg{Refreshing: refreshing}:
 	default:
 	}
 }

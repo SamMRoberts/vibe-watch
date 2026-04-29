@@ -25,25 +25,31 @@ const (
 type tickMsg time.Time
 
 type sessionsUpdateMsg struct {
-	sessions []*models.Session
-	err      error
+	sessions    []*models.Session
+	err         error
+	hasSessions bool
+	refreshing  bool
+	done        bool
 }
 
 type App struct {
-	watcher     *watcher.Watcher
-	sessions    []*models.Session
-	agentFilter string
-	view        viewState
-	dashboard   *DashboardView
-	detail      *DetailView
-	analytics   *AnalyticsView
-	width       int
-	height      int
-	lastRefresh time.Time
-	loading     bool
-	filterInput string
-	filterMode  bool
-	lastErr     error
+	watcher                 *watcher.Watcher
+	sessions                []*models.Session
+	analyticsSessions       []*models.Session
+	analyticsRefreshPending bool
+	agentFilter             string
+	view                    viewState
+	dashboard               *DashboardView
+	detail                  *DetailView
+	analytics               *AnalyticsView
+	width                   int
+	height                  int
+	lastRefresh             time.Time
+	loading                 bool
+	refreshing              bool
+	filterInput             string
+	filterMode              bool
+	lastErr                 error
 }
 
 func NewApp(w *watcher.Watcher, agentFilter string) *App {
@@ -72,7 +78,13 @@ func tickCmd() tea.Cmd {
 func waitForUpdate(w *watcher.Watcher) tea.Cmd {
 	return func() tea.Msg {
 		update := <-w.Updates()
-		return sessionsUpdateMsg{sessions: update.Sessions, err: update.Err}
+		return sessionsUpdateMsg{
+			sessions:    update.Sessions,
+			err:         update.Err,
+			hasSessions: update.HasSessions,
+			refreshing:  update.Refreshing,
+			done:        update.Done,
+		}
 	}
 }
 
@@ -92,13 +104,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, tickCmd())
 
 	case sessionsUpdateMsg:
-		if msg.err == nil {
+		a.refreshing = msg.refreshing
+		if msg.hasSessions && msg.err == nil {
 			a.sessions = msg.sessions
 		}
-		a.loading = false
-		a.lastRefresh = time.Now()
-		a.lastErr = msg.err
-		a.updateViews()
+		if msg.hasSessions {
+			a.loading = false
+			a.lastErr = msg.err
+			a.updateAnalyticsSnapshot(msg)
+			a.updateViews()
+		}
+		if msg.done {
+			a.lastRefresh = time.Now()
+			a.analyticsRefreshPending = false
+		}
 		cmds = append(cmds, waitForUpdate(a.watcher))
 
 	case tea.KeyMsg:
@@ -150,7 +169,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, keys.Refresh):
-			a.watcher.Refresh()
+			if a.view == viewAnalytics {
+				a.analyticsRefreshPending = true
+			}
+			if a.watcher != nil {
+				a.watcher.Refresh()
+			}
 
 		case key.Matches(msg, keys.Filter):
 			if a.view == viewDashboard {
@@ -303,7 +327,20 @@ func (a *App) updateViews() {
 		a.refreshDetailSession()
 	}
 	if a.analytics != nil {
-		a.analytics.SetSessions(a.sessions)
+		a.analytics.SetSessions(a.analyticsSessions)
+	}
+}
+
+func (a *App) updateAnalyticsSnapshot(msg sessionsUpdateMsg) {
+	if !msg.done || msg.err != nil {
+		return
+	}
+	if a.analyticsSessions != nil && !a.analyticsRefreshPending {
+		return
+	}
+	a.analyticsSessions = append([]*models.Session{}, msg.sessions...)
+	if a.analytics != nil {
+		a.analytics.SetSessions(a.analyticsSessions)
 	}
 }
 
@@ -510,13 +547,17 @@ func (a *App) renderHeaderStatus() string {
 			failed++
 		}
 	}
-	if len(a.sessions) == 0 && a.lastRefresh.IsZero() {
+	if len(a.sessions) == 0 && a.lastRefresh.IsZero() && !a.refreshing {
 		return ""
 	}
 	if a.width < 112 {
 		return ""
 	}
-	parts := []string{quietPill(fmt.Sprintf("%d sessions", len(a.sessions)))}
+	var parts []string
+	if a.refreshing {
+		parts = append(parts, statusChip(statusRefreshing))
+	}
+	parts = append(parts, quietPill(fmt.Sprintf("%d sessions", len(a.sessions))))
 	if active > 0 {
 		parts = append(parts, statusCountChip(statusActive, active))
 	}
@@ -566,13 +607,24 @@ func (a *App) renderFooterLine(width int) string {
 }
 
 func (a *App) renderFooterStatusText() string {
+	refreshStatus := ""
+	if a.refreshing {
+		refreshStatus = "↻ refreshing"
+	}
+	viewStatus := ""
 	switch {
 	case a.view == viewDetail && a.detail != nil:
-		return a.detail.FooterStatus()
+		viewStatus = a.detail.FooterStatus()
 	case a.view == viewPromptDetail && a.detail != nil:
-		return a.detail.FocusedFooterStatus()
+		viewStatus = a.detail.FocusedFooterStatus()
+	}
+	switch {
+	case refreshStatus != "" && viewStatus != "":
+		return refreshStatus + " · " + viewStatus
+	case refreshStatus != "":
+		return refreshStatus
 	default:
-		return ""
+		return viewStatus
 	}
 }
 
