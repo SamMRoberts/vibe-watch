@@ -1,0 +1,5 @@
+{"type":"session_meta","timestamp":"2026-04-29T11:00:00Z","payload":{"cwd":"/Users/samroberts/Repo/SamMRoberts/vibe-watch","model":"gpt-5.4"}}
+{"type":"tool_call","timestamp":"2026-04-29T11:01:00Z","recipient_name":"functions.exec_command","payload":{"cmd":"go test ./..."}}
+{"type":"tool_result","timestamp":"2026-04-29T11:01:03Z","recipient_name":"functions.exec_command","payload":{"exit_code":1,"message":"failed"}}
+{"type":"approval","timestamp":"2026-04-29T11:03:00Z","payload":{"reason":"require_escalated"}}
+not-json
