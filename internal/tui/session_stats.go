@@ -81,7 +81,7 @@ func renderSessionAnalyticsPanel(session *models.Session, width int) string {
 	stats := analyzeSessionData(session)
 
 	var b strings.Builder
-	b.WriteString(sectionHeader("Session data analytics", "press a to hide/show", width-4) + "\n")
+	b.WriteString(sectionHeader("Session data analytics", sessionAnalyticsHint(), width-4) + "\n")
 	b.WriteString(renderSessionAnalyticsKPI(stats) + "\n\n")
 	b.WriteString(renderSessionTokenTrend(stats, width) + "\n")
 	b.WriteString(renderSessionMessageMix(stats, width) + "\n")
@@ -95,6 +95,14 @@ func renderSessionAnalyticsPanel(session *models.Session, width int) string {
 		b.WriteString(tools)
 	}
 	return quietPanel(width, b.String())
+}
+
+func sessionAnalyticsHint() string {
+	help := keys.AnalyticsPanel.Help()
+	if help.Key == "" {
+		return ""
+	}
+	return "press " + help.Key + " to hide/show"
 }
 
 func renderSessionAnalyticsKPI(stats sessionDataStats) string {
