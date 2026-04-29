@@ -20,6 +20,12 @@ func TestModelLoadsSnapshotAndRendersActiveSession(t *testing.T) {
 				Sessions:  []watcher.SessionSummary{{ID: "session-one"}},
 				Active: &watcher.SessionDetail{
 					SessionSummary: watcher.SessionSummary{ID: "session-one", Events: 1, Size: 42},
+					Content: []watcher.EventSummary{{
+						Line:  1,
+						Kind:  "user prompt",
+						Actor: "user",
+						Text:  "Build the session detail view.",
+					}},
 					Recent: []watcher.EventSummary{{
 						Line: 1,
 						Type: "session_meta",
@@ -46,6 +52,9 @@ func TestModelLoadsSnapshotAndRendersActiveSession(t *testing.T) {
 	}
 	if !strings.Contains(updated.View(), "session_meta") {
 		t.Fatalf("expected event type in detail view, got %q", updated.View())
+	}
+	if !strings.Contains(updated.View(), "Build the session detail view.") {
+		t.Fatalf("expected detail content in view, got %q", updated.View())
 	}
 }
 
@@ -165,5 +174,34 @@ func TestModelMouseWheelMovesSelection(t *testing.T) {
 	updated = next.(Model)
 	if updated.selected != 1 || updated.detailID != "session-two" {
 		t.Fatalf("expected wheel down to select session-two, got selected=%d detail=%q", updated.selected, updated.detailID)
+	}
+}
+
+func TestModelScrollsDetailView(t *testing.T) {
+	model := NewModel(Options{})
+	detail := watcher.SessionDetail{
+		SessionSummary: watcher.SessionSummary{ID: "session-one", Status: "active"},
+		Content: []watcher.EventSummary{
+			{Line: 1, Kind: "user prompt", Actor: "user", Text: strings.Repeat("prompt ", 20)},
+			{Line: 2, Kind: "assistant", Actor: "assistant", Text: strings.Repeat("answer ", 20)},
+			{Line: 3, Kind: "reasoning", Actor: "agent", Text: strings.Repeat("reason ", 20)},
+		},
+	}
+	next, _ := model.Update(snapshotMsg{snapshot: watcher.Snapshot{
+		Sessions: []watcher.SessionSummary{{ID: "session-one", Status: "active"}},
+		Active:   &detail,
+		Details:  map[string]watcher.SessionDetail{"session-one": detail},
+	}})
+	updated := next.(Model)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(Model)
+	updated.height = 12
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = next.(Model)
+	if updated.detailScroll != 1 {
+		t.Fatalf("expected detail scroll to advance, got %d", updated.detailScroll)
+	}
+	if !strings.Contains(updated.View(), "up/down scroll") {
+		t.Fatalf("expected scroll hint in detail view, got %q", updated.View())
 	}
 }

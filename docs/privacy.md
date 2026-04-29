@@ -27,13 +27,15 @@ Default command or TUI output may include:
 - Data-quality signals.
 - Sanitized event type, timestamp, tool, model, and repository basename fields.
 - Rule-based suggestions with evidence expressed as aggregate numbers.
+
+The interactive TUI detail view is an explicit local inspection surface. When the user opens a selected session detail view, it may show bounded excerpts extracted from that session, including prompts, assistant messages, reasoning summaries, goals, descriptions, and tool-call text. This content must remain local, in memory, and out of docs, tests, reports, logs, and handoffs unless the user explicitly asks for a specific excerpt.
+
+Default command output must not include:
+
 - Raw user prompts.
 - Raw assistant answers.
 - Code snippets copied from sessions.
 - Command output copied from sessions.
-
-Default command output must not include:
-
 - Secrets, tokens, credentials, or private file contents.
 - Large raw event payloads.
 

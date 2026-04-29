@@ -31,7 +31,7 @@ Analytics, metrics, reports, and suggestions are parked. The runbooks for those 
 7. Run `go test ./...`.
 8. Run `scripts/harness_compliance.sh`.
 9. Run `go run . tui --session-root testdata/codex --once`.
-10. Run a real terminal smoke test for alternate-screen startup, resize, quit keys, focus movement, tab navigation, detail/back flows, mouse-wheel movement when enabled, live updates, loading/error states, help, and monochrome readability when interactive behavior changes.
+10. Run a real terminal smoke test for alternate-screen startup, resize, quit keys, focus movement, tab navigation, detail/back flows, detail scrolling, mouse-wheel movement when enabled, live updates, loading/error states, help, and monochrome readability when interactive behavior changes.
 
 ## Add A Metric
 

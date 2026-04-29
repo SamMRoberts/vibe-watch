@@ -78,6 +78,8 @@ The current parser/analyzer code can extract these fields. Analytics use is park
 
 The TUI session list currently surfaces per-session metadata derived from these fields: active or idle state, agent name, model, repo or workdir path when detected, event count, update time, and last event type.
 
+The TUI session detail view also extracts bounded local-only content summaries when recognizable fields are present. Supported detail content categories include user prompts, assistant messages, reasoning summaries, goals, descriptions, and tool calls. Real content must not be copied into docs, fixtures, reports, or handoffs; use synthetic structures when updating tests.
+
 These are heuristics. When they are wrong or noisy, add a synthetic fixture and update parser behavior or display rules with the code change.
 
 ## Fixture Policy

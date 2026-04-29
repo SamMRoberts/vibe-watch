@@ -82,9 +82,9 @@ Current behavior:
 - Loads live session state through bounded async work.
 - Keep file I/O out of `View`.
 - Tracks width, height, loaded state, errors, selected tab, selected session, and current sanitized watcher snapshot.
-- Supports dashboard, session list, and detail tabs; manual refresh; up/down and mouse-wheel session navigation; numeric tab shortcuts; enter-to-detail; back navigation; and quit keys.
+- Supports dashboard, session list, and detail tabs; manual refresh; up/down and mouse-wheel session navigation; numeric tab shortcuts; enter-to-detail; scrollable detail content; back navigation; and quit keys.
 - Supports `--once` for non-interactive sanitized snapshot rendering.
-- Renders high-contrast Lip Gloss dashboard cards, status bars, a session table, and recent-event detail panels.
+- Renders high-contrast Lip Gloss dashboard cards, status bars, a session table, selected-session metadata, bounded session content, and recent-event detail panels.
 
 Future behavior:
 

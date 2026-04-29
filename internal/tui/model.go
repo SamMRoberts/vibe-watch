@@ -20,18 +20,19 @@ type Options struct {
 }
 
 type Model struct {
-	loader   Loader
-	interval time.Duration
-	keys     keyMap
-	help     help.Model
-	width    int
-	height   int
-	tab      int
-	selected int
-	detailID string
-	loaded   bool
-	err      error
-	snapshot watcher.Snapshot
+	loader       Loader
+	interval     time.Duration
+	keys         keyMap
+	help         help.Model
+	width        int
+	height       int
+	tab          int
+	selected     int
+	detailID     string
+	detailScroll int
+	loaded       bool
+	err          error
+	snapshot     watcher.Snapshot
 }
 
 type keyMap struct {
@@ -126,15 +127,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tab = (m.tab + len(tabs) - 1) % len(tabs)
 			return m, nil
 		case key.Matches(msg, m.keys.Up):
-			m.moveSelection(-1)
+			if m.tab == tabDetail {
+				m.scrollDetail(-1)
+			} else {
+				m.moveSelection(-1)
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.Down):
-			m.moveSelection(1)
+			if m.tab == tabDetail {
+				m.scrollDetail(1)
+			} else {
+				m.moveSelection(1)
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.Select):
 			if m.tab != tabDetail && len(m.snapshot.Sessions) > 0 {
 				m.detailID = m.selectedSessionID()
 				m.tab = tabDetail
+				m.detailScroll = 0
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Back):
@@ -154,15 +164,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.snapshot.Sessions) > 0 {
 				m.detailID = m.selectedSessionID()
 				m.tab = tabDetail
+				m.detailScroll = 0
 			}
 			return m, nil
 		}
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			m.moveSelection(-1)
+			if m.tab == tabDetail {
+				m.scrollDetail(-1)
+			} else {
+				m.moveSelection(-1)
+			}
 		case tea.MouseButtonWheelDown:
-			m.moveSelection(1)
+			if m.tab == tabDetail {
+				m.scrollDetail(1)
+			} else {
+				m.moveSelection(1)
+			}
 		case tea.MouseButtonWheelLeft:
 			m.tab = (m.tab + len(tabs) - 1) % len(tabs)
 		case tea.MouseButtonWheelRight:
@@ -218,7 +237,7 @@ func (m Model) View() string {
 	case tabSessions:
 		b.WriteString(renderSessionList(m.snapshot.Sessions, m.selected, width))
 	case tabDetail:
-		b.WriteString(renderDetail(m.selectedDetail(), width))
+		b.WriteString(renderDetail(m.selectedDetail(), width, m.detailScroll, m.detailHeight()))
 	}
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render(m.help.View(m.keys)))
@@ -311,6 +330,13 @@ func (m *Model) moveSelection(delta int) {
 	m.detailID = m.selectedSessionID()
 }
 
+func (m *Model) scrollDetail(delta int) {
+	m.detailScroll += delta
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+}
+
 func (m Model) selectedDetail() watcher.SessionDetail {
 	if m.detailID != "" {
 		if detail, ok := m.snapshot.Details[m.detailID]; ok {
@@ -342,6 +368,17 @@ func (m Model) contentWidth() int {
 		return 48
 	}
 	return m.width
+}
+
+func (m Model) detailHeight() int {
+	if m.height <= 0 {
+		return 0
+	}
+	height := m.height - 9
+	if height < 8 {
+		return 8
+	}
+	return height
 }
 
 func renderHeader(width int) string {
@@ -452,10 +489,15 @@ func sessionHeader(width int) string {
 	return subtleStyle.Render(trimRight(header, width))
 }
 
-func renderDetail(detail watcher.SessionDetail, width int) string {
+func renderDetail(detail watcher.SessionDetail, width int, scroll int, height int) string {
 	active := renderActive(detail, width)
+	content := renderContent(detail.Content, width)
 	events := renderEvents(detail.Recent, width)
-	return active + "\n" + events
+	body := content + "\n" + active + "\n" + events
+	if height <= 0 {
+		return body
+	}
+	return clipLines(body, scroll, height, width)
 }
 
 func renderActive(active watcher.SessionDetail, width int) string {
@@ -514,6 +556,38 @@ func renderEventLine(event watcher.EventSummary, width int) string {
 		metaWidth = 8
 	}
 	return eventTypeStyle.Render(headRaw) + "  " + subtleStyle.Render(trimRight(metaRaw, metaWidth))
+}
+
+func renderContent(events []watcher.EventSummary, width int) string {
+	if len(events) == 0 {
+		return sectionPanel(width, "Session content", "No prompt, assistant, reasoning, goal, description, or tool-call content detected.")
+	}
+	lines := make([]string, 0, len(events)*2)
+	for _, event := range events {
+		lines = append(lines, renderContentLine(event, width-4))
+	}
+	return sectionPanel(width, "Session content", strings.Join(lines, "\n"))
+}
+
+func renderContentLine(event watcher.EventSummary, width int) string {
+	label := event.Kind
+	if label == "" {
+		label = event.Type
+	}
+	if event.Actor != "" {
+		label = label + " · " + event.Actor
+	}
+	prefix := contentKindStyle(event.Kind).Render(trimRight(label, max(12, min(24, width/3))))
+	meta := subtleStyle.Render(fmt.Sprintf("#%d", event.Line))
+	if event.Timestamp != "" {
+		meta = subtleStyle.Render(fmt.Sprintf("#%d  %s", event.Line, event.Timestamp))
+	}
+	textWidth := width - max(lipgloss.Width(prefix), 12) - 4
+	if textWidth < 16 {
+		textWidth = 16
+	}
+	text := wrapText(event.Text, textWidth)
+	return prefix + "\n" + subtleStyle.Render("  "+meta) + "\n" + indentLines(valueStyle.Render(text), "  ")
 }
 
 func selectedPreview(detail watcher.SessionDetail, width int) string {
@@ -624,6 +698,23 @@ func statusStyle(status string) lipgloss.Style {
 	}
 }
 
+func contentKindStyle(kind string) lipgloss.Style {
+	switch kind {
+	case "user prompt":
+		return userContentStyle
+	case "assistant":
+		return assistantContentStyle
+	case "reasoning":
+		return reasoningContentStyle
+	case "tool call":
+		return toolContentStyle
+	case "goal", "description":
+		return accentStyle
+	default:
+		return eventTypeStyle
+	}
+}
+
 func blankDefault(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -668,6 +759,51 @@ func trimRight(value string, width int) string {
 	return value[:width-3] + "..."
 }
 
+func wrapText(value string, width int) string {
+	words := strings.Fields(value)
+	if len(words) == 0 {
+		return ""
+	}
+	var lines []string
+	current := words[0]
+	for _, word := range words[1:] {
+		if lipgloss.Width(current)+1+lipgloss.Width(word) > width {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		current += " " + word
+	}
+	lines = append(lines, current)
+	return strings.Join(lines, "\n")
+}
+
+func indentLines(value string, prefix string) string {
+	lines := strings.Split(value, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func clipLines(value string, scroll int, height int, width int) string {
+	lines := strings.Split(value, "\n")
+	if len(lines) <= height {
+		return value
+	}
+	maxScroll := len(lines) - height
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	visible := append([]string{}, lines[scroll:scroll+height]...)
+	hint := fmt.Sprintf("showing %d-%d of %d lines • up/down scroll", scroll+1, scroll+height, len(lines))
+	visible = append(visible, scrollHintStyle.Width(width-2).Render(hint))
+	return strings.Join(visible, "\n")
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -683,26 +819,31 @@ func min(a, b int) int {
 }
 
 var (
-	headerBarStyle    = lipgloss.NewStyle().Background(lipgloss.Color("17")).Foreground(lipgloss.Color("255"))
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
-	monitorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63"))
-	sectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("228"))
-	subtleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	labelStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("159")).Bold(true)
-	valueStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Bold(true)
-	accentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
-	eventTypeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
-	cardStyle         = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("45")).Padding(0, 1).MarginRight(1)
-	miniCardStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63")).Padding(0, 1).MarginRight(1).Width(14)
-	footerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).MarginTop(1)
-	tabStyle          = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("250"))
-	activeTabStyle    = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
-	sessionRowStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	selectedRowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
-	activeStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
-	idleStatusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("222")).Bold(true)
-	warningStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	trackStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	headerBarStyle        = lipgloss.NewStyle().Background(lipgloss.Color("17")).Foreground(lipgloss.Color("255"))
+	titleStyle            = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
+	monitorStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63"))
+	sectionStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("228"))
+	subtleStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	labelStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("159")).Bold(true)
+	valueStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Bold(true)
+	accentStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
+	eventTypeStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
+	userContentStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("31")).Bold(true).Padding(0, 1)
+	assistantContentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("120")).Bold(true).Padding(0, 1)
+	reasoningContentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("99")).Bold(true).Padding(0, 1)
+	toolContentStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("222")).Bold(true).Padding(0, 1)
+	cardStyle             = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("45")).Padding(0, 1).MarginRight(1)
+	miniCardStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63")).Padding(0, 1).MarginRight(1).Width(14)
+	footerStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).MarginTop(1)
+	tabStyle              = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("250"))
+	activeTabStyle        = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
+	sessionRowStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	selectedRowStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
+	activeStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
+	idleStatusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("222")).Bold(true)
+	warningStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+	trackStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	scrollHintStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("238")).Padding(0, 1)
 )
 
 const (

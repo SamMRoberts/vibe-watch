@@ -41,7 +41,8 @@ type SessionSummary struct {
 
 type SessionDetail struct {
 	SessionSummary
-	Recent []EventSummary `json:"recent"`
+	Recent  []EventSummary `json:"recent"`
+	Content []EventSummary `json:"content,omitempty"`
 }
 
 type EventSummary struct {
@@ -52,6 +53,9 @@ type EventSummary struct {
 	Model     string `json:"model,omitempty"`
 	Repo      string `json:"repo,omitempty"`
 	RepoPath  string `json:"repo_path,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+	Text      string `json:"text,omitempty"`
 }
 
 func Capture(opts Options) (Snapshot, error) {
@@ -111,6 +115,7 @@ func Capture(opts Options) (Snapshot, error) {
 		detail := SessionDetail{
 			SessionSummary: summary,
 			Recent:         recent,
+			Content:        contentEvents(allEvents, opts.EventLimit),
 		}
 		snapshot.Details[file.ID] = detail
 		if index == activeIndex {
@@ -157,15 +162,159 @@ func summarizeRecent(source []events.Event, limit int) []EventSummary {
 
 func Summarize(event events.Event) EventSummary {
 	repoPath := firstNestedString(event.Raw, "cwd", "workdir", "repo", "repository")
+	eventType := firstString(event.Raw, "type", "event", "kind", "unknown")
+	tool := firstNestedString(event.Raw, "tool", "tool_name", "recipient_name")
+	kind, actor, text := summarizeContent(event.Raw, eventType, tool)
 	return EventSummary{
 		Line:      event.Line,
-		Type:      firstString(event.Raw, "type", "event", "kind", "unknown"),
+		Type:      eventType,
 		Timestamp: firstString(event.Raw, "timestamp", "time", "created_at"),
-		Tool:      firstNestedString(event.Raw, "tool", "tool_name", "recipient_name"),
+		Tool:      tool,
 		Model:     firstNestedString(event.Raw, "model"),
 		Repo:      cleanRepo(repoPath),
 		RepoPath:  repoPath,
+		Kind:      kind,
+		Actor:     actor,
+		Text:      text,
 	}
+}
+
+func contentEvents(events []EventSummary, limit int) []EventSummary {
+	filtered := make([]EventSummary, 0, len(events))
+	for _, event := range events {
+		if event.Kind != "" && event.Text != "" {
+			filtered = append(filtered, event)
+		}
+	}
+	start := len(filtered) - limit
+	if start < 0 {
+		start = 0
+	}
+	return filtered[start:]
+}
+
+func summarizeContent(raw map[string]any, eventType string, tool string) (string, string, string) {
+	lowerType := strings.ToLower(eventType)
+	role := firstNestedString(raw, "role", "author")
+	lowerRole := strings.ToLower(role)
+
+	kind := ""
+	actor := role
+	switch {
+	case strings.Contains(lowerType, "user") || lowerRole == "user":
+		kind = "user prompt"
+		actor = "user"
+	case strings.Contains(lowerType, "assistant") || lowerRole == "assistant":
+		kind = "assistant"
+		actor = "assistant"
+	case strings.Contains(lowerType, "reasoning") || hasKey(raw, "reasoning", "thought", "analysis"):
+		kind = "reasoning"
+		if actor == "" {
+			actor = "agent"
+		}
+	case strings.Contains(lowerType, "goal") || hasKey(raw, "goal", "goals"):
+		kind = "goal"
+		if actor == "" {
+			actor = "session"
+		}
+	case strings.Contains(lowerType, "description") || hasKey(raw, "description", "summary"):
+		kind = "description"
+		if actor == "" {
+			actor = "session"
+		}
+	case strings.Contains(lowerType, "tool") || tool != "" || hasKey(raw, "cmd", "command", "arguments"):
+		kind = "tool call"
+		if actor == "" {
+			actor = "tool"
+		}
+	}
+	if kind == "" {
+		return "", "", ""
+	}
+
+	text := contentText(raw)
+	if kind == "tool call" {
+		text = toolCallText(tool, raw, text)
+	}
+	text = normalizeText(text)
+	if text == "" {
+		return "", "", ""
+	}
+	return kind, actor, text
+}
+
+func toolCallText(tool string, raw map[string]any, fallback string) string {
+	parts := make([]string, 0, 3)
+	if tool != "" {
+		parts = append(parts, tool)
+	}
+	if cmd := firstNestedString(raw, "cmd", "command"); cmd != "" {
+		parts = append(parts, cmd)
+	} else if args := firstNestedString(raw, "arguments", "args"); args != "" {
+		parts = append(parts, args)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "  ")
+	}
+	return fallback
+}
+
+func contentText(raw map[string]any) string {
+	if value := firstNestedString(raw,
+		"content",
+		"text",
+		"message",
+		"prompt",
+		"input",
+		"response",
+		"answer",
+		"reasoning",
+		"thought",
+		"analysis",
+		"goal",
+		"goals",
+		"description",
+		"summary",
+		"cmd",
+		"command",
+	); value != "" {
+		return value
+	}
+	return ""
+}
+
+func hasKey(value any, keys ...string) bool {
+	wanted := map[string]bool{}
+	for _, key := range keys {
+		wanted[strings.ToLower(key)] = true
+	}
+	found := false
+	var walk func(any)
+	walk = func(current any) {
+		if found {
+			return
+		}
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, raw := range typed {
+				if wanted[strings.ToLower(key)] {
+					found = true
+					return
+				}
+				walk(raw)
+			}
+		case []any:
+			for _, item := range typed {
+				walk(item)
+			}
+		}
+	}
+	walk(value)
+	return found
+}
+
+func normalizeText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func statusFor(index, activeIndex int) string {
