@@ -1,6 +1,9 @@
 package agents
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +92,265 @@ func TestParseCopilotChatSessionsFallsBackToTitle(t *testing.T) {
 	}
 	if len(sessions[0].Messages) != 1 || sessions[0].Messages[0].Content != "Title prompt" {
 		t.Fatalf("expected title fallback message, got %#v", sessions[0].Messages)
+	}
+}
+
+func TestParseCopilotChatWorkspaceMergesTranscriptAndChatSessionMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "GitHub.copilot-chat", "transcripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "chatSessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	index := []byte(`{
+		"entries": {
+			"session-a": {
+				"sessionId": "session-a",
+				"title": "VS Code session",
+				"lastMessageDate": 1777401600000,
+				"isEmpty": false,
+				"timing": {
+					"created": 1777401500000,
+					"lastRequestStarted": 1777401510000,
+					"lastRequestEnded": 1777401600000
+				}
+			}
+		}
+	}`)
+
+	transcript := strings.Join([]string{
+		`{"type":"session.start","id":"s","parentId":"","timestamp":"2026-04-28T20:00:00.000Z","data":{"sessionId":"session-a","producer":"copilot-agent","startTime":"2026-04-28T20:00:00.000Z"}}`,
+		`{"type":"user.message","id":"u","parentId":"s","timestamp":"2026-04-28T20:00:01.000Z","data":{"content":"hello vscode","attachments":[]}}`,
+		`{"type":"assistant.turn_start","id":"turn-1","parentId":"u","timestamp":"2026-04-28T20:00:01.500Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.message","id":"a","parentId":"turn-1","timestamp":"2026-04-28T20:00:02.000Z","data":{"messageId":"m1","content":"I will inspect files","toolRequests":[{"toolCallId":"tool-1","name":"read_file","type":"function"}]}}`,
+		`{"type":"tool.execution_start","id":"t1","parentId":"a","timestamp":"2026-04-28T20:00:03.000Z","data":{"toolCallId":"tool-1","toolName":"read_file","arguments":{"filePath":"internal/tui/detail.go"}}}`,
+		`{"type":"tool.execution_complete","id":"t2","parentId":"t1","timestamp":"2026-04-28T20:00:04.000Z","data":{"toolCallId":"tool-1","success":true}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, "GitHub.copilot-chat", "transcripts", "session-a.jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	chatSession := strings.Join([]string{
+		`{"kind":0,"v":{"version":3,"creationDate":1777401500000,"sessionId":"session-a","requests":[],"pendingRequests":[],"inputState":{"selectedModel":{"identifier":"copilot/gpt-5.5"}}}}`,
+		`{"kind":2,"k":["requests"],"v":[{"requestId":"req-1","responseId":"resp-1","timestamp":1777401510000,"message":{"text":"hello vscode"},"modelId":"copilot/gpt-5.5","response":[]}]} `,
+		`{"kind":1,"k":["requests",0,"completionTokens"],"v":1234}`,
+		`{"kind":1,"k":["requests",0,"elapsedMs"],"v":5678}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, "chatSessions", "session-a.jsonl"), []byte(chatSession), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := parseCopilotChatWorkspace(index, nil, "/repo/vibe-watch", filepath.Join(root, "state.vscdb"), root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	session := sessions[0]
+	if session.LogPath != filepath.Join(root, "GitHub.copilot-chat", "transcripts", "session-a.jsonl") {
+		t.Fatalf("expected transcript log path, got %q", session.LogPath)
+	}
+	if session.TotalTokens.OutputTokens != 1234 {
+		t.Fatalf("expected completion tokens from chatSessions, got %d", session.TotalTokens.OutputTokens)
+	}
+	if len(session.Messages) != 5 {
+		t.Fatalf("expected transcript messages plus summary, got %d: %#v", len(session.Messages), session.Messages)
+	}
+	if session.Messages[0].Role != "user" || session.Messages[0].Content != "hello vscode" {
+		t.Fatalf("unexpected user message: %#v", session.Messages[0])
+	}
+	if session.Messages[0].Meta.EventID != "u" || session.Messages[0].Meta.EventParentID != "" || session.Messages[0].Meta.RawParentID != "s" {
+		t.Fatalf("expected user event metadata with hidden session parent resolved, got %#v", session.Messages[0].Meta)
+	}
+	if session.Messages[1].Meta.EventID != "a" || session.Messages[1].Meta.EventParentID != "u" || session.Messages[1].Meta.RawParentID != "turn-1" {
+		t.Fatalf("expected assistant event metadata bridged through turn, got %#v", session.Messages[1].Meta)
+	}
+	start := session.Messages[2]
+	if start.Meta.Kind != models.ActivityKindTool ||
+		start.Meta.Lifecycle != models.ActivityLifecycleStarted ||
+		start.Meta.ID != "tool-1" ||
+		start.Meta.Label != "read_file" ||
+		start.Meta.EventID != "t1" ||
+		start.Meta.EventParentID != "a" ||
+		start.Meta.RawParentID != "a" {
+		t.Fatalf("unexpected start metadata: %#v", start.Meta)
+	}
+	complete := session.Messages[3]
+	if complete.Meta.Kind != models.ActivityKindTool ||
+		complete.Meta.Lifecycle != models.ActivityLifecycleCompleted ||
+		complete.Meta.ID != "tool-1" ||
+		complete.Meta.Label != "read_file" ||
+		complete.Meta.EventID != "t2" ||
+		complete.Meta.EventParentID != "t1" ||
+		complete.Meta.RawParentID != "t1" {
+		t.Fatalf("unexpected completion metadata: %#v", complete.Meta)
+	}
+	summary := session.Messages[len(session.Messages)-1]
+	if summary.Role != "session" ||
+		!strings.Contains(summary.Content, "model: copilot/gpt-5.5") ||
+		!strings.Contains(summary.Content, "completion tokens: 1234") ||
+		!strings.Contains(summary.Content, "elapsed: 5s") {
+		t.Fatalf("expected useful summary, got %#v", summary)
+	}
+}
+
+func TestParseCopilotChatTranscriptBreaksCompletedTurnParentChains(t *testing.T) {
+	root := t.TempDir()
+	transcriptPath := filepath.Join(root, "session.jsonl")
+	transcript := strings.Join([]string{
+		`{"type":"session.start","id":"s","timestamp":"2026-04-28T20:00:00.000Z","data":{"sessionId":"session-a","startTime":"2026-04-28T20:00:00.000Z"}}`,
+		`{"type":"user.message","id":"u","parentId":"s","timestamp":"2026-04-28T20:00:01.000Z","data":{"content":"run checks"}}`,
+		`{"type":"assistant.turn_start","id":"turn-1-start","parentId":"u","timestamp":"2026-04-28T20:00:02.000Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.message","id":"a1","parentId":"turn-1-start","timestamp":"2026-04-28T20:00:03.000Z","data":{"messageId":"m1","content":"I will run focused tests","toolRequests":[{"toolCallId":"tool-1","name":"run_in_terminal","type":"function"}]}}`,
+		`{"type":"assistant.turn_end","id":"turn-1-end","parentId":"a1","timestamp":"2026-04-28T20:00:04.000Z","data":{"turnId":"1"}}`,
+		`{"type":"assistant.turn_start","id":"turn-2-start","parentId":"turn-1-end","timestamp":"2026-04-28T20:00:05.000Z","data":{"turnId":"2"}}`,
+		`{"type":"tool.execution_start","id":"tool-1-start","parentId":"turn-2-start","timestamp":"2026-04-28T20:00:06.000Z","data":{"toolCallId":"tool-1","toolName":"run_in_terminal"}}`,
+		`{"type":"tool.execution_complete","id":"tool-1-end","parentId":"tool-1-start","timestamp":"2026-04-28T20:00:07.000Z","data":{"toolCallId":"tool-1","success":true}}`,
+		`{"type":"assistant.message","id":"a2","parentId":"tool-1-end","timestamp":"2026-04-28T20:00:08.000Z","data":{"messageId":"m2","content":"Focused tests pass; now run the full suite","toolRequests":[{"toolCallId":"tool-2","name":"run_in_terminal","type":"function"}]}}`,
+		`{"type":"assistant.turn_end","id":"turn-2-end","parentId":"a2","timestamp":"2026-04-28T20:00:09.000Z","data":{"turnId":"2"}}`,
+		`{"type":"assistant.turn_start","id":"turn-3-start","parentId":"turn-2-end","timestamp":"2026-04-28T20:00:10.000Z","data":{"turnId":"3"}}`,
+		`{"type":"tool.execution_start","id":"tool-2-start","parentId":"turn-3-start","timestamp":"2026-04-28T20:00:11.000Z","data":{"toolCallId":"tool-2","toolName":"run_in_terminal"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(transcriptPath, []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, _, _ := parseCopilotChatTranscript(transcriptPath)
+	if len(messages) != 6 {
+		t.Fatalf("expected visible user, assistant, and tool messages, got %d: %#v", len(messages), messages)
+	}
+	if messages[2].Meta.EventID != "tool-1-start" || messages[2].Meta.EventParentID != "a1" || messages[2].Meta.RawParentID != "turn-2-start" {
+		t.Fatalf("expected first tool to link to requesting assistant across turn boundary, got %#v", messages[2].Meta)
+	}
+	if messages[4].Meta.EventID != "a2" || messages[4].Meta.EventParentID != "u" || messages[4].Meta.RawParentID != "tool-1-end" {
+		t.Fatalf("expected assistant message after completed tool turn to start a new assistant turn under the user, got %#v", messages[4].Meta)
+	}
+	if messages[5].Meta.EventID != "tool-2-start" || messages[5].Meta.EventParentID != "a2" || messages[5].Meta.RawParentID != "turn-3-start" {
+		t.Fatalf("expected next tool to link to the new requesting assistant, got %#v", messages[5].Meta)
+	}
+}
+
+func TestParseCopilotChatTranscriptMapsSemanticFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "GitHub.copilot-chat", "transcripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "chatSessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	index := []byte(`{
+		"entries": {
+			"session-a": {
+				"sessionId": "session-a",
+				"title": "VS Code session",
+				"lastMessageDate": 1777401600000,
+				"isEmpty": false,
+				"timing": {"created": 1777401500000, "lastRequestEnded": 1777401600000}
+			}
+		}
+	}`)
+
+	transcript := strings.Join([]string{
+		`{"type":"session.start","id":"s","timestamp":"2026-04-28T20:00:00.000Z","data":{"sessionId":"session-a","startTime":"2026-04-28T20:00:00.000Z"}}`,
+		`{"type":"user.message","id":"u","parentId":"s","timestamp":"2026-04-28T20:00:01.000Z","data":{"content":"compare mappings"}}`,
+		`{"type":"assistant.message","id":"a","parentId":"u","timestamp":"2026-04-28T20:00:02.000Z","data":{"messageId":"m1","content":"","reasoningText":"Need to compare goal and intent fields"}}`,
+		`{"type":"tool.execution_start","id":"t1","parentId":"a","timestamp":"2026-04-28T20:00:03.000Z","data":{"toolCallId":"tool-1","toolName":"run_in_terminal","arguments":{"goal":"Inspect Chat logs","explanation":"Compare transcript fields","command":"jq . transcript.jsonl"}}}`,
+		`{"type":"tool.execution_complete","id":"t2","parentId":"t1","timestamp":"2026-04-28T20:00:04.000Z","data":{"toolCallId":"tool-1","success":true,"result":{"content":"Chat fields mapped"}}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, "GitHub.copilot-chat", "transcripts", "session-a.jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	chatSession := `{"kind":0,"v":{"version":3,"creationDate":1777401500000,"sessionId":"session-a","requests":[],"pendingRequests":[]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "chatSessions", "session-a.jsonl"), []byte(chatSession), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := parseCopilotChatWorkspace(index, nil, "/repo/vibe-watch", filepath.Join(root, "state.vscdb"), root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if !strings.Contains(messages[1].Content, "reasoning: Need to compare goal and intent fields") {
+		t.Fatalf("expected mapped assistant reasoning, got %q", messages[1].Content)
+	}
+	if !strings.Contains(messages[2].Content, "goal: Inspect Chat logs") {
+		t.Fatalf("expected mapped tool goal, got %q", messages[2].Content)
+	}
+	if !strings.Contains(messages[3].Content, "result: Chat fields mapped") {
+		t.Fatalf("expected mapped tool result content, got %q", messages[3].Content)
+	}
+}
+
+func TestParseCopilotChatWorkspaceMapsChatSessionResponseParts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "chatSessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	index := []byte(`{
+		"entries": {
+			"session-a": {
+				"sessionId": "session-a",
+				"title": "VS Code session",
+				"lastMessageDate": 1777401600000,
+				"isEmpty": false,
+				"timing": {"created": 1777401500000, "lastRequestEnded": 1777401600000}
+			}
+		}
+	}`)
+
+	chatSession := strings.Join([]string{
+		`{"kind":0,"v":{"version":3,"creationDate":1777401500000,"sessionId":"session-a","requests":[],"pendingRequests":[]}}`,
+		`{"kind":2,"k":["requests"],"v":[{"requestId":"req-1","timestamp":1777401510000,"message":{"prompt":"compare chatSessions fields"},"response":[{"kind":"thinking","value":"Need response part mapping"},{"kind":"toolInvocationSerialized","toolCallId":"tool-1","toolId":"run_in_terminal","pastTenseMessage":{"value":"Completed terminal command"},"isComplete":true,"resultDetails":{"content":"chatSessions result mapped"}}]}]}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, "chatSessions", "session-a.jsonl"), []byte(chatSession), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := parseCopilotChatWorkspace(index, nil, "/repo/vibe-watch", filepath.Join(root, "state.vscdb"), root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	messages := sessions[0].Messages
+	if len(messages) != 4 {
+		t.Fatalf("expected user, thinking, tool, and summary messages, got %#v", messages)
+	}
+	if messages[0].Role != "user" || messages[0].Content != "compare chatSessions fields" {
+		t.Fatalf("expected prompt fallback from request message, got %#v", messages[0])
+	}
+	if messages[1].Role != "assistant" || messages[1].Content != "reasoning: Need response part mapping" {
+		t.Fatalf("expected thinking response mapping, got %#v", messages[1])
+	}
+	tool := messages[2]
+	if tool.Meta.Kind != models.ActivityKindTool || tool.Meta.Lifecycle != models.ActivityLifecycleCompleted || tool.Meta.Label != "run_in_terminal" {
+		t.Fatalf("expected completed tool response mapping, got %#v", tool.Meta)
+	}
+	if !strings.Contains(tool.Content, "Completed terminal command") || !strings.Contains(tool.Content, "result: chatSessions result mapped") {
+		t.Fatalf("expected response part content and result mapping, got %q", tool.Content)
+	}
+}
+
+func TestReadVSCodeWorkspacePathDecodesFileURI(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspace.json")
+	if err := os.WriteFile(path, []byte(`{"folder":"file:///Users/samroberts/Repo/SamMRoberts/vibe-watch"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readVSCodeWorkspacePath(path); got != "/Users/samroberts/Repo/SamMRoberts/vibe-watch" {
+		t.Fatalf("expected decoded file URI path, got %q", got)
 	}
 }
 

@@ -10,8 +10,7 @@ import (
 	"github.com/SamMRoberts/vibe-watch/internal/models"
 )
 
-// maxAnalyticsSectionWidth keeps chart dividers comfortably within standard 80-column terminals.
-const maxAnalyticsSectionWidth = 74
+const maxAnalyticsSectionWidth = 120
 
 type AnalyticsView struct {
 	sessions []*models.Session
@@ -36,11 +35,7 @@ func (a *AnalyticsView) View() string {
 	var sb strings.Builder
 
 	if len(a.sessions) == 0 {
-		return styleCard.
-			Width(a.width - 4).
-			Height(a.height - 6).
-			Align(lipgloss.Center).
-			Render(styleMuted.Render("No data yet.\n\n✦ Start using agentic coding tools to see analytics."))
+		return emptyState(a.width-4, "No analytics yet", "Start using agentic coding tools to populate session and token charts.")
 	}
 
 	// Aggregate by agent
@@ -60,10 +55,6 @@ func (a *AnalyticsView) View() string {
 		}
 	}
 
-	// Sessions by agent bar chart
-	sb.WriteString(styleAccent.Render("╭─ Sessions by Agent") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
-
 	agentNames := []string{"Claude Code", "Codex CLI", "Copilot CLI", "Copilot Chat", "Amazon Q"}
 	maxCount := 0
 	for _, name := range agentNames {
@@ -72,10 +63,19 @@ func (a *AnalyticsView) View() string {
 		}
 	}
 
-	barWidth := 30
-	if a.width > 80 {
-		barWidth = 50
-	}
+	sectionWidth := minInt(a.width-4, maxAnalyticsSectionWidth)
+	barWidth := clampInt(sectionWidth-46, 18, 54)
+
+	statsRow := lipgloss.JoinHorizontal(lipgloss.Top,
+		metricCardWidth("Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent, clampInt((a.width-8)/2, 16, 22)),
+		"  ",
+		metricCardWidth("Tokens", compactInt(totalTokens), "◇", styleAccent, clampInt((a.width-8)/2, 16, 22)),
+	)
+	sb.WriteString(sectionHeader("Observatory analytics", "session distribution and token load", sectionWidth) + "\n\n")
+	sb.WriteString(statsRow + "\n\n")
+
+	var agentChart strings.Builder
+	agentChart.WriteString(sectionHeader("Sessions by agent", "", sectionWidth-4) + "\n")
 
 	for _, agentName := range agentNames {
 		count := agentCounts[agentName]
@@ -88,28 +88,19 @@ func (a *AnalyticsView) View() string {
 		sty := agentStyle(agentName)
 		label := lipgloss.NewStyle().Width(22).Render(agentBadge(agentName))
 
-		sb.WriteString(fmt.Sprintf("  %s %s%s  %s  %s\n",
+		agentChart.WriteString(fmt.Sprintf("  %s %s%s  %s  %s\n",
 			label,
 			sty.Render(filledBar),
 			lipgloss.NewStyle().Foreground(colorSubtle).Render(emptyBar),
 			styleText(fmt.Sprintf("%d sessions", count)),
-			styleText(fmt.Sprintf("%d tokens", agentTokens[agentName])),
+			styleMuted.Render(compactInt(agentTokens[agentName])+" tokens"),
 		))
 	}
 
-	sb.WriteString("\n")
+	sb.WriteString(quietPanel(sectionWidth, agentChart.String()) + "\n\n")
 
-	// Summary stats
-	statsRow := lipgloss.JoinHorizontal(lipgloss.Top,
-		metricCard("Total Sessions", fmt.Sprintf("%d", len(a.sessions)), "☷", styleAccent),
-		"  ",
-		metricCard("Total Tokens", fmt.Sprintf("%d", totalTokens), "◇", styleAccent),
-	)
-	sb.WriteString(statsRow + "\n\n")
-
-	// Top projects
-	sb.WriteString(styleAccent.Render("╭─ Most Active Projects") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
+	var projects strings.Builder
+	projects.WriteString(sectionHeader("Most active projects", "", sectionWidth-4) + "\n")
 
 	type projEntry struct {
 		name  string
@@ -132,18 +123,17 @@ func (a *AnalyticsView) View() string {
 		}
 		rank := styleAccent.Render(fmt.Sprintf("%2d", i+1))
 		projectName := lipgloss.NewStyle().Width(42).Render(styleText(name))
-		sb.WriteString(fmt.Sprintf("  %s  %s %s\n",
+		projects.WriteString(fmt.Sprintf("  %s  %s %s\n",
 			rank,
 			projectName,
 			styleMuted.Render(fmt.Sprintf("%d sessions", p.count)),
 		))
 	}
 
-	sb.WriteString("\n")
+	sb.WriteString(quietPanel(sectionWidth, projects.String()) + "\n\n")
 
-	// Token breakdown
-	sb.WriteString(styleAccent.Render("╭─ Token Usage by Agent") + "\n")
-	sb.WriteString(divider(minInt(a.width-4, maxAnalyticsSectionWidth)) + "\n\n")
+	var tokens strings.Builder
+	tokens.WriteString(sectionHeader("Token usage by agent", "", sectionWidth-4) + "\n")
 	for _, agentName := range agentNames {
 		tok := agentTokens[agentName]
 		if tok == 0 {
@@ -161,14 +151,16 @@ func (a *AnalyticsView) View() string {
 		bar := strings.Repeat("█", barLen)
 		emptyBar := strings.Repeat("░", barWidth-barLen)
 		label := lipgloss.NewStyle().Width(22).Render(agentBadge(agentName))
-		sb.WriteString(fmt.Sprintf("  %s %s%s  %.1f%%  %s\n",
+		tokens.WriteString(fmt.Sprintf("  %s %s%s  %s  %s\n",
 			label,
 			sty.Render(bar),
 			lipgloss.NewStyle().Foreground(colorSubtle).Render(emptyBar),
-			pct,
-			styleText(fmt.Sprintf("%d tokens", tok)),
+			formatPercent(pct),
+			styleText(compactInt(tok)+" tokens"),
 		))
 	}
+
+	sb.WriteString(quietPanel(sectionWidth, tokens.String()))
 
 	return sb.String()
 }

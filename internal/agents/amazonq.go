@@ -17,6 +17,23 @@ func NewAmazonQDetector() *AmazonQDetector { return &AmazonQDetector{} }
 func (c *AmazonQDetector) Name() string { return "Amazon Q" }
 
 func (c *AmazonQDetector) Detect() ([]*models.Session, error) {
+	candidates, err := c.sessionCandidates()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*models.Session
+	for _, candidate := range candidates {
+		candidateSessions, err := candidate.Parse()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, candidateSessions...)
+	}
+	return sessions, nil
+}
+
+func (c *AmazonQDetector) sessionCandidates() ([]sessionCandidate, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -32,7 +49,7 @@ func (c *AmazonQDetector) Detect() ([]*models.Session, error) {
 		return nil, err
 	}
 
-	var sessions []*models.Session
+	var candidates []sessionCandidate
 	for _, f := range files {
 		if f.IsDir() {
 			continue
@@ -43,17 +60,23 @@ func (c *AmazonQDetector) Detect() ([]*models.Session, error) {
 			continue
 		}
 
-		id := fmt.Sprintf("%x", md5.Sum([]byte(logPath)))
-		session := &models.Session{
-			ID:          id,
-			AgentType:   models.AgentAmazonQ,
-			ProjectPath: f.Name(),
-			LogPath:     logPath,
-			StartTime:   info.ModTime(),
-			LastUpdated: info.ModTime(),
-			IsActive:    time.Since(info.ModTime()) < 5*time.Minute,
-		}
-		sessions = append(sessions, session)
+		fileName := f.Name()
+		modTime := info.ModTime()
+		candidates = append(candidates, sessionCandidate{
+			UpdatedAt: modTime,
+			Parse: func() ([]*models.Session, error) {
+				id := fmt.Sprintf("%x", md5.Sum([]byte(logPath)))
+				return []*models.Session{{
+					ID:          id,
+					AgentType:   models.AgentAmazonQ,
+					ProjectPath: fileName,
+					LogPath:     logPath,
+					StartTime:   modTime,
+					LastUpdated: modTime,
+					IsActive:    time.Since(modTime) < 5*time.Minute,
+				}}, nil
+			},
+		})
 	}
-	return sessions, nil
+	return candidates, nil
 }

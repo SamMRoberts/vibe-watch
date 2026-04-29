@@ -22,11 +22,35 @@ type TokenUsage struct {
 	CacheWrites  int
 }
 
+const (
+	ActivityKindTool     = "tool"
+	ActivityKindSubagent = "subagent"
+	ActivityKindSession  = "session"
+
+	ActivityLifecycleRequested = "requested"
+	ActivityLifecycleStarted   = "started"
+	ActivityLifecycleCompleted = "completed"
+	ActivityLifecycleFailed    = "failed"
+)
+
+type ActivityMeta struct {
+	Kind          string
+	Lifecycle     string
+	ID            string
+	ParentID      string
+	InteractionID string
+	Label         string
+	EventID       string
+	EventParentID string
+	RawParentID   string
+}
+
 type Message struct {
 	Role      string
 	Content   string
 	Timestamp time.Time
 	Tokens    TokenUsage
+	Meta      ActivityMeta
 }
 
 type Session struct {

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,11 +23,7 @@ var watchCmd = &cobra.Command{
 	Short: "Start the TUI dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		registry := agents.NewRegistry()
-		projectRoot, err := currentGitRoot()
-		if err != nil {
-			return err
-		}
-		w := watcher.New(registry, time.Duration(flagRefresh)*time.Second, watcher.WithProjectRoot(projectRoot))
+		w := watcher.New(registry, time.Duration(flagRefresh)*time.Second)
 
 		m := tui.NewApp(w, flagAgent)
 		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -44,23 +39,4 @@ var watchCmd = &cobra.Command{
 func init() {
 	watchCmd.Flags().StringVar(&flagAgent, "agent", "", "Filter to specific agent (claude, codex, copilot, chat, amazonq)")
 	watchCmd.Flags().IntVar(&flagRefresh, "refresh", 2, "Refresh interval in seconds")
-}
-
-func currentGitRoot() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	dir := cwd
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return cwd, nil
-		}
-		dir = parent
-	}
 }
