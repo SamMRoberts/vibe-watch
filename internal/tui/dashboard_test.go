@@ -57,6 +57,15 @@ func TestDashboardRowsPopulateDurationStatusAndLastUpdated(t *testing.T) {
 	if got := row[7]; got != "10:15:00" {
 		t.Fatalf("expected last updated to be populated, got %q", got)
 	}
+
+	view := dashboard.View("")
+	selectedLine := lineContaining(view, "10:15:00")
+	if selectedLine == "" || !strings.Contains(selectedLine, "▌") {
+		t.Fatalf("expected selected session row to have a left indicator, got:\n%s", view)
+	}
+	if marker, sessionText := strings.Index(selectedLine, "▌"), strings.Index(selectedLine, "Copilot"); marker < 0 || sessionText < 0 || marker > sessionText {
+		t.Fatalf("expected selected marker to appear to the left of session text, got %q", selectedLine)
+	}
 }
 
 func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {

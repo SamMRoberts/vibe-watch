@@ -460,7 +460,11 @@ func (d *DetailView) renderContent() {
 		}
 		node := d.timelineTree(i, end)
 		d.recordTimelineTreeOffsets(node, line)
-		rendered := renderTimelineTree(node)
+		selectedLine := -1
+		if selectedOffset, ok := d.rowLineOffsets[d.selectedRow]; ok {
+			selectedLine = selectedOffset - line
+		}
+		rendered := renderTimelineTreeWithSelection(renderTimelineTree(node), selectedLine)
 		write(rendered + "\n")
 		if end < len(d.rows) {
 			write("\n")
@@ -554,9 +558,9 @@ func (d *DetailView) renderTimelineRow(rowIndex int, row activityRow) string {
 		rendered = d.renderMessageRow(rowIndex, row)
 	}
 	if selected {
-		return styleSelected.Render("▌ " + rendered)
+		return selectionGutter(true) + styleSelected.Render(rendered)
 	}
-	return styleMuted.Render("  ") + rendered
+	return selectionGutter(false) + rendered
 }
 
 func (d *DetailView) timelineTree(start, end int) *timelineTreeNode {
@@ -662,7 +666,6 @@ func timelineResolveEventAlias(id string, aliases map[string]string) string {
 }
 
 func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) string {
-	selected := rowIndex == d.selectedRow
 	var rendered string
 	switch row.kind {
 	case activityRowCollapsed:
@@ -672,10 +675,15 @@ func (d *DetailView) renderTimelineTreeLabel(rowIndex int, row activityRow) stri
 	default:
 		rendered = d.renderMessageTreeLabel(rowIndex, row)
 	}
-	if selected {
-		return styleSelected.Render("▌ " + rendered)
-	}
 	return rendered
+}
+
+func renderTimelineTreeWithSelection(rendered string, selectedLine int) string {
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		lines[i] = selectionGutter(i == selectedLine) + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (d *DetailView) rowIsAssistantMessage(row activityRow) bool {

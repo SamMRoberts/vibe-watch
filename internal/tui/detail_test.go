@@ -978,6 +978,16 @@ func TestDetailTimelineShowsSelectedMarkerAndFollowBadge(t *testing.T) {
 			t.Fatalf("expected styled timeline state %q, got:\n%s", want, view)
 		}
 	}
+
+	detail.SelectNextRow()
+	view = detail.View()
+	selectedLine := lineContaining(view, "ran command")
+	if selectedLine == "" || !strings.Contains(selectedLine, "▌") {
+		t.Fatalf("expected selected activity row to have a left indicator, got:\n%s", view)
+	}
+	if marker, activity := strings.Index(selectedLine, "▌"), strings.Index(selectedLine, "ran command"); marker < 0 || activity < 0 || marker > activity {
+		t.Fatalf("expected selected activity marker to appear to the left of activity text, got %q", selectedLine)
+	}
 }
 
 func TestDetailShowsUnavailableActiveCopilotInputTokens(t *testing.T) {

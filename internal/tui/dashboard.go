@@ -16,6 +16,7 @@ import (
 const (
 	dashboardGroupColumnTitle   = "Date/Agent"
 	dashboardSessionColumnTitle = "Session"
+	selectionGutterWidth        = 2
 )
 
 type dashboardRowKind int
@@ -374,10 +375,10 @@ func dashboardColumnWidth(columns []table.Column, title string) int {
 }
 
 func tableWidth(width int) int {
-	if width <= 4 {
+	if width <= 4+selectionGutterWidth {
 		return width
 	}
-	return width - 4
+	return width - 4 - selectionGutterWidth
 }
 
 func agentLabel(agent string, width int) string {
@@ -542,7 +543,7 @@ func (d *DashboardView) dashboardHeaderView() string {
 			Padding(0, 1).
 			Render(content))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+	return selectionGutter(false) + lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 }
 
 func (d *DashboardView) dashboardRenderRow(rowIndex int) string {
@@ -562,13 +563,20 @@ func (d *DashboardView) dashboardRenderRow(rowIndex int) string {
 
 	rendered := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 	if rowIndex == d.table.Cursor() {
-		return lipgloss.NewStyle().
+		return selectionGutter(true) + lipgloss.NewStyle().
 			Foreground(colorText).
 			Background(colorSurfaceGlow).
 			Bold(true).
 			Render(rendered)
 	}
-	return rendered
+	return selectionGutter(false) + rendered
+}
+
+func selectionGutter(selected bool) string {
+	if selected {
+		return styleAccent.Render("▌ ")
+	}
+	return "  "
 }
 
 func (d *DashboardView) dashboardCellStyle(rowIndex, columnIndex int) lipgloss.Style {
