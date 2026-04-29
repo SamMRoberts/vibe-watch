@@ -83,6 +83,7 @@ Current behavior:
 - Tracks width, height, loaded state, errors, and current sanitized watcher snapshot.
 - Supports manual refresh and quit keys.
 - Supports `--once` for non-interactive sanitized snapshot rendering.
+- Renders a Lip Gloss dashboard with status cards, an active-session panel, and a recent-events panel.
 
 Future behavior:
 

@@ -110,48 +110,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	width := m.contentWidth()
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("vibe-watch"))
+	b.WriteString(renderHeader(width))
 	b.WriteString("\n")
-	b.WriteString(subtleStyle.Render("real-time Codex JSONL monitor"))
-	b.WriteString("\n\n")
 	if m.err != nil {
-		b.WriteString(errorStyle.Render("watch error: " + m.err.Error()))
-		b.WriteString("\n\n")
+		b.WriteString(errorPanel(width).Render("watch error: " + m.err.Error()))
+		b.WriteString("\n")
 	}
 	if !m.loaded {
-		b.WriteString("Loading session data...\n\n")
-		b.WriteString(m.help.View(m.keys))
+		b.WriteString(panelStyle(width).Render("Loading session data..."))
+		b.WriteString("\n")
+		b.WriteString(footerStyle.Render(m.help.View(m.keys)))
 		return b.String()
 	}
 
-	b.WriteString(fmt.Sprintf("Root: %s\n", m.snapshot.Root))
-	b.WriteString(fmt.Sprintf("Checked: %s\n", m.snapshot.CheckedAt.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("Sessions: %d\n", len(m.snapshot.Sessions)))
+	b.WriteString(renderMeta(m.snapshot, width))
+	b.WriteString("\n")
 	if m.snapshot.Active == nil {
-		b.WriteString("\nNo Codex sessions found for this root.\n\n")
-		b.WriteString(m.help.View(m.keys))
+		b.WriteString(panelStyle(width).Render("No Codex sessions found for this root."))
+		b.WriteString("\n")
+		b.WriteString(footerStyle.Render(m.help.View(m.keys)))
 		return b.String()
 	}
 
 	active := m.snapshot.Active
+	b.WriteString(renderActive(*active, width))
 	b.WriteString("\n")
-	b.WriteString(sectionStyle.Render("Active session"))
+	b.WriteString(renderEvents(active.Recent, width))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("%s  events=%d bad=%d size=%d bytes\n", active.ID, active.Events, active.Bad, active.Size))
-	b.WriteString(fmt.Sprintf("updated %s\n", active.ModTime.Format(time.RFC3339)))
-	b.WriteString("\n")
-	b.WriteString(sectionStyle.Render("Recent events"))
-	b.WriteString("\n")
-	for _, event := range active.Recent {
-		b.WriteString(formatEvent(event))
-		b.WriteString("\n")
-	}
-	if len(active.Recent) == 0 {
-		b.WriteString("No parsed events yet.\n")
-	}
-	b.WriteString("\n")
-	b.WriteString(m.help.View(m.keys))
+	b.WriteString(footerStyle.Render(m.help.View(m.keys)))
 	return b.String()
 }
 
@@ -191,9 +179,180 @@ func formatEvent(event watcher.EventSummary) string {
 	return "  " + strings.Join(parts, "  ")
 }
 
+func (m Model) contentWidth() int {
+	if m.width <= 0 {
+		return 96
+	}
+	if m.width < 48 {
+		return 48
+	}
+	return m.width
+}
+
+func renderHeader(width int) string {
+	left := titleStyle.Render("vibe-watch")
+	right := subtleStyle.Render("real-time Codex JSONL monitor")
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		return left + "\n" + right
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+func renderMeta(snapshot watcher.Snapshot, width int) string {
+	root := trimMiddle(snapshot.Root, max(18, width-24))
+	checked := "not checked"
+	if !snapshot.CheckedAt.IsZero() {
+		checked = snapshot.CheckedAt.Format("15:04:05")
+	}
+	cells := []string{
+		metricBox("sessions", fmt.Sprintf("%d", len(snapshot.Sessions))),
+		metricBox("checked", checked),
+		metricBox("root", root),
+	}
+	return joinCards(cells, width)
+}
+
+func renderActive(active watcher.SessionDetail, width int) string {
+	status := "clean"
+	if active.Bad > 0 {
+		status = fmt.Sprintf("%d bad lines", active.Bad)
+	}
+	updated := "unknown"
+	if !active.ModTime.IsZero() {
+		updated = active.ModTime.Format("15:04:05")
+	}
+	body := strings.Join([]string{
+		labelValue("session", trimMiddle(active.ID, width-18)),
+		labelValue("events", fmt.Sprintf("%d", active.Events)),
+		labelValue("quality", status),
+		labelValue("size", byteCount(active.Size)),
+		labelValue("updated", updated),
+	}, "\n")
+	return sectionPanel(width, "Active session", body)
+}
+
+func renderEvents(events []watcher.EventSummary, width int) string {
+	if len(events) == 0 {
+		return sectionPanel(width, "Recent events", "No parsed events yet.")
+	}
+	lines := make([]string, 0, len(events))
+	for _, event := range events {
+		lines = append(lines, renderEventLine(event, width-4))
+	}
+	return sectionPanel(width, "Recent events", strings.Join(lines, "\n"))
+}
+
+func renderEventLine(event watcher.EventSummary, width int) string {
+	headRaw := trimRight(event.Type, 18)
+	meta := []string{fmt.Sprintf("#%d", event.Line)}
+	if event.Timestamp != "" {
+		meta = append(meta, event.Timestamp)
+	}
+	if event.Tool != "" {
+		meta = append(meta, "tool="+event.Tool)
+	}
+	if event.Model != "" {
+		meta = append(meta, "model="+event.Model)
+	}
+	if event.Repo != "" {
+		meta = append(meta, "repo="+event.Repo)
+	}
+	metaRaw := strings.Join(meta, "  ")
+	metaWidth := width - lipgloss.Width(headRaw) - 2
+	if metaWidth < 8 {
+		metaWidth = 8
+	}
+	return eventTypeStyle.Render(headRaw) + "  " + subtleStyle.Render(trimRight(metaRaw, metaWidth))
+}
+
+func metricBox(label, value string) string {
+	return cardStyle.Render(labelStyle.Render(label) + "\n" + valueStyle.Render(value))
+}
+
+func joinCards(cards []string, width int) string {
+	if len(cards) == 0 {
+		return ""
+	}
+	cardWidth := 24
+	if width >= 90 {
+		cardWidth = (width - 4) / 3
+	}
+	styled := make([]string, 0, len(cards))
+	for _, card := range cards {
+		styled = append(styled, lipgloss.NewStyle().Width(cardWidth).Render(card))
+	}
+	if width < 90 {
+		return strings.Join(styled, "\n")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, styled...)
+}
+
+func sectionPanel(width int, title, body string) string {
+	return panelStyle(width).Render(sectionStyle.Render(title) + "\n" + body)
+}
+
+func panelStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(width-2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8")).
+		Padding(0, 1).
+		MarginTop(1)
+}
+
+func errorPanel(width int) lipgloss.Style {
+	return panelStyle(width).BorderForeground(lipgloss.Color("9"))
+}
+
+func labelValue(label, value string) string {
+	return labelStyle.Render(label+":") + " " + value
+}
+
+func byteCount(size int64) string {
+	switch {
+	case size > 1024*1024:
+		return fmt.Sprintf("%.1f MiB", float64(size)/(1024*1024))
+	case size > 1024:
+		return fmt.Sprintf("%.1f KiB", float64(size)/1024)
+	default:
+		return fmt.Sprintf("%d B", size)
+	}
+}
+
+func trimMiddle(value string, width int) string {
+	if width <= 3 || lipgloss.Width(value) <= width {
+		return value
+	}
+	left := (width - 3) / 2
+	right := width - left - 3
+	return value[:left] + "..." + value[len(value)-right:]
+}
+
+func trimRight(value string, width int) string {
+	if width <= 1 || lipgloss.Width(value) <= width {
+		return value
+	}
+	if width == 2 {
+		return value[:1] + "."
+	}
+	return value[:width-3] + "..."
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 var (
-	titleStyle   = lipgloss.NewStyle().Bold(true)
-	sectionStyle = lipgloss.NewStyle().Bold(true).Underline(true)
-	subtleStyle  = lipgloss.NewStyle().Faint(true)
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	sectionStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	subtleStyle    = lipgloss.NewStyle().Faint(true)
+	labelStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	valueStyle     = lipgloss.NewStyle().Bold(true)
+	eventTypeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	cardStyle      = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("8")).Padding(0, 1).MarginRight(1)
+	footerStyle    = lipgloss.NewStyle().Faint(true).MarginTop(1)
 )
