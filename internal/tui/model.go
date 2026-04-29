@@ -382,8 +382,8 @@ func (m Model) detailHeight() int {
 }
 
 func renderHeader(width int) string {
-	left := titleStyle.Render(" vibe-watch ")
-	right := monitorStyle.Render(" real-time Codex JSONL monitor ")
+	left := titleStyle.Render(" ◆ vibe-watch ")
+	right := monitorStyle.Render(" local Codex session monitor ")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return left + "\n" + right
@@ -399,9 +399,9 @@ func renderMeta(snapshot watcher.Snapshot, width int) string {
 		checked = snapshot.CheckedAt.Format("15:04:05")
 	}
 	cells := []string{
-		metricBox("sessions", fmt.Sprintf("%d", len(snapshot.Sessions)), "cyan"),
-		metricBox("checked", checked, "green"),
-		metricBox("root", root, "violet"),
+		metricBox("sessions", fmt.Sprintf("%d", len(snapshot.Sessions)), cyanTone),
+		metricBox("checked", checked, greenTone),
+		metricBox("root", root, violetTone),
 	}
 	return joinCards(cells, width)
 }
@@ -441,9 +441,9 @@ func renderDashboard(snapshot watcher.Snapshot, detail watcher.SessionDetail, wi
 	body := strings.Join([]string{
 		lipgloss.JoinHorizontal(lipgloss.Top, cells...),
 		"",
-		barLine("active", activeCount, len(snapshot.Sessions), width-16, activeStatusStyle),
-		barLine("idle", idleCount, len(snapshot.Sessions), width-16, idleStatusStyle),
-		barLine("bad lines", badCount, len(snapshot.Sessions), width-16, warningStyle),
+		barLine("active", activeCount, len(snapshot.Sessions), width-16, activeBarStyle),
+		barLine("idle", idleCount, len(snapshot.Sessions), width-16, idleBarStyle),
+		barLine("bad lines", badCount, len(snapshot.Sessions), width-16, warningBarStyle),
 		"",
 		selectedPreview(detail, width-4),
 	}, "\n")
@@ -638,14 +638,14 @@ func qualityStyle(badCount int) lipgloss.Style {
 func metricBox(label, value string, tone string) string {
 	style := cardStyle
 	switch tone {
-	case "cyan":
-		style = style.BorderForeground(lipgloss.Color("45"))
-	case "green":
-		style = style.BorderForeground(lipgloss.Color("42"))
-	case "violet":
-		style = style.BorderForeground(lipgloss.Color("141"))
+	case cyanTone:
+		style = style.BorderForeground(cyanColor)
+	case greenTone:
+		style = style.BorderForeground(greenColor)
+	case violetTone:
+		style = style.BorderForeground(violetColor)
 	}
-	return style.Render(labelStyle.Render(label) + "\n" + valueStyle.Render(value))
+	return style.Render(kickerStyle.Render(strings.ToUpper(label)) + "\n" + valueStyle.Render(value))
 }
 
 func joinCards(cards []string, width int) string {
@@ -667,24 +667,26 @@ func joinCards(cards []string, width int) string {
 }
 
 func sectionPanel(width int, title, body string) string {
-	return panelStyle(width).Render(sectionStyle.Render(title) + "\n" + body)
+	return panelStyle(width).Render(sectionStyle.Render(" "+title+" ") + "\n" + body)
 }
 
 func panelStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Width(width-2).
+		Foreground(textColor).
+		Background(surfaceDeepColor).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
+		BorderForeground(violetColor).
 		Padding(0, 1).
 		MarginTop(1)
 }
 
 func errorPanel(width int) lipgloss.Style {
-	return panelStyle(width).BorderForeground(lipgloss.Color("203"))
+	return panelStyle(width).BorderForeground(amberColor)
 }
 
 func labelValue(label, value string) string {
-	return labelStyle.Render(label+":") + " " + value
+	return labelStyle.Render(label+":") + " " + valueStyle.Render(value)
 }
 
 func statusStyle(status string) lipgloss.Style {
@@ -819,31 +821,59 @@ func min(a, b int) int {
 }
 
 var (
-	headerBarStyle        = lipgloss.NewStyle().Background(lipgloss.Color("17")).Foreground(lipgloss.Color("255"))
-	titleStyle            = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
-	monitorStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("63"))
-	sectionStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("228"))
-	subtleStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	labelStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("159")).Bold(true)
-	valueStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Bold(true)
-	accentStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
-	eventTypeStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
-	userContentStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("31")).Bold(true).Padding(0, 1)
-	assistantContentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("120")).Bold(true).Padding(0, 1)
-	reasoningContentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("99")).Bold(true).Padding(0, 1)
-	toolContentStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("222")).Bold(true).Padding(0, 1)
-	cardStyle             = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("45")).Padding(0, 1).MarginRight(1)
-	miniCardStyle         = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63")).Padding(0, 1).MarginRight(1).Width(14)
-	footerStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).MarginTop(1)
-	tabStyle              = lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("250"))
-	activeTabStyle        = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("33"))
-	sessionRowStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	selectedRowStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62")).Bold(true)
-	activeStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("120")).Bold(true)
-	idleStatusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("222")).Bold(true)
-	warningStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-	trackStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	scrollHintStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("238")).Padding(0, 1)
+	headerBarStyle        = lipgloss.NewStyle().Background(surfaceDeepColor).Foreground(textColor)
+	titleStyle            = lipgloss.NewStyle().Bold(true).Foreground(textColor).Background(cyanDarkColor)
+	monitorStyle          = lipgloss.NewStyle().Foreground(warmTextColor).Background(violetDarkColor)
+	sectionStyle          = lipgloss.NewStyle().Bold(true).Foreground(textColor).Background(violetDarkColor)
+	subtleStyle           = lipgloss.NewStyle().Foreground(mutTextColor)
+	kickerStyle           = lipgloss.NewStyle().Foreground(cyanColor).Bold(true)
+	labelStyle            = lipgloss.NewStyle().Foreground(cyanSoftColor).Bold(true)
+	valueStyle            = lipgloss.NewStyle().Foreground(warmTextColor).Bold(true)
+	accentStyle           = lipgloss.NewStyle().Foreground(cyanColor).Bold(true)
+	eventTypeStyle        = lipgloss.NewStyle().Foreground(greenColor).Bold(true)
+	userContentStyle      = lipgloss.NewStyle().Foreground(textColor).Background(cyanDarkColor).Bold(true).Padding(0, 1)
+	assistantContentStyle = lipgloss.NewStyle().Foreground(inkColor).Background(greenColor).Bold(true).Padding(0, 1)
+	reasoningContentStyle = lipgloss.NewStyle().Foreground(textColor).Background(violetColor).Bold(true).Padding(0, 1)
+	toolContentStyle      = lipgloss.NewStyle().Foreground(inkColor).Background(amberColor).Bold(true).Padding(0, 1)
+	cardStyle             = lipgloss.NewStyle().Foreground(textColor).Background(surfaceColor).Border(lipgloss.NormalBorder()).BorderForeground(cyanColor).Padding(0, 1).MarginRight(1)
+	miniCardStyle         = lipgloss.NewStyle().Foreground(textColor).Background(surfaceColor).Border(lipgloss.RoundedBorder()).BorderForeground(violetColor).Padding(0, 1).MarginRight(1).Width(14)
+	footerStyle           = lipgloss.NewStyle().Foreground(mutTextColor).MarginTop(1)
+	tabStyle              = lipgloss.NewStyle().Padding(0, 2).Foreground(mutTextColor).Background(surfaceDeepColor)
+	activeTabStyle        = lipgloss.NewStyle().Padding(0, 2).Bold(true).Foreground(textColor).Background(cyanDarkColor)
+	sessionRowStyle       = lipgloss.NewStyle().Foreground(textColor)
+	selectedRowStyle      = lipgloss.NewStyle().Foreground(textColor).Background(violetDarkColor).Bold(true)
+	activeStatusStyle     = lipgloss.NewStyle().Foreground(inkColor).Background(greenColor).Bold(true).Padding(0, 1)
+	idleStatusStyle       = lipgloss.NewStyle().Foreground(warmTextColor).Background(surfaceLiftColor).Bold(true).Padding(0, 1)
+	warningStyle          = lipgloss.NewStyle().Foreground(inkColor).Background(amberColor).Bold(true).Padding(0, 1)
+	activeBarStyle        = lipgloss.NewStyle().Foreground(greenColor)
+	idleBarStyle          = lipgloss.NewStyle().Foreground(violetColor)
+	warningBarStyle       = lipgloss.NewStyle().Foreground(amberColor)
+	trackStyle            = lipgloss.NewStyle().Foreground(trackColor)
+	scrollHintStyle       = lipgloss.NewStyle().Foreground(warmTextColor).Background(surfaceLiftColor).Padding(0, 1)
+)
+
+const (
+	cyanTone   = "cyan"
+	greenTone  = "green"
+	violetTone = "violet"
+)
+
+var (
+	inkColor         = lipgloss.Color("16")
+	textColor        = lipgloss.Color("255")
+	warmTextColor    = lipgloss.Color("230")
+	mutTextColor     = lipgloss.Color("250")
+	surfaceDeepColor = lipgloss.Color("17")
+	surfaceColor     = lipgloss.Color("236")
+	surfaceLiftColor = lipgloss.Color("238")
+	cyanColor        = lipgloss.Color("51")
+	cyanSoftColor    = lipgloss.Color("159")
+	cyanDarkColor    = lipgloss.Color("24")
+	greenColor       = lipgloss.Color("120")
+	amberColor       = lipgloss.Color("222")
+	violetColor      = lipgloss.Color("141")
+	violetDarkColor  = lipgloss.Color("60")
+	trackColor       = lipgloss.Color("242")
 )
 
 const (

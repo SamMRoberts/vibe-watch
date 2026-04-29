@@ -84,7 +84,7 @@ Current behavior:
 - Tracks width, height, loaded state, errors, selected tab, selected session, and current sanitized watcher snapshot.
 - Supports dashboard, session list, and detail tabs; manual refresh; up/down and mouse-wheel session navigation; numeric tab shortcuts; enter-to-detail; scrollable detail content; back navigation; and quit keys.
 - Supports `--once` for non-interactive sanitized snapshot rendering.
-- Renders high-contrast Lip Gloss dashboard cards, status bars, a session table, selected-session metadata, bounded session content, and recent-event detail panels.
+- Renders a high-contrast graphite/cyan/violet Lip Gloss theme with dashboard cards, status bars, a session table, selected-session metadata, bounded session content, and recent-event detail panels.
 
 Future behavior:
 
