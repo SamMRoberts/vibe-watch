@@ -21,7 +21,7 @@ Additional examples are available in [`screenshots/`](screenshots/), including s
 - **Real-time session monitoring** — polls every 2 seconds by default for new and updated sessions.
 - **Dashboard view** — groups sessions by date and agent, with project path, message counts, input/output tokens, duration, status, and last update time.
 - **Detail view** — displays the session timeline with collapsible prompt threads, focused event navigation, token details, timestamps, and follow-latest mode for active sessions.
-- **Analytics view** — summarizes session totals, token load, sessions by agent, and most active projects.
+- **Analytics view** — summarizes session totals, prompt-thread efficiency, outlier sessions, prompt categories, tool activity, refinement hints, token load, and most active projects.
 - **Multi-agent support** — detects Claude Code, Codex CLI, GitHub Copilot CLI, GitHub Copilot Chat for VS Code, and Amazon Q Developer sessions.
 - **Filtering** — filter by agent from the command line or by project/session text inside the TUI.
 - **No config required** — reads standard local log/session locations automatically.
