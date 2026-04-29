@@ -26,9 +26,10 @@ internal/
     events/
       parse.go
   watcher/
-    (planned)
+    snapshot.go
   tui/
-    (planned)
+    model.go
+    run.go
   analysis/
     build.go
     run.go
@@ -51,11 +52,11 @@ Current historical CLI flow:
 4. `internal/analysis` aggregates scan summary, metrics, and suggestions.
 5. `internal/report` formats text or JSON output.
 
-Target real-time TUI flow:
+Current real-time TUI flow:
 
-1. Watch the active Codex JSONL file for appended lines.
+1. Poll the session directory for JSONL files.
 2. Poll the session directory for new or changed JSONL files.
-3. Parse appended JSONL incrementally.
+3. Parse discovered JSONL files into sanitized in-memory snapshots.
 4. Maintain in-memory session state.
 5. Render TUI views from in-memory state.
 
@@ -72,15 +73,21 @@ Commands should orchestrate. They should not own watching, parsing, TUI state, a
 
 ## TUI Direction
 
-The current `tui` command is a placeholder. The next product direction is a real-time, user-friendly session monitor.
+The `tui` command opens a real-time, user-friendly session monitor backed by periodic snapshot loads.
 
-When TUI work starts:
+Current behavior:
 
-- Use Bubble Tea, Bubbles, and Lip Gloss when implementing the first real interactive model.
-- Load live session state through bounded async work.
+- Uses Bubble Tea, Bubbles, and Lip Gloss.
+- Loads live session state through bounded async work.
 - Keep file I/O out of `View`.
-- Track width, height, focus, selected session, current event stream, active filters, loading state, errors, and pending watch identity in model state.
-- Add direct model transition tests.
+- Tracks width, height, loaded state, errors, and current sanitized watcher snapshot.
+- Supports manual refresh and quit keys.
+- Supports `--once` for non-interactive sanitized snapshot rendering.
+
+Future behavior:
+
+- Track focus, selected session, active filters, current event stream, and pending watch identity in model state.
+- Add richer direct model transition tests as views become interactive.
 - Run a manual terminal smoke test for resize, quit keys, filtering, focus movement, loading/error states, help display, and monochrome readability.
 
 ## Extension Points

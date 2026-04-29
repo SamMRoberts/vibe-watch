@@ -24,6 +24,7 @@ Default command or TUI output may include:
 - Date ranges.
 - Session identifiers or derived aggregate categories.
 - Data-quality signals.
+- Sanitized event type, timestamp, tool, model, and repository basename fields.
 - Rule-based suggestions with evidence expressed as aggregate numbers.
 
 Default command output must not include:

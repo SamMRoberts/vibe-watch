@@ -50,13 +50,15 @@ Parsing is implemented in `internal/codex/events`.
 
 Real-time monitoring should:
 
-- Watch the active session JSONL file for appended lines.
-- Poll the session directory for new or changed JSONL files.
+- Poll the session directory for JSONL files.
+- Treat the newest modified JSONL file as the active session for the current TUI snapshot.
 - Keep live state in memory for now.
 - Tolerate partial writes by waiting for complete JSONL lines before parsing.
-- Preserve file offset or equivalent in-memory cursor per watched file.
+- Preserve file offset or equivalent in-memory cursor per watched file when append-only watching is added.
 - Avoid persistent caches unless the user explicitly asks.
 - Report bounded live JSONL scope in handoffs without pasting raw content.
+
+The current watcher implementation is polling snapshot based. Append-only active-file tailing remains a future refinement.
 
 ## Current Event Extraction Heuristics
 

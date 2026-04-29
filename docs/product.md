@@ -39,7 +39,7 @@ Implemented commands:
 - `stats`: prints aggregate metrics. Currently parked for future scope.
 - `suggest`: prints rule-based suggestions. Currently parked for future scope.
 - `report`: combines scan summary, metrics, and suggestions. Currently parked for future scope.
-- `tui`: placeholder that directs users to the CLI workflow.
+- `tui`: opens a polling real-time Codex session monitor with sanitized recent event display. Use `--once` for non-interactive smoke checks.
 
 Common flags:
 
@@ -68,5 +68,5 @@ Common flags:
 
 ## Open Product Decisions
 
-- First full-screen TUI workflow: active session stream, session list, event detail, or data-quality inspection.
-- File-watching strategy details: exact watcher library, polling interval, and active-file detection rules.
+- First expanded TUI workflow beyond active session stream: session list, event detail, or data-quality inspection.
+- File-watching strategy details beyond polling: exact watcher library and active-file detection refinements.

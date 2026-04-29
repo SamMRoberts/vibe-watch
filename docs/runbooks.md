@@ -13,7 +13,7 @@ Analytics, metrics, reports, and suggestions are parked. The runbooks for those 
 1. Define whether the change watches an active file, polls the session directory, or both.
 2. Keep live state in memory.
 3. Add synthetic JSONL fixtures for append, new-file, malformed-line, and partial-line cases where relevant.
-4. Add focused watcher tests.
+4. Add focused watcher tests under `internal/watcher/`.
 5. Keep raw private content out of logs and output.
 6. Update [Codex Sessions](codex-sessions.md), [Architecture](architecture.md), and [Privacy](privacy.md) if behavior changes.
 7. Run `go test ./...`.
@@ -27,10 +27,11 @@ Analytics, metrics, reports, and suggestions are parked. The runbooks for those 
 3. Put TUI logic under `internal/tui/` or another narrow package.
 4. Keep file I/O out of `View`.
 5. Model live session state, width, height, focus, current event stream, selected session, loading state, errors, and watch identity explicitly.
-6. Add direct model transition tests.
+6. Add direct model transition tests under `internal/tui/`.
 7. Run `go test ./...`.
 8. Run `scripts/harness_compliance.sh`.
-9. Run a real terminal smoke test for resize, quit keys, focus movement, live updates, loading/error states, help, and monochrome readability.
+9. Run `go run . tui --session-root testdata/codex --once`.
+10. Run a real terminal smoke test for resize, quit keys, focus movement, live updates, loading/error states, help, and monochrome readability when interactive behavior changes.
 
 ## Add A Metric
 

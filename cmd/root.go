@@ -30,9 +30,9 @@ func newRootCommand() *cobra.Command {
 	opts := &options{}
 	root := &cobra.Command{
 		Use:   "vibe-watch",
-		Short: "Analyze local coding-agent session history",
-		Long: "vibe-watch scans local Codex JSONL session history and reports aggregate metrics, " +
-			"data-quality signals, and rule-based workflow suggestions without printing raw session content.",
+		Short: "Monitor local coding-agent session history",
+		Long: "vibe-watch monitors local Codex JSONL session history and provides a privacy-preserving " +
+			"real-time TUI plus scriptable helper commands.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

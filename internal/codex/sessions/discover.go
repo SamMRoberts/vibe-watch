@@ -17,9 +17,11 @@ type ScanOptions struct {
 }
 
 type File struct {
-	Path string    `json:"-"`
-	ID   string    `json:"id"`
-	Date time.Time `json:"date"`
+	Path    string    `json:"-"`
+	ID      string    `json:"id"`
+	Date    time.Time `json:"date"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time"`
 }
 
 func Discover(opts ScanOptions) ([]File, error) {
@@ -37,6 +39,10 @@ func Discover(opts ScanOptions) ([]File, error) {
 		if !strings.EqualFold(filepath.Ext(entry.Name()), ".jsonl") {
 			return nil
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil
+		}
 		date, ok := dateFromPath(opts.Root, path)
 		if !ok {
 			return nil
@@ -48,9 +54,11 @@ func Discover(opts ScanOptions) ([]File, error) {
 			return nil
 		}
 		files = append(files, File{
-			Path: path,
-			ID:   strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
-			Date: date,
+			Path:    path,
+			ID:      strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
+			Date:    date,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
 		})
 		return nil
 	})

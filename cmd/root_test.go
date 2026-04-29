@@ -49,3 +49,40 @@ func TestInvalidDateReturnsError(t *testing.T) {
 		t.Fatal("expected invalid date error")
 	}
 }
+
+func TestTUIHelp(t *testing.T) {
+	command := newRootCommand()
+	var out bytes.Buffer
+	command.SetOut(&out)
+	command.SetErr(&out)
+	command.SetArgs([]string{"tui", "--help"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("tui help returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "--interval") {
+		t.Fatalf("expected interval flag in help, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "--event-limit") {
+		t.Fatalf("expected event-limit flag in help, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "--once") {
+		t.Fatalf("expected once flag in help, got %q", out.String())
+	}
+}
+
+func TestTUIOnceWithSyntheticRoot(t *testing.T) {
+	command := newRootCommand()
+	var out bytes.Buffer
+	command.SetOut(&out)
+	command.SetErr(&out)
+	command.SetArgs([]string{"--session-root", filepath.Join("..", "testdata", "codex"), "tui", "--once", "--event-limit", "2"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("tui once returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "vibe-watch") {
+		t.Fatalf("expected rendered TUI output, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Recent events") {
+		t.Fatalf("expected recent events section, got %q", out.String())
+	}
+}
