@@ -27,13 +27,13 @@ Default command or TUI output may include:
 - Data-quality signals.
 - Sanitized event type, timestamp, tool, model, and repository basename fields.
 - Rule-based suggestions with evidence expressed as aggregate numbers.
-
-Default command output must not include:
-
 - Raw user prompts.
 - Raw assistant answers.
 - Code snippets copied from sessions.
 - Command output copied from sessions.
+
+Default command output must not include:
+
 - Secrets, tokens, credentials, or private file contents.
 - Large raw event payloads.
 
