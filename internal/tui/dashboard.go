@@ -18,10 +18,20 @@ const (
 	dashboardSessionColumnTitle = "Session"
 )
 
+type dashboardRowKind int
+
+const (
+	dashboardRowSession dashboardRowKind = iota
+	dashboardRowDate
+	dashboardRowAgent
+)
+
 type DashboardView struct {
 	table       table.Model
 	sessions    []*models.Session
 	rowSessions []*models.Session
+	rowKinds    []dashboardRowKind
+	rowAgents   []string
 	filter      string
 	width       int
 	height      int
@@ -73,6 +83,8 @@ func (d *DashboardView) SetSessions(sessions []*models.Session, agentFilter stri
 func (d *DashboardView) updateTable(agentFilter string) {
 	var rows []table.Row
 	var rowSessions []*models.Session
+	var rowKinds []dashboardRowKind
+	var rowAgents []string
 	filtered := d.filteredSessions(agentFilter)
 	sort.SliceStable(filtered, func(i, j int) bool {
 		return dashboardSessionLess(filtered[i], filtered[j])
@@ -87,6 +99,8 @@ func (d *DashboardView) updateTable(agentFilter string) {
 		if groupRows && date != lastDate {
 			rows = append(rows, d.dashboardDateRow(s, dashboardDateRunCount(filtered, i)))
 			rowSessions = append(rowSessions, nil)
+			rowKinds = append(rowKinds, dashboardRowDate)
+			rowAgents = append(rowAgents, "")
 			lastDate = date
 			lastGroup = ""
 		}
@@ -95,6 +109,8 @@ func (d *DashboardView) updateTable(agentFilter string) {
 			lastAgentInDate := i+runCount >= len(filtered) || dashboardGroupDate(filtered[i+runCount]) != date
 			rows = append(rows, d.dashboardAgentRow(s, runCount, lastAgentInDate))
 			rowSessions = append(rowSessions, nil)
+			rowKinds = append(rowKinds, dashboardRowAgent)
+			rowAgents = append(rowAgents, string(s.AgentType))
 			lastGroup = group
 		}
 
@@ -104,10 +120,14 @@ func (d *DashboardView) updateTable(agentFilter string) {
 		}
 		rows = append(rows, d.dashboardSessionRow(s, groupRows, lastSessionInAgent))
 		rowSessions = append(rowSessions, s)
+		rowKinds = append(rowKinds, dashboardRowSession)
+		rowAgents = append(rowAgents, string(s.AgentType))
 	}
 
 	d.table.SetRows(rows)
 	d.rowSessions = rowSessions
+	d.rowKinds = rowKinds
+	d.rowAgents = rowAgents
 	d.ensureCursorOnSession(1)
 }
 
@@ -147,7 +167,7 @@ func (d *DashboardView) dashboardSessionRow(s *models.Session, grouped, lastInAg
 	agentWidth := dashboardColumnWidth(d.table.Columns(), dashboardGroupColumnTitle)
 	stateWidth := dashboardColumnWidth(d.table.Columns(), "State")
 	updatedWidth := dashboardColumnWidth(d.table.Columns(), "Updated")
-	agentCell := styledAgentLabel(string(s.AgentType), agentWidth)
+	agentCell := agentLabel(string(s.AgentType), agentWidth)
 	if grouped {
 		agentCell = sessionBranchLabel(agentWidth, lastInAgent)
 	}
@@ -206,18 +226,18 @@ func sessionBranchLabel(width int, lastInAgent bool) string {
 	if lastInAgent {
 		prefix = "  └─"
 	}
-	return styleMuted.Render(truncateEnd(prefix, width))
+	return truncateEnd(prefix, width)
 }
 
 func prefixedAgentLabel(prefix, agent string, width int) string {
 	if width <= 0 {
-		return styleMuted.Render(prefix) + styledAgentLabel(agent, 0)
+		return prefix + agentLabel(agent, 0)
 	}
 	available := width - lipgloss.Width(prefix)
 	if available < 1 {
-		return styleMuted.Render(truncateEnd(prefix, width))
+		return truncateEnd(prefix, width)
 	}
-	return styleMuted.Render(prefix) + styledAgentLabel(agent, available)
+	return prefix + agentLabel(agent, available)
 }
 
 func dateGroupLabel(date string, width int) string {
@@ -228,10 +248,7 @@ func dateGroupLabel(date string, width int) string {
 	if width > 0 && lipgloss.Width(label) > width {
 		label = "◷"
 	}
-	return lipgloss.NewStyle().
-		Foreground(colorGlow).
-		Bold(true).
-		Render(truncateEnd(label, width))
+	return truncateEnd(label, width)
 }
 
 func compactDateLabel(date string) string {
@@ -374,10 +391,6 @@ func agentLabel(agent string, width int) string {
 	return label
 }
 
-func styledAgentLabel(agent string, width int) string {
-	return agentStyle(agent).Render(agentLabel(agent, width))
-}
-
 func statusText(session *models.Session, width int) string {
 	return plainStatusText(sessionStatus(session), width)
 }
@@ -485,6 +498,155 @@ func (d *DashboardView) ensureCursorOnSession(direction int) {
 	}
 }
 
+func (d *DashboardView) dashboardTableView() string {
+	rows := d.table.Rows()
+	if len(rows) == 0 {
+		return d.dashboardHeaderView()
+	}
+
+	visibleHeight := d.table.Height()
+	if visibleHeight < 1 || visibleHeight > len(rows) {
+		visibleHeight = len(rows)
+	}
+	cursor := d.table.Cursor()
+	start := 0
+	if len(rows) > visibleHeight {
+		start = clampInt(cursor-visibleHeight/2, 0, len(rows)-visibleHeight)
+	}
+	end := start + visibleHeight
+
+	renderedRows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		renderedRows = append(renderedRows, d.dashboardRenderRow(i))
+	}
+	return d.dashboardHeaderView() + "\n" + lipgloss.JoinVertical(lipgloss.Left, renderedRows...)
+}
+
+func (d *DashboardView) dashboardHeaderView() string {
+	cells := make([]string, 0, len(d.table.Columns()))
+	for _, column := range d.table.Columns() {
+		if column.Width <= 0 {
+			continue
+		}
+		content := lipgloss.NewStyle().
+			Width(column.Width).
+			MaxWidth(column.Width).
+			Inline(true).
+			Render(truncateEnd(column.Title, column.Width))
+		cells = append(cells, lipgloss.NewStyle().
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(colorPrimary).
+			BorderBottom(true).
+			Bold(true).
+			Foreground(colorGlow).
+			Padding(0, 1).
+			Render(content))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+}
+
+func (d *DashboardView) dashboardRenderRow(rowIndex int) string {
+	row := d.table.Rows()[rowIndex]
+	columns := d.table.Columns()
+	cells := make([]string, 0, len(columns))
+	for i, column := range columns {
+		if column.Width <= 0 || i >= len(row) {
+			continue
+		}
+		if i == 0 {
+			cells = append(cells, d.dashboardGroupCell(rowIndex, row[i], column.Width))
+			continue
+		}
+		cells = append(cells, dashboardCell(row[i], column.Width, d.dashboardCellStyle(rowIndex, i)))
+	}
+
+	rendered := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
+	if rowIndex == d.table.Cursor() {
+		return lipgloss.NewStyle().
+			Foreground(colorText).
+			Background(colorSurfaceGlow).
+			Bold(true).
+			Render(rendered)
+	}
+	return rendered
+}
+
+func (d *DashboardView) dashboardCellStyle(rowIndex, columnIndex int) lipgloss.Style {
+	switch d.dashboardRowKind(rowIndex) {
+	case dashboardRowDate:
+		if columnIndex == 1 {
+			return styleGlow()
+		}
+	case dashboardRowAgent:
+		if columnIndex == 1 {
+			return styleMuted
+		}
+	}
+	return lipgloss.NewStyle()
+}
+
+func (d *DashboardView) dashboardGroupCell(rowIndex int, value string, width int) string {
+	plain := truncateEnd(value, width)
+	switch d.dashboardRowKind(rowIndex) {
+	case dashboardRowDate:
+		return dashboardRenderedCell(styleGlow().Render(plain), width)
+	case dashboardRowAgent:
+		prefix, label := splitBranchLabel(plain)
+		agent := d.dashboardRowAgent(rowIndex)
+		return dashboardRenderedCell(styleMuted.Render(prefix)+agentStyle(agent).Render(label), width)
+	case dashboardRowSession:
+		agent := d.dashboardRowAgent(rowIndex)
+		if strings.HasPrefix(plain, "  ") {
+			return dashboardRenderedCell(styleMuted.Render(plain), width)
+		}
+		return dashboardRenderedCell(agentStyle(agent).Render(plain), width)
+	default:
+		return dashboardCell(plain, width, lipgloss.NewStyle())
+	}
+}
+
+func (d *DashboardView) dashboardRowKind(rowIndex int) dashboardRowKind {
+	if rowIndex < 0 || rowIndex >= len(d.rowKinds) {
+		return dashboardRowSession
+	}
+	return d.rowKinds[rowIndex]
+}
+
+func (d *DashboardView) dashboardRowAgent(rowIndex int) string {
+	if rowIndex < 0 || rowIndex >= len(d.rowAgents) {
+		return ""
+	}
+	return d.rowAgents[rowIndex]
+}
+
+func dashboardCell(value string, width int, style lipgloss.Style) string {
+	return dashboardRenderedCell(style.Render(truncateEnd(value, width)), width)
+}
+
+func dashboardRenderedCell(rendered string, width int) string {
+	if width > 0 {
+		if padding := width - lipgloss.Width(rendered); padding > 0 {
+			rendered += strings.Repeat(" ", padding)
+		}
+	}
+	return " " + rendered + " "
+}
+
+func splitBranchLabel(value string) (string, string) {
+	for _, prefix := range []string{"├─ ", "└─ "} {
+		if strings.HasPrefix(value, prefix) {
+			return prefix, strings.TrimPrefix(value, prefix)
+		}
+	}
+	return "", value
+}
+
+func styleGlow() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(colorGlow).
+		Bold(true)
+}
+
 func (d *DashboardView) View(agentFilter string) string {
 	var sb strings.Builder
 
@@ -530,7 +692,7 @@ func (d *DashboardView) View(agentFilter string) string {
 			"Run Claude Code, Codex CLI, Copilot CLI, Copilot Chat, or Amazon Q to see sessions appear here.",
 		))
 	} else {
-		sb.WriteString(d.table.View())
+		sb.WriteString(d.dashboardTableView())
 	}
 
 	return sb.String()

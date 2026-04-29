@@ -115,6 +115,12 @@ func TestDashboardGroupsAllSessionsByDateAgentAndSession(t *testing.T) {
 	if dashboard.rowSessions[4] != copilot || dashboard.rowSessions[7] != codex {
 		t.Fatalf("expected all sessions to remain selectable across repositories, got %#v", dashboard.rowSessions)
 	}
+	view := dashboard.View("")
+	for _, want := range []string{"◷ Apr 28, 2026", "✹ Claude", "◈ Copilot", "◷ Apr 27, 2026", "◆ Codex"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected rendered dashboard to keep visible group label %q, got:\n%s", want, view)
+		}
+	}
 	dashboard.MoveDown()
 	if dashboard.SelectedSession() != copilot {
 		t.Fatalf("expected moving down to skip the next agent header, got %#v", dashboard.SelectedSession())
