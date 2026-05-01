@@ -1,0 +1,9 @@
+{"type":"session_meta","timestamp":"2026-04-29T11:00:00Z","payload":{"cwd":"/Users/samroberts/Repo/SamMRoberts/vibe-watch","model":"gpt-5.4"}}
+{"type":"message","timestamp":"2026-04-29T11:00:10Z","payload":{"role":"user","content":"Show a detailed local session dashboard."}}
+{"type":"goal","timestamp":"2026-04-29T11:00:20Z","payload":{"description":"Inspect selected session context without writing source history."}}
+{"type":"reasoning","timestamp":"2026-04-29T11:00:30Z","payload":{"summary":"Use bounded extraction for prompts, replies, reasoning, and tools."}}
+{"type":"message","timestamp":"2026-04-29T11:00:40Z","payload":{"role":"assistant","content":"I will render a bounded detail panel for the selected session."}}
+{"type":"tool_call","timestamp":"2026-04-29T11:01:00Z","recipient_name":"functions.exec_command","payload":{"cmd":"go test ./..."}}
+{"type":"tool_result","timestamp":"2026-04-29T11:01:03Z","recipient_name":"functions.exec_command","payload":{"exit_code":1,"message":"failed"}}
+{"type":"approval","timestamp":"2026-04-29T11:03:00Z","payload":{"reason":"require_escalated"}}
+not-json
