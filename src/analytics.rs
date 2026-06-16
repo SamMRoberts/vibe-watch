@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::chat_log::{ChatModel, ChatSession};
+use crate::cli_log::CliSession;
 use crate::pricing::{builtin_rates, ModelRates};
 
 /// Where the active credit rates came from.
@@ -27,11 +28,29 @@ pub struct Aggregate {
     pub count: usize,
 }
 
+/// Per-model token usage and cost reported for a session.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelUsage {
+    pub name: String,
+    pub requests: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    /// Cost reported by the agent runtime, in its own units (not normalized).
+    pub reported_cost: Option<f64>,
+    /// Full AIC credits from the built-in rate table, when the model is known.
+    pub credits: Option<f64>,
+}
+
 /// Metrics for a single request/response turn.
 #[derive(Debug, Clone, Serialize)]
 pub struct TurnMetrics {
     pub index: usize,
     pub request_id: Option<String>,
+    pub model: Option<String>,
+    pub mode: Option<String>,
     pub timestamp_ms: Option<i64>,
     pub output_tokens: u64,
     pub input_tokens: Option<u64>,
@@ -70,6 +89,7 @@ pub struct SessionAnalytics {
     pub total_elapsed_ms: i64,
     pub wall_clock_ms: Option<i64>,
     pub turns: Vec<TurnMetrics>,
+    pub per_model: Vec<ModelUsage>,
     pub tool_usage: Vec<Aggregate>,
     pub skill_usage: Vec<Aggregate>,
     pub subagent_usage: Vec<Aggregate>,
@@ -111,6 +131,8 @@ impl SessionAnalytics {
             turns.push(TurnMetrics {
                 index,
                 request_id: request.request_id.clone(),
+                model: session.model.id.clone(),
+                mode: None,
                 timestamp_ms: request.timestamp_ms,
                 output_tokens: request.completion_tokens,
                 input_tokens: None,
@@ -146,11 +168,145 @@ impl SessionAnalytics {
             total_elapsed_ms,
             wall_clock_ms: wall_clock_ms(session),
             turns,
+            per_model: Vec::new(),
             tool_usage: sorted_aggregates(tool_counts),
             skill_usage: sorted_aggregates(skill_counts),
             subagent_usage: sorted_aggregates(subagent_counts),
         }
     }
+
+    /// Build analytics from a parsed Copilot CLI `events.jsonl` session.
+    ///
+    /// CLI logs expose per-turn output tokens and, when the session has ended,
+    /// full per-model usage (input/output/cache/reasoning) via `session.shutdown`.
+    pub fn from_cli(session: &CliSession) -> Self {
+        let primary = session.primary_model.clone();
+        let rates = primary.as_deref().and_then(builtin_rates);
+
+        let total_output_tokens: u64 = session.turns.iter().map(|t| t.output_tokens).sum();
+        let total_elapsed_ms: i64 = session.turns.iter().map(|t| t.elapsed_ms()).sum();
+
+        let mut turns = Vec::with_capacity(session.turns.len());
+        let mut tool_counts: HashMap<String, usize> = HashMap::new();
+        let mut skill_counts: HashMap<String, usize> = HashMap::new();
+        let mut subagent_counts: HashMap<String, usize> = HashMap::new();
+        let mut total_output_credits = 0.0;
+
+        for turn in &session.turns {
+            let output_credits = rates
+                .map(|r| r.output_credits(turn.output_tokens))
+                .unwrap_or(0.0);
+            total_output_credits += output_credits;
+
+            for tool in &turn.tools {
+                *tool_counts.entry(tool.clone()).or_default() += 1;
+            }
+            for skill in &turn.skills {
+                *skill_counts.entry(skill.clone()).or_default() += 1;
+            }
+            for subagent in &turn.subagents {
+                *subagent_counts.entry(subagent.clone()).or_default() += 1;
+            }
+
+            turns.push(TurnMetrics {
+                index: turn.index,
+                request_id: None,
+                model: turn.model.clone(),
+                mode: turn.mode.clone(),
+                timestamp_ms: turn.started_ms,
+                output_tokens: turn.output_tokens,
+                input_tokens: None,
+                cached_tokens: None,
+                elapsed_ms: Some(turn.elapsed_ms()),
+                first_progress_ms: None,
+                output_credits,
+                credits: None,
+                pct_output_tokens: percent(turn.output_tokens, total_output_tokens),
+                pct_time: percent_i64(turn.elapsed_ms(), total_elapsed_ms),
+                tools: turn.tools.clone(),
+                subagents: turn.subagents.clone(),
+                skills: turn.skills.clone(),
+                terminal_commands: turn.terminal_commands.clone(),
+                had_reasoning: false,
+            });
+        }
+
+        let mut per_model = Vec::with_capacity(session.model_usage.len());
+        let mut summed_input = 0u64;
+        let mut summed_cached = 0u64;
+        for usage in &session.model_usage {
+            let model_rates = builtin_rates(&usage.name);
+            let credits = model_rates.map(|r| {
+                r.credits(
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.cache_read_tokens + usage.cache_write_tokens,
+                )
+            });
+            summed_input += usage.input_tokens;
+            summed_cached += usage.cache_read_tokens + usage.cache_write_tokens;
+            per_model.push(ModelUsage {
+                name: usage.name.clone(),
+                requests: usage.requests,
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_read_tokens: usage.cache_read_tokens,
+                cache_write_tokens: usage.cache_write_tokens,
+                reasoning_tokens: usage.reasoning_tokens,
+                reported_cost: usage.reported_cost,
+                credits,
+            });
+        }
+
+        let has_full_usage = !per_model.is_empty();
+        let (total_input_tokens, total_cached_tokens, total_credits) = if has_full_usage {
+            let full: f64 = per_model.iter().filter_map(|m| m.credits).sum();
+            let total_credits = if per_model.iter().any(|m| m.credits.is_some()) {
+                Some(full)
+            } else {
+                None
+            };
+            (Some(summed_input), Some(summed_cached), total_credits)
+        } else {
+            (None, None, None)
+        };
+
+        let rates_source = if rates.is_some() {
+            RatesSource::Builtin
+        } else {
+            RatesSource::Unknown
+        };
+
+        SessionAnalytics {
+            session_id: session.session_id.clone(),
+            title: session.cwd.clone(),
+            model_id: primary.clone(),
+            model_name: primary,
+            rates,
+            rates_source,
+            credits_partial: !has_full_usage,
+            turn_count: session.turns.len(),
+            total_output_tokens,
+            total_input_tokens,
+            total_cached_tokens,
+            total_output_credits,
+            total_credits,
+            total_elapsed_ms,
+            wall_clock_ms: cli_wall_clock_ms(session),
+            turns,
+            per_model,
+            tool_usage: sorted_aggregates(tool_counts),
+            skill_usage: sorted_aggregates(skill_counts),
+            subagent_usage: sorted_aggregates(subagent_counts),
+        }
+    }
+}
+
+/// Wall-clock span across CLI turns: latest end minus earliest start, in ms.
+fn cli_wall_clock_ms(session: &CliSession) -> Option<i64> {
+    let start = session.turns.iter().filter_map(|t| t.started_ms).min()?;
+    let end = session.turns.iter().filter_map(|t| t.ended_ms).max()?;
+    Some(end - start)
 }
 
 fn resolve_rates(model: &ChatModel) -> (Option<ModelRates>, RatesSource) {

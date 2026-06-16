@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::analytics::SessionAnalytics;
-use crate::{chat_log, output, tui};
+use crate::{chat_log, cli_log, output, tui};
 
 #[derive(Parser)]
 #[command(
@@ -54,6 +54,8 @@ enum Format {
     Auto,
     /// VS Code Copilot Chat `.jsonl` delta journal.
     Vscode,
+    /// Copilot CLI `events.jsonl` event log.
+    Cli,
 }
 
 /// Parse arguments and dispatch to the requested command.
@@ -89,14 +91,34 @@ fn load_analytics(path: &std::path::Path, format: Format) -> Result<SessionAnaly
         .lines()
         .find(|line| !line.trim().is_empty())
         .unwrap_or("");
-    let is_chat = match format {
-        Format::Vscode => true,
-        Format::Auto => chat_log::looks_like_chat_log(first_line),
-    };
-    if !is_chat {
-        bail!("unrecognized log format (only VS Code chat .jsonl is supported so far)");
-    }
 
-    let session = chat_log::parse_str(&data)?;
-    Ok(SessionAnalytics::from_chat(&session))
+    let resolved = match format {
+        Format::Vscode => DetectedFormat::Vscode,
+        Format::Cli => DetectedFormat::Cli,
+        Format::Auto => {
+            if chat_log::looks_like_chat_log(first_line) {
+                DetectedFormat::Vscode
+            } else if cli_log::looks_like_cli_log(first_line) {
+                DetectedFormat::Cli
+            } else {
+                bail!("unrecognized log format (expected VS Code chat or Copilot CLI .jsonl)");
+            }
+        }
+    };
+
+    Ok(match resolved {
+        DetectedFormat::Vscode => {
+            let session = chat_log::parse_str(&data)?;
+            SessionAnalytics::from_chat(&session)
+        }
+        DetectedFormat::Cli => {
+            let session = cli_log::parse_str(&data)?;
+            SessionAnalytics::from_cli(&session)
+        }
+    })
+}
+
+enum DetectedFormat {
+    Vscode,
+    Cli,
 }

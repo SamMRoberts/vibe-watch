@@ -10,6 +10,7 @@
 pub mod analytics;
 pub mod chat_log;
 pub mod cli;
+pub mod cli_log;
 pub mod output;
 pub mod pricing;
 pub mod tui;

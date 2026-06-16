@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use crate::analytics::{Aggregate, RatesSource, SessionAnalytics};
+use crate::analytics::{Aggregate, ModelUsage, RatesSource, SessionAnalytics};
 
 /// Print analytics as a compact, aligned text report.
 pub fn print_table(analytics: &SessionAnalytics) {
@@ -33,6 +33,17 @@ pub fn print_table(analytics: &SessionAnalytics) {
         analytics.total_output_credits,
         credit_note
     );
+    if let (Some(input), Some(cached)) =
+        (analytics.total_input_tokens, analytics.total_cached_tokens)
+    {
+        println!(
+            "Tokens  : input {}   cached {}   output {}",
+            input, cached, analytics.total_output_tokens
+        );
+    }
+    if let Some(total) = analytics.total_credits {
+        println!("Credits : {total:.2} AIC total (input + output + cache)");
+    }
     print!(
         "Time    : model {:.1}s",
         analytics.total_elapsed_ms as f64 / 1000.0
@@ -62,6 +73,7 @@ pub fn print_table(analytics: &SessionAnalytics) {
         );
     }
 
+    print_models(&analytics.per_model);
     print_aggregate("Tools", &analytics.tool_usage);
     print_aggregate("Skills", &analytics.skill_usage);
     print_aggregate("Subagents", &analytics.subagent_usage);
@@ -94,6 +106,9 @@ fn print_rates(analytics: &SessionAnalytics) {
 
 fn format_extras(turn: &crate::analytics::TurnMetrics) -> String {
     let mut parts = Vec::new();
+    if let Some(mode) = &turn.mode {
+        parts.push(format!("mode: {mode}"));
+    }
     if !turn.skills.is_empty() {
         parts.push(format!("skills: {}", turn.skills.join(", ")));
     }
@@ -101,6 +116,30 @@ fn format_extras(turn: &crate::analytics::TurnMetrics) -> String {
         parts.push(format!("subagents: {}", turn.subagents.join(", ")));
     }
     parts.join("  ")
+}
+
+fn print_models(models: &[ModelUsage]) {
+    if models.is_empty() {
+        return;
+    }
+    println!();
+    println!("Per model:");
+    for model in models {
+        let credits = match model.credits {
+            Some(value) => format!("{value:.2} AIC"),
+            None => "n/a".to_string(),
+        };
+        println!(
+            "  {:<18} {:>5} req   in {:>10}  out {:>9}  cache {:>10}  reason {:>8}   {}",
+            model.name,
+            model.requests,
+            model.input_tokens,
+            model.output_tokens,
+            model.cache_read_tokens + model.cache_write_tokens,
+            model.reasoning_tokens,
+            credits
+        );
+    }
 }
 
 fn print_aggregate(label: &str, items: &[Aggregate]) {
