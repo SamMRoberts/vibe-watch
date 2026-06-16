@@ -83,6 +83,7 @@ pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState
         Constraint::Length(5),
         Constraint::Min(6),
         Constraint::Length(4),
+        Constraint::Length(3),
     ])
     .split(frame.area());
 
@@ -94,6 +95,7 @@ pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState
     render_aggregates(frame, body[1], analytics);
 
     render_footer(frame, rows[2], analytics, state);
+    render_timeline(frame, rows[3], analytics, state);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
@@ -285,6 +287,125 @@ fn dedup_join(values: &[String]) -> String {
     seen.join(", ")
 }
 
+/// Draw the bottom timeline: each turn is a section of one horizontal bar,
+/// sized in proportion to its elapsed time, with the selected turn highlighted.
+fn render_timeline(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {
+    let title = if analytics.turns.is_empty() {
+        " Timeline ".to_string()
+    } else {
+        format!(
+            " Timeline (width \u{221d} time) \u{2014} turn {} ",
+            state.selected
+        )
+    };
+    let block = Block::bordered().title(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if analytics.turns.is_empty() || inner.width == 0 {
+        return;
+    }
+
+    let weights: Vec<u64> = analytics
+        .turns
+        .iter()
+        .map(|turn| turn.elapsed_ms.unwrap_or(0).max(0) as u64)
+        .collect();
+    let lengths = timeline_segments(&weights, inner.width as usize);
+
+    let mut spans = Vec::new();
+    for (index, &length) in lengths.iter().enumerate() {
+        if length == 0 {
+            continue;
+        }
+        let style = if index == state.selected {
+            Style::new()
+                .bg(Color::Cyan)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD)
+        } else if index % 2 == 0 {
+            Style::new().bg(Color::Blue).fg(Color::White)
+        } else {
+            Style::new().bg(Color::DarkGray).fg(Color::White)
+        };
+        spans.push(Span::styled(segment_label(index, length), style));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+}
+
+/// Label a timeline section with its turn index when there is room, else pad it.
+fn segment_label(index: usize, length: usize) -> String {
+    let text = index.to_string();
+    if length >= text.len() {
+        let pad = length - text.len();
+        let left = pad / 2;
+        let right = pad - left;
+        format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
+    } else {
+        " ".repeat(length)
+    }
+}
+
+/// Allocate `width` cells across turns in proportion to `weights`.
+///
+/// When `width >= weights.len()` every turn gets at least one cell so it stays
+/// visible; the remaining cells are distributed by weight. The returned lengths
+/// always sum to `width`.
+fn timeline_segments(weights: &[u64], width: usize) -> Vec<usize> {
+    let n = weights.len();
+    if n == 0 || width == 0 {
+        return vec![0; n];
+    }
+    if width <= n {
+        return largest_remainder(weights, width);
+    }
+    let mut lengths = vec![1usize; n];
+    for (slot, extra) in lengths
+        .iter_mut()
+        .zip(largest_remainder(weights, width - n))
+    {
+        *slot += extra;
+    }
+    lengths
+}
+
+/// Distribute `total` cells across `weights` using the largest-remainder method.
+/// Falls back to an even split when every weight is zero.
+fn largest_remainder(weights: &[u64], total: usize) -> Vec<usize> {
+    let n = weights.len();
+    if n == 0 || total == 0 {
+        return vec![0; n];
+    }
+    let sum: u64 = weights.iter().sum();
+    if sum == 0 {
+        let base = total / n;
+        let remainder = total % n;
+        return (0..n).map(|i| base + usize::from(i < remainder)).collect();
+    }
+
+    let mut lengths = vec![0usize; n];
+    let mut fractions: Vec<(f64, usize)> = Vec::with_capacity(n);
+    let mut used = 0usize;
+    for (i, &weight) in weights.iter().enumerate() {
+        let exact = weight as f64 / sum as f64 * total as f64;
+        let base = exact.floor() as usize;
+        lengths[i] = base;
+        used += base;
+        fractions.push((exact - base as f64, i));
+    }
+
+    let mut remaining = total.saturating_sub(used);
+    fractions.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    for (_, index) in fractions {
+        if remaining == 0 {
+            break;
+        }
+        lengths[index] += 1;
+        remaining -= 1;
+    }
+    lengths
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +422,48 @@ mod tests {
     fn dedup_join_removes_repeats() {
         let values = vec!["a".to_string(), "a".to_string(), "b".to_string()];
         assert_eq!(dedup_join(&values), "a, b");
+    }
+
+    #[test]
+    fn timeline_segments_sum_to_width() {
+        let weights = [100, 300, 600];
+        let lengths = timeline_segments(&weights, 20);
+        assert_eq!(lengths.iter().sum::<usize>(), 20);
+        // Heaviest turn gets the widest section.
+        assert!(lengths[2] > lengths[1] && lengths[1] > lengths[0]);
+    }
+
+    #[test]
+    fn timeline_segments_keep_every_turn_visible() {
+        // width >= turn count: each turn gets at least one cell.
+        let weights = [0, 0, 1000];
+        let lengths = timeline_segments(&weights, 10);
+        assert_eq!(lengths.iter().sum::<usize>(), 10);
+        assert!(lengths.iter().all(|&l| l >= 1));
+    }
+
+    #[test]
+    fn timeline_segments_handle_narrow_and_empty() {
+        // Narrower than the turn count still sums to width.
+        let weights = [1, 1, 1, 1, 1];
+        assert_eq!(timeline_segments(&weights, 3).iter().sum::<usize>(), 3);
+        // Empty input or zero width yields no cells.
+        assert_eq!(timeline_segments(&[], 10), Vec::<usize>::new());
+        assert_eq!(timeline_segments(&weights, 0), vec![0; 5]);
+    }
+
+    #[test]
+    fn timeline_segments_equal_when_no_timing() {
+        // All-zero weights fall back to an even split.
+        let lengths = timeline_segments(&[0, 0, 0, 0], 8);
+        assert_eq!(lengths, vec![2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn segment_label_centers_index_when_room() {
+        assert_eq!(segment_label(3, 1), "3");
+        assert_eq!(segment_label(3, 3), " 3 ");
+        // No room for the digits: blank padding only.
+        assert_eq!(segment_label(12, 1), " ");
     }
 }

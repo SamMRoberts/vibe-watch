@@ -73,3 +73,21 @@ fn renders_without_panic_on_tiny_area() {
     // Should clip gracefully rather than panic on a small terminal.
     let _ = render_to_text(20, 8, &ViewState::default());
 }
+
+#[test]
+fn renders_timeline_panel() {
+    // Default selection (turn 0).
+    let text = render_to_text(120, 30, &ViewState::default());
+    assert!(text.contains("Timeline"), "missing timeline panel:\n{text}");
+    assert!(
+        text.contains("turn 0"),
+        "timeline should note the selected turn:\n{text}"
+    );
+
+    // Selecting turn 1 updates the timeline title and still renders.
+    let text = render_to_text(120, 30, &ViewState { selected: 1 });
+    assert!(
+        text.contains("turn 1"),
+        "timeline should follow selection:\n{text}"
+    );
+}
