@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::analytics::SessionAnalytics;
-use crate::{chat_log, output};
+use crate::{chat_log, output, tui};
 
 #[derive(Parser)]
 #[command(
@@ -23,6 +23,8 @@ struct Cli {
 enum Commands {
     /// Analyze a session log and report token/credit/timeline metrics.
     Analyze(AnalyzeArgs),
+    /// Explore a session log in an interactive terminal dashboard.
+    Tui(TuiArgs),
 }
 
 #[derive(Args)]
@@ -32,6 +34,15 @@ struct AnalyzeArgs {
     /// Emit JSON instead of a table.
     #[arg(long)]
     json: bool,
+    /// Input format. `auto` detects from the file contents.
+    #[arg(long, value_enum, default_value_t = Format::Auto)]
+    format: Format,
+}
+
+#[derive(Args)]
+struct TuiArgs {
+    /// Path to a session log (`.jsonl`).
+    path: PathBuf,
     /// Input format. `auto` detects from the file contents.
     #[arg(long, value_enum, default_value_t = Format::Auto)]
     format: Format,
@@ -50,18 +61,35 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Analyze(args) => analyze(args),
+        Commands::Tui(args) => run_tui(args),
     }
 }
 
 fn analyze(args: AnalyzeArgs) -> Result<()> {
-    let data = std::fs::read_to_string(&args.path)
-        .with_context(|| format!("reading {}", args.path.display()))?;
+    let analytics = load_analytics(&args.path, args.format)?;
+    if args.json {
+        output::print_json(&analytics)?;
+    } else {
+        output::print_table(&analytics);
+    }
+    Ok(())
+}
+
+fn run_tui(args: TuiArgs) -> Result<()> {
+    let analytics = load_analytics(&args.path, args.format)?;
+    tui::run(&analytics)
+}
+
+/// Read a session log, detect its format, and compute analytics.
+fn load_analytics(path: &std::path::Path, format: Format) -> Result<SessionAnalytics> {
+    let data =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
 
     let first_line = data
         .lines()
         .find(|line| !line.trim().is_empty())
         .unwrap_or("");
-    let is_chat = match args.format {
+    let is_chat = match format {
         Format::Vscode => true,
         Format::Auto => chat_log::looks_like_chat_log(first_line),
     };
@@ -70,12 +98,5 @@ fn analyze(args: AnalyzeArgs) -> Result<()> {
     }
 
     let session = chat_log::parse_str(&data)?;
-    let analytics = SessionAnalytics::from_chat(&session);
-
-    if args.json {
-        output::print_json(&analytics)?;
-    } else {
-        output::print_table(&analytics);
-    }
-    Ok(())
+    Ok(SessionAnalytics::from_chat(&session))
 }

@@ -12,3 +12,4 @@ pub mod chat_log;
 pub mod cli;
 pub mod output;
 pub mod pricing;
+pub mod tui;
