@@ -12,6 +12,8 @@
 use anyhow::{Context, Result};
 use serde_json::{Map, Value};
 
+use crate::log_fields::log_fields;
+
 /// A reconstructed VS Code Copilot Chat session.
 #[derive(Debug, Clone)]
 pub struct ChatSession {
@@ -54,12 +56,15 @@ pub fn looks_like_chat_log(first_line: &str) -> bool {
     let Ok(value) = serde_json::from_str::<Value>(first_line) else {
         return false;
     };
-    value.get("kind").and_then(Value::as_u64) == Some(0)
-        && (value.pointer("/v/sessionId").is_some() || value.pointer("/v/requests").is_some())
+    let f = &log_fields().chat;
+    value.get(&f.journal.kind).and_then(Value::as_u64) == Some(0)
+        && (value.pointer(&f.header.session_id).is_some()
+            || value.pointer(&f.header.requests).is_some())
 }
 
 /// Parse a chat log from its full text contents.
 pub fn parse_str(data: &str) -> Result<ChatSession> {
+    let f = &log_fields().chat;
     let mut root = Value::Object(Map::new());
     for (line_no, raw) in data.lines().enumerate() {
         let line = raw.trim();
@@ -68,13 +73,13 @@ pub fn parse_str(data: &str) -> Result<ChatSession> {
         }
         let record: Value = serde_json::from_str(line)
             .with_context(|| format!("invalid JSON on line {}", line_no + 1))?;
-        let kind = record.get("kind").and_then(Value::as_u64).unwrap_or(1);
-        let value = record.get("v").cloned().unwrap_or(Value::Null);
+        let kind = record.get(&f.journal.kind).and_then(Value::as_u64).unwrap_or(1);
+        let value = record.get(&f.journal.value).cloned().unwrap_or(Value::Null);
         match kind {
             0 => root = value,
             _ => {
                 let path = record
-                    .get("k")
+                    .get(&f.journal.path)
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
@@ -136,19 +141,20 @@ fn ensure_path<'a>(root: &'a mut Value, path: &[Value]) -> &'a mut Value {
 }
 
 fn extract(root: &Value) -> ChatSession {
+    let f = &log_fields().chat;
     let session_id = root
-        .pointer("/sessionId")
+        .pointer(&f.session.session_id)
         .and_then(Value::as_str)
         .map(String::from);
     let custom_title = root
-        .pointer("/customTitle")
+        .pointer(&f.session.custom_title)
         .and_then(Value::as_str)
         .map(String::from);
-    let created_at_ms = root.pointer("/creationDate").and_then(Value::as_i64);
+    let created_at_ms = root.pointer(&f.session.creation_date).and_then(Value::as_i64);
     let model = extract_model(root);
 
     let mut requests = Vec::new();
-    if let Some(array) = root.pointer("/requests").and_then(Value::as_array) {
+    if let Some(array) = root.pointer(&f.session.requests).and_then(Value::as_array) {
         for request in array {
             if request.is_object() {
                 requests.push(extract_request(request));
@@ -166,7 +172,8 @@ fn extract(root: &Value) -> ChatSession {
 }
 
 fn extract_model(root: &Value) -> ChatModel {
-    let metadata = root.pointer("/inputState/selectedModel/metadata");
+    let f = &log_fields().chat;
+    let metadata = root.pointer(&f.session.model_metadata);
     let get_str = |key: &str| {
         metadata
             .and_then(|m| m.get(key))
@@ -175,40 +182,41 @@ fn extract_model(root: &Value) -> ChatModel {
     };
     let get_f64 = |key: &str| metadata.and_then(|m| m.get(key)).and_then(Value::as_f64);
     ChatModel {
-        id: get_str("id"),
-        name: get_str("name"),
-        input_per_m: get_f64("inputCost"),
-        output_per_m: get_f64("outputCost"),
-        cache_per_m: get_f64("cacheCost"),
+        id: get_str(&f.model.id),
+        name: get_str(&f.model.name),
+        input_per_m: get_f64(&f.model.input_cost),
+        output_per_m: get_f64(&f.model.output_cost),
+        cache_per_m: get_f64(&f.model.cache_cost),
     }
 }
 
 fn extract_request(request: &Value) -> ChatRequest {
+    let f = &log_fields().chat;
     let mut turn = ChatRequest {
         request_id: request
-            .get("requestId")
+            .get(&f.request.request_id)
             .and_then(Value::as_str)
             .map(String::from),
-        timestamp_ms: request.get("timestamp").and_then(Value::as_i64),
+        timestamp_ms: request.get(&f.request.timestamp).and_then(Value::as_i64),
         completion_tokens: request
-            .get("completionTokens")
+            .get(&f.request.completion_tokens)
             .and_then(Value::as_u64)
             .unwrap_or(0),
-        elapsed_ms: request.get("elapsedMs").and_then(Value::as_i64),
+        elapsed_ms: request.get(&f.request.elapsed_ms).and_then(Value::as_i64),
         first_progress_ms: request
-            .pointer("/result/timings/firstProgress")
+            .pointer(&f.request.first_progress)
             .and_then(Value::as_i64),
         total_elapsed_ms: request
-            .pointer("/result/timings/totalElapsed")
+            .pointer(&f.request.total_elapsed)
             .and_then(Value::as_i64),
         ..ChatRequest::default()
     };
 
-    if let Some(response) = request.get("response").and_then(Value::as_array) {
+    if let Some(response) = request.get(&f.request.response).and_then(Value::as_array) {
         for item in response {
-            match item.get("kind").and_then(Value::as_str) {
-                Some("toolInvocationSerialized") => collect_tool(item, &mut turn),
-                Some("thinking") => turn.had_reasoning = true,
+            match item.get(&f.response.kind).and_then(Value::as_str) {
+                Some(kind) if kind == f.response.tool_invocation_kind => collect_tool(item, &mut turn),
+                Some(kind) if kind == f.response.thinking_kind => turn.had_reasoning = true,
                 _ => {}
             }
         }
@@ -218,24 +226,25 @@ fn extract_request(request: &Value) -> ChatRequest {
 }
 
 fn collect_tool(item: &Value, turn: &mut ChatRequest) {
-    if let Some(tool_id) = item.get("toolId").and_then(Value::as_str) {
+    let f = &log_fields().chat;
+    if let Some(tool_id) = item.get(&f.response.tool_id).and_then(Value::as_str) {
         turn.tools.push(tool_id.to_string());
     }
     match item
-        .pointer("/toolSpecificData/kind")
+        .pointer(&f.response.tool_specific_kind)
         .and_then(Value::as_str)
     {
-        Some("subagent") => {
+        Some(kind) if kind == f.response.subagent_kind => {
             if let Some(name) = item
-                .pointer("/toolSpecificData/agentName")
+                .pointer(&f.response.agent_name)
                 .and_then(Value::as_str)
             {
                 turn.subagents.push(name.to_string());
             }
         }
-        Some("terminal") => {
+        Some(kind) if kind == f.response.terminal_kind => {
             if let Some(command) = item
-                .pointer("/toolSpecificData/commandLine/original")
+                .pointer(&f.response.command_original)
                 .and_then(Value::as_str)
             {
                 turn.terminal_commands.push(command.to_string());
@@ -250,15 +259,16 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
 
 /// Detect a `SKILL.md` read and return the skill folder name, if any.
 fn detect_skill(item: &Value) -> Option<String> {
-    let message = item.get("invocationMessage");
+    let f = &log_fields().chat;
+    let message = item.get(&f.response.invocation_message);
     let mut candidates: Vec<String> = Vec::new();
     match message {
         Some(Value::String(text)) => candidates.push(text.clone()),
         Some(Value::Object(object)) => {
-            if let Some(text) = object.get("value").and_then(Value::as_str) {
+            if let Some(text) = object.get(&f.response.message_value).and_then(Value::as_str) {
                 candidates.push(text.to_string());
             }
-            if let Some(uris) = object.get("uris").and_then(Value::as_object) {
+            if let Some(uris) = object.get(&f.response.message_uris).and_then(Value::as_object) {
                 candidates.extend(uris.keys().cloned());
             }
         }
@@ -268,11 +278,12 @@ fn detect_skill(item: &Value) -> Option<String> {
 }
 
 fn skill_name_from_path(path: &str) -> Option<String> {
-    if !path.contains("SKILL.md") {
+    let f = &log_fields().chat;
+    if !path.contains(&f.skill.marker_file) {
         return None;
     }
-    let marker = "/skills/";
-    let start = path.find(marker)? + marker.len();
+    let marker = &f.skill.path_segment;
+    let start = path.find(marker.as_str())? + marker.len();
     let rest = &path[start..];
     let end = rest.find('/')?;
     Some(rest[..end].to_string())
