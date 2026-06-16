@@ -1,0 +1,81 @@
+//! Command-line interface for vibe-watch.
+
+use std::path::PathBuf;
+
+use anyhow::{bail, Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
+use crate::analytics::SessionAnalytics;
+use crate::{chat_log, output};
+
+#[derive(Parser)]
+#[command(
+    name = "vibe-watch",
+    version,
+    about = "Monitor Copilot token & AI credit usage"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Analyze a session log and report token/credit/timeline metrics.
+    Analyze(AnalyzeArgs),
+}
+
+#[derive(Args)]
+struct AnalyzeArgs {
+    /// Path to a session log (`.jsonl`).
+    path: PathBuf,
+    /// Emit JSON instead of a table.
+    #[arg(long)]
+    json: bool,
+    /// Input format. `auto` detects from the file contents.
+    #[arg(long, value_enum, default_value_t = Format::Auto)]
+    format: Format,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Format {
+    /// Detect the format from the file contents.
+    Auto,
+    /// VS Code Copilot Chat `.jsonl` delta journal.
+    Vscode,
+}
+
+/// Parse arguments and dispatch to the requested command.
+pub fn run() -> Result<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Analyze(args) => analyze(args),
+    }
+}
+
+fn analyze(args: AnalyzeArgs) -> Result<()> {
+    let data = std::fs::read_to_string(&args.path)
+        .with_context(|| format!("reading {}", args.path.display()))?;
+
+    let first_line = data
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let is_chat = match args.format {
+        Format::Vscode => true,
+        Format::Auto => chat_log::looks_like_chat_log(first_line),
+    };
+    if !is_chat {
+        bail!("unrecognized log format (only VS Code chat .jsonl is supported so far)");
+    }
+
+    let session = chat_log::parse_str(&data)?;
+    let analytics = SessionAnalytics::from_chat(&session);
+
+    if args.json {
+        output::print_json(&analytics)?;
+    } else {
+        output::print_table(&analytics);
+    }
+    Ok(())
+}
