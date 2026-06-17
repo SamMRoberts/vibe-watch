@@ -9,6 +9,7 @@
 //! - [`cli`]: command-line entry point.
 
 pub mod analytics;
+pub mod cache;
 pub mod chat_log;
 pub mod cli;
 pub mod cli_log;

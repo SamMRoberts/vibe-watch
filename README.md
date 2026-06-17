@@ -67,6 +67,15 @@ cargo run -- analyze /path/to/session.jsonl --format vscode
 cargo run -- analyze /path/to/events.jsonl --format cli
 ```
 
+Session analytics are cached in a local SQLite database by default. Disable the
+cache for one run, force a refresh, or use an explicit cache database path with:
+
+```bash
+cargo run -- analyze /path/to/session.jsonl --no-cache
+cargo run -- analyze /path/to/session.jsonl --refresh-cache
+cargo run -- analyze /path/to/session.jsonl --cache-db /tmp/vibe-watch.sqlite
+```
+
 ### Open the terminal dashboard
 
 ```bash
@@ -173,3 +182,27 @@ Open the interactive dashboard for the same file:
 ```bash
 cargo run -- tui "$HOME/.copilot/session-state/<session-id>/events.jsonl" --format cli
 ```
+
+## Local cache
+
+vibe-watch stores derived session analytics in a local SQLite database so
+unchanged logs do not need to be reparsed on each launch. The cache is enabled
+by default for both `analyze` and `tui`; pass `--no-cache` to bypass it, or
+`--refresh-cache` to reparse matching logs and update their cached rows. Use
+`--cache-db <path>` to point a command at a specific database, which is useful
+for tests or temporary experiments.
+
+By default, the cache lives under the operating system cache directory. On
+macOS this is:
+
+```text
+~/Library/Caches/vibe-watch/sessions.sqlite
+```
+
+The cache stores derived analytics and validity metadata: source log paths,
+repository paths, session/model summaries, token and credit totals, the same
+activity details already shown by reports, and metadata for workspace sidecar
+files. It does not store raw JSONL log records. Cached rows are invalidated when
+the source log changes, workspace sidecars such as `workspace.json`,
+`.code-workspace`, or `workspace.yaml` change, the cache schema changes, or the
+embedded pricing/log-field configuration in the binary changes.

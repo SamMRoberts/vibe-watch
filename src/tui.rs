@@ -26,6 +26,7 @@ use ratatui::{Frame, Terminal};
 use tachyonfx::{fx, EffectManager, Interpolation};
 
 use crate::analytics::{CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
+use crate::cache::{CacheConfig, SessionCache};
 use crate::session_scan::{
     self, FormatFilter, LoadedSession, ScanEvent, ScanProgress, SessionLoadError,
 };
@@ -412,9 +413,14 @@ pub fn run(analytics: &SessionAnalytics) -> Result<()> {
     result
 }
 
-pub fn run_browser(path: Option<PathBuf>, filter: FormatFilter) -> Result<()> {
+pub fn run_browser(
+    path: Option<PathBuf>,
+    filter: FormatFilter,
+    cache_config: CacheConfig,
+    cache: Option<SessionCache>,
+) -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let result = browser_event_loop(&mut terminal, path, filter);
+    let result = browser_event_loop(&mut terminal, path, filter, cache_config, cache);
     restore_terminal(&mut terminal)?;
     result
 }
@@ -486,15 +492,27 @@ fn browser_event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     path: Option<PathBuf>,
     filter: FormatFilter,
+    cache_config: CacheConfig,
+    mut cache: Option<SessionCache>,
 ) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let result = session_scan::discover_sessions(path.as_deref(), filter);
         match result {
             Ok(candidates) => {
-                session_scan::scan_candidates_with(candidates, filter, |event| {
-                    sender.send(event).is_ok()
-                });
+                if cache_config.enabled {
+                    session_scan::scan_candidates_with_cache_handle(
+                        candidates,
+                        filter,
+                        &cache_config,
+                        cache.as_mut(),
+                        |event| sender.send(event).is_ok(),
+                    );
+                } else {
+                    session_scan::scan_candidates_with(candidates, filter, |event| {
+                        sender.send(event).is_ok()
+                    });
+                }
             }
             Err(error) => {
                 let _ = sender.send(ScanEvent::Error(SessionLoadError {

@@ -1,13 +1,20 @@
 //! Session discovery and loading for the multi-session TUI browser.
 
 use std::cmp::Reverse;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{bail, Context, Result};
 
 use crate::analytics::SessionAnalytics;
-use crate::workspace::{resolve_repository_path, WorkspaceFormat};
+use crate::cache::{
+    dependency_metadata, source_metadata, CacheConfig, DependencyMetadata, SessionCache,
+};
+use crate::workspace::{
+    resolve_repository_context, resolve_repository_path, WorkspaceContext, WorkspaceFormat,
+};
 use crate::{chat_log, cli_log};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +28,18 @@ pub enum FormatFilter {
 pub enum DetectedFormat {
     Vscode,
     Cli,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadOrigin {
+    Parsed,
+    Cached,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedAnalytics {
+    pub analytics: SessionAnalytics,
+    pub origin: LoadOrigin,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +97,85 @@ pub fn load_analytics(path: &Path, filter: FormatFilter) -> Result<SessionAnalyt
             Ok(SessionAnalytics::from_cli(&session))
         }
     }
+}
+
+pub fn load_analytics_with_cache(
+    path: &Path,
+    filter: FormatFilter,
+    config: &CacheConfig,
+) -> Result<LoadedAnalytics> {
+    let mut cache = SessionCache::open(config)?;
+    load_analytics_with_cache_handle(path, filter, config, cache.as_mut())
+}
+
+fn load_analytics_with_cache_handle(
+    path: &Path,
+    filter: FormatFilter,
+    config: &CacheConfig,
+    cache: Option<&mut SessionCache>,
+) -> Result<LoadedAnalytics> {
+    let initial_metadata = source_metadata(path)?;
+    let format = detect_format_from_path(path, filter)?;
+    let workspace_context = resolve_repository_context(path, workspace_format(format))?;
+    let dependencies = dependency_metadata_for_context(&workspace_context)?;
+
+    if let Some(cache) = cache {
+        if !config.refresh {
+            if let Some(analytics) = cache.lookup(&initial_metadata, format, &dependencies)? {
+                return Ok(LoadedAnalytics {
+                    analytics,
+                    origin: LoadOrigin::Cached,
+                });
+            }
+        }
+        let data =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let analytics = analytics_from_data(&data, format, workspace_context.repository_path)?;
+        let final_metadata = source_metadata(path)?;
+        if initial_metadata == final_metadata {
+            cache.store(&final_metadata, format, &dependencies, &analytics)?;
+        }
+        return Ok(LoadedAnalytics {
+            analytics,
+            origin: LoadOrigin::Parsed,
+        });
+    }
+
+    let data =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(LoadedAnalytics {
+        analytics: analytics_from_data(&data, format, workspace_context.repository_path)?,
+        origin: LoadOrigin::Parsed,
+    })
+}
+
+fn analytics_from_data(
+    data: &str,
+    format: DetectedFormat,
+    repository_path: Option<String>,
+) -> Result<SessionAnalytics> {
+    let repository_path = normalize_repository_path(repository_path);
+    match format {
+        DetectedFormat::Vscode => {
+            let mut session = chat_log::parse_str(data)?;
+            session.repository_path = repository_path;
+            Ok(SessionAnalytics::from_chat(&session))
+        }
+        DetectedFormat::Cli => {
+            let mut session = cli_log::parse_str(data)?;
+            session.repository_path =
+                repository_path.or_else(|| normalize_repository_path(session.cwd.clone()));
+            Ok(SessionAnalytics::from_cli(&session))
+        }
+    }
+}
+
+fn dependency_metadata_for_context(context: &WorkspaceContext) -> Result<Vec<DependencyMetadata>> {
+    context
+        .dependencies
+        .iter()
+        .map(|dependency| dependency_metadata(dependency.kind.clone(), &dependency.path))
+        .collect()
 }
 
 fn normalize_repository_path(path: Option<String>) -> Option<String> {
@@ -168,6 +266,86 @@ pub fn scan_candidates_with(
     let _ = emit(ScanEvent::Finished);
 }
 
+pub fn scan_candidates_with_cache(
+    candidates: Vec<SessionCandidate>,
+    filter: FormatFilter,
+    config: &CacheConfig,
+    mut emit: impl FnMut(ScanEvent) -> bool,
+) {
+    let cache = match SessionCache::open(config) {
+        Ok(None) => {
+            scan_candidates_with(candidates, filter, emit);
+            return;
+        }
+        Ok(cache) => cache,
+        Err(error) => {
+            let _ = emit(ScanEvent::Progress(ScanProgress {
+                processed: 0,
+                total: candidates.len(),
+                finished: candidates.is_empty(),
+            }));
+            let _ = emit(ScanEvent::Error(SessionLoadError {
+                path: PathBuf::from("(cache)"),
+                modified: None,
+                message: error.to_string(),
+            }));
+            let _ = emit(ScanEvent::Finished);
+            return;
+        }
+    };
+    let mut cache = cache.expect("cache open returned Some when enabled");
+    scan_candidates_with_cache_handle(candidates, filter, config, Some(&mut cache), emit);
+}
+
+pub fn scan_candidates_with_cache_handle(
+    candidates: Vec<SessionCandidate>,
+    filter: FormatFilter,
+    config: &CacheConfig,
+    mut cache: Option<&mut SessionCache>,
+    mut emit: impl FnMut(ScanEvent) -> bool,
+) {
+    let total = candidates.len();
+    if !emit(ScanEvent::Progress(ScanProgress {
+        processed: 0,
+        total,
+        finished: total == 0,
+    })) {
+        return;
+    }
+
+    for (index, candidate) in candidates.into_iter().enumerate() {
+        let keep_going = match load_analytics_with_cache_handle(
+            &candidate.path,
+            filter,
+            config,
+            cache.as_deref_mut(),
+        ) {
+            Ok(loaded) => emit(ScanEvent::Loaded(Box::new(LoadedSession {
+                path: candidate.path.clone(),
+                modified: candidate.modified,
+                analytics: loaded.analytics,
+            }))),
+            Err(error) => emit(ScanEvent::Error(SessionLoadError {
+                path: candidate.path.clone(),
+                modified: Some(candidate.modified),
+                message: error.to_string(),
+            })),
+        };
+        if !keep_going {
+            return;
+        }
+        if !emit(ScanEvent::Progress(ScanProgress {
+            processed: index + 1,
+            total,
+            finished: index + 1 == total,
+        })) {
+            return;
+        }
+    }
+
+    let _ = emit(ScanEvent::Finished);
+}
+
 fn detect_format(data: &str, filter: FormatFilter) -> Result<DetectedFormat> {
     let first_line = data
         .lines()
@@ -185,6 +363,22 @@ fn detect_format(data: &str, filter: FormatFilter) -> Result<DetectedFormat> {
             } else {
                 bail!("unrecognized log format (expected VS Code chat or Copilot CLI .jsonl)")
             }
+        }
+    }
+}
+
+fn detect_format_from_path(path: &Path, filter: FormatFilter) -> Result<DetectedFormat> {
+    match filter {
+        FormatFilter::Vscode => Ok(DetectedFormat::Vscode),
+        FormatFilter::Cli => Ok(DetectedFormat::Cli),
+        FormatFilter::Auto => {
+            let file = File::open(path).with_context(|| format!("reading {}", path.display()))?;
+            let first_line = BufReader::new(file)
+                .lines()
+                .map_while(Result::ok)
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or_default();
+            detect_format(&first_line, filter)
         }
     }
 }

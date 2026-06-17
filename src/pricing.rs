@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 const PRICING_JSON: &str = include_str!("../config/model_pricing.json");
 
 /// AIC rates for a model, expressed per 1,000,000 tokens.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub struct ModelRates {
     pub input_per_m: f64,
     pub output_per_m: f64,

@@ -3,14 +3,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::chat_log::{ChatModel, ChatSession};
 use crate::cli_log::CliSession;
 use crate::pricing::{builtin_rates, ModelRates};
 
 /// Where the active credit rates came from.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RatesSource {
     /// Pricing embedded in the session log header.
@@ -22,7 +22,7 @@ pub enum RatesSource {
 }
 
 /// Where the displayed total credit value came from.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditSource {
     /// Explicit cost/credit values reported by the session log.
@@ -38,21 +38,21 @@ pub enum CreditSource {
 }
 
 /// A named frequency count (tools, skills, subagents).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Aggregate {
     pub name: String,
     pub count: usize,
 }
 
 /// One activity observed within a turn, in source-log order.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct ActivityEvent {
     pub kind: String,
     pub name: String,
 }
 
 /// Usage associated with activity calls in their enclosing request or turn.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActivityUsage {
     pub name: String,
     pub calls: usize,
@@ -69,7 +69,7 @@ pub struct ActivityUsage {
 }
 
 /// Per-model token usage and cost reported for a session.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelUsage {
     pub name: String,
     pub requests: u64,
@@ -87,7 +87,7 @@ pub struct ModelUsage {
 }
 
 /// Metrics for a single request/response turn.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TurnMetrics {
     pub index: usize,
     pub request_id: Option<String>,
@@ -113,7 +113,7 @@ pub struct TurnMetrics {
 }
 
 /// Aggregated analytics for an entire session.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SessionAnalytics {
     pub session_id: Option<String>,
     pub repository_path: Option<String>,

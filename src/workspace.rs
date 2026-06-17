@@ -12,39 +12,83 @@ pub enum WorkspaceFormat {
     Cli,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceContext {
+    pub repository_path: Option<String>,
+    pub dependencies: Vec<WorkspaceDependency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceDependency {
+    pub kind: String,
+    pub path: PathBuf,
+}
+
 pub fn resolve_repository_path(log_path: &Path, format: WorkspaceFormat) -> Result<Option<String>> {
+    Ok(resolve_repository_context(log_path, format)?.repository_path)
+}
+
+pub fn resolve_repository_context(
+    log_path: &Path,
+    format: WorkspaceFormat,
+) -> Result<WorkspaceContext> {
     match format {
         WorkspaceFormat::Vscode => read_vscode_workspace(log_path),
         WorkspaceFormat::Cli => read_cli_workspace(log_path),
     }
 }
 
-fn read_vscode_workspace(log_path: &Path) -> Result<Option<String>> {
+fn read_vscode_workspace(log_path: &Path) -> Result<WorkspaceContext> {
+    let mut dependencies = Vec::new();
     let Some(sidecar) = existing_file(vscode_sidecar_path(log_path)) else {
-        return Ok(None);
+        return Ok(WorkspaceContext {
+            repository_path: None,
+            dependencies,
+        });
     };
+    dependencies.push(WorkspaceDependency {
+        kind: "vscode_workspace_json".to_string(),
+        path: sidecar.clone(),
+    });
 
     let data = std::fs::read_to_string(&sidecar)
         .with_context(|| format!("reading {}", sidecar.display()))?;
     let root: Value =
         serde_json::from_str(&data).with_context(|| format!("parsing {}", sidecar.display()))?;
     if let Some(folder) = root.get("folder").and_then(Value::as_str) {
-        return Ok(normalize_workspace_path(folder));
+        return Ok(WorkspaceContext {
+            repository_path: normalize_workspace_path(folder),
+            dependencies,
+        });
     }
 
     let Some(workspace) = root.get("workspace").and_then(Value::as_str) else {
-        return Ok(None);
+        return Ok(WorkspaceContext {
+            repository_path: None,
+            dependencies,
+        });
     };
-    read_vscode_workspace_file(workspace)
+    let repository_path = read_vscode_workspace_file(workspace, &mut dependencies)?;
+    Ok(WorkspaceContext {
+        repository_path,
+        dependencies,
+    })
 }
 
-fn read_vscode_workspace_file(workspace: &str) -> Result<Option<String>> {
+fn read_vscode_workspace_file(
+    workspace: &str,
+    dependencies: &mut Vec<WorkspaceDependency>,
+) -> Result<Option<String>> {
     let Some(path) = workspace_uri_to_path(workspace) else {
         return Ok(normalize_workspace_path(workspace));
     };
     let Some(path) = existing_file(Some(path)) else {
         return Ok(None);
     };
+    dependencies.push(WorkspaceDependency {
+        kind: "vscode_code_workspace".to_string(),
+        path: path.clone(),
+    });
 
     let data =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -75,19 +119,30 @@ fn workspace_uri_to_path(uri: &str) -> Option<PathBuf> {
     percent_decode(rest).map(PathBuf::from)
 }
 
-fn read_cli_workspace(log_path: &Path) -> Result<Option<String>> {
+fn read_cli_workspace(log_path: &Path) -> Result<WorkspaceContext> {
+    let mut dependencies = Vec::new();
     let sidecar = log_path.parent().map(|dir| dir.join("workspace.yaml"));
     let Some(sidecar) = existing_file(sidecar) else {
-        return Ok(None);
+        return Ok(WorkspaceContext {
+            repository_path: None,
+            dependencies,
+        });
     };
+    dependencies.push(WorkspaceDependency {
+        kind: "cli_workspace_yaml".to_string(),
+        path: sidecar.clone(),
+    });
 
     let data = std::fs::read_to_string(&sidecar)
         .with_context(|| format!("reading {}", sidecar.display()))?;
     let fields = parse_simple_yaml(&data);
-    Ok(fields
-        .get("git_root")
-        .cloned()
-        .or_else(|| fields.get("cwd").cloned()))
+    Ok(WorkspaceContext {
+        repository_path: fields
+            .get("git_root")
+            .cloned()
+            .or_else(|| fields.get("cwd").cloned()),
+        dependencies,
+    })
 }
 
 fn vscode_sidecar_path(log_path: &Path) -> Option<PathBuf> {

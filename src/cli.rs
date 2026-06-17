@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::cache::{CacheConfig, SessionCache};
 use crate::session_scan::{self, FormatFilter};
 use crate::{output, tui};
 
@@ -37,6 +38,8 @@ struct AnalyzeArgs {
     /// Input format. `auto` detects from the file contents.
     #[arg(long, value_enum, default_value_t = Format::Auto)]
     format: Format,
+    #[command(flatten)]
+    cache: CacheArgs,
 }
 
 #[derive(Args)]
@@ -46,6 +49,21 @@ struct TuiArgs {
     /// Input format. `auto` detects from the file contents.
     #[arg(long, value_enum, default_value_t = Format::Auto)]
     format: Format,
+    #[command(flatten)]
+    cache: CacheArgs,
+}
+
+#[derive(Args, Clone, Default)]
+struct CacheArgs {
+    /// Disable the local SQLite cache for this invocation.
+    #[arg(long)]
+    no_cache: bool,
+    /// Reparse source logs and update cache rows even when cached data exists.
+    #[arg(long)]
+    refresh_cache: bool,
+    /// Override the SQLite cache database path.
+    #[arg(long)]
+    cache_db: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -68,17 +86,23 @@ pub fn run() -> Result<()> {
 }
 
 fn analyze(args: AnalyzeArgs) -> Result<()> {
-    let analytics = session_scan::load_analytics(&args.path, args.format.into())?;
+    let loaded = session_scan::load_analytics_with_cache(
+        &args.path,
+        args.format.into(),
+        &args.cache.into_config(),
+    )?;
     if args.json {
-        output::print_json(&analytics)?;
+        output::print_json(&loaded.analytics)?;
     } else {
-        output::print_table(&analytics);
+        output::print_table(&loaded.analytics);
     }
     Ok(())
 }
 
 fn run_tui(args: TuiArgs) -> Result<()> {
-    tui::run_browser(args.path, args.format.into())
+    let cache_config = args.cache.into_config();
+    let cache = SessionCache::open(&cache_config)?;
+    tui::run_browser(args.path, args.format.into(), cache_config, cache)
 }
 
 impl From<Format> for FormatFilter {
@@ -87,6 +111,17 @@ impl From<Format> for FormatFilter {
             Format::Auto => FormatFilter::Auto,
             Format::Vscode => FormatFilter::Vscode,
             Format::Cli => FormatFilter::Cli,
+        }
+    }
+}
+
+impl CacheArgs {
+    fn into_config(self) -> CacheConfig {
+        let enabled = !self.no_cache;
+        CacheConfig {
+            enabled,
+            refresh: self.refresh_cache,
+            db_path: self.cache_db,
         }
     }
 }
