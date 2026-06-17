@@ -569,14 +569,19 @@ fn render_timeline(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, 
         if length == 0 {
             continue;
         }
-        let style = timeline_segment_style(index, index == state.selected);
-        spans.push(Span::styled(segment_label(index, length), style));
+        let selected = index == state.selected;
+        let style = timeline_segment_style(index, selected);
+        spans.push(Span::styled(segment_label(index, length, selected), style));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
 /// Label a timeline section with its turn index when there is room, else pad it.
-fn segment_label(index: usize, length: usize) -> String {
+fn segment_label(index: usize, length: usize, selected: bool) -> String {
+    if selected {
+        return selected_segment_label(index, length);
+    }
+
     let text = index.to_string();
     if length >= text.len() {
         let pad = length - text.len();
@@ -585,6 +590,32 @@ fn segment_label(index: usize, length: usize) -> String {
         format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
     } else {
         " ".repeat(length)
+    }
+}
+
+fn selected_segment_label(index: usize, length: usize) -> String {
+    match length {
+        0 => String::new(),
+        1 => "█".to_string(),
+        2 => "◀▶".to_string(),
+        _ => {
+            let text = index.to_string();
+            let inner_width = length.saturating_sub(2);
+            if inner_width == 0 {
+                return "◀▶".chars().take(length).collect();
+            }
+
+            let inner = if inner_width >= text.len() {
+                let pad = inner_width - text.len();
+                let left = pad / 2;
+                let right = pad - left;
+                format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
+            } else {
+                text.chars().take(inner_width).collect()
+            };
+
+            format!("◀{}▶", inner)
+        }
     }
 }
 
@@ -763,6 +794,20 @@ mod tests {
         assert_eq!(selected_timeline.bg, Some(color));
     }
 
+    #[test]
+    fn selected_segment_label_uses_explicit_markers() {
+        assert_eq!(segment_label(3, 1, true), "█");
+        assert_eq!(segment_label(3, 2, true), "◀▶");
+        assert_eq!(segment_label(3, 3, true), "◀3▶");
+        assert_eq!(segment_label(3, 5, true), "◀ 3 ▶");
+    }
+
+    #[test]
+    fn unselected_segment_label_stays_plain() {
+        assert_eq!(segment_label(3, 1, false), "3");
+        assert_eq!(segment_label(3, 3, false), " 3 ");
+    }
+
     fn activity_event(kind: &str, name: &str) -> crate::analytics::ActivityEvent {
         crate::analytics::ActivityEvent {
             kind: kind.to_string(),
@@ -807,9 +852,9 @@ mod tests {
 
     #[test]
     fn segment_label_centers_index_when_room() {
-        assert_eq!(segment_label(3, 1), "3");
-        assert_eq!(segment_label(3, 3), " 3 ");
+        assert_eq!(segment_label(3, 1, false), "3");
+        assert_eq!(segment_label(3, 3, false), " 3 ");
         // No room for the digits: blank padding only.
-        assert_eq!(segment_label(12, 1), " ");
+        assert_eq!(segment_label(12, 1, false), " ");
     }
 }
