@@ -21,7 +21,7 @@ use ratatui::widgets::{
 };
 use ratatui::{Frame, Terminal};
 
-use crate::analytics::{ActivityUsage, CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
+use crate::analytics::{CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
 
 /// View state shared between the event loop and [`render`].
 #[derive(Debug, Default, Clone, Copy)]
@@ -69,10 +69,18 @@ fn event_loop(
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => break,
                 KeyCode::Down | KeyCode::Char('j') if turn_count > 0 => {
-                    state.selected = (state.selected + 1).min(turn_count - 1);
+                    let next = (state.selected + 1).min(turn_count - 1);
+                    if next != state.selected {
+                        state.selected = next;
+                        state.activity_scroll = 0;
+                    }
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    state.selected = state.selected.saturating_sub(1);
+                    let next = state.selected.saturating_sub(1);
+                    if next != state.selected {
+                        state.selected = next;
+                        state.activity_scroll = 0;
+                    }
                 }
                 KeyCode::PageDown | KeyCode::Char(']') => {
                     state.activity_scroll = state.activity_scroll.saturating_add(3);
@@ -252,7 +260,7 @@ fn render_aggregates(
     analytics: &SessionAnalytics,
     state: &ViewState,
 ) {
-    let rows = activity_rows(analytics);
+    let rows = activity_rows(analytics.turns.get(state.selected));
     let inner_height = area.height.saturating_sub(2);
     let visible_rows = usize::from(inner_height.saturating_sub(1));
     let (start, end) = activity_window(rows.len(), visible_rows, state.activity_scroll);
@@ -264,7 +272,7 @@ fn render_aggregates(
     let table = Table::new(visible, activity_widths(wide))
         .header(activity_header(wide))
         .column_spacing(1)
-        .block(Block::bordered().title(" Activity usage "));
+        .block(Block::bordered().title(" Activity "));
     frame.render_widget(table, area);
 
     if visible_rows > 0 && rows.len() > visible_rows {
@@ -290,82 +298,82 @@ fn render_aggregates(
 #[derive(Debug, Clone)]
 enum ActivityRow {
     Section(&'static str),
-    Usage {
-        name: String,
-        calls: String,
-        request_count: String,
-        input_tokens: String,
-        output_tokens: String,
-        cached_tokens: String,
-        output_credits: String,
-        credits: String,
-    },
+    Detail { field: String, value: String },
 }
 
-fn activity_rows(analytics: &SessionAnalytics) -> Vec<ActivityRow> {
-    let mut rows = Vec::new();
-    push_activity_rows(&mut rows, "Tools", &analytics.tool_activity_usage);
-    push_activity_rows(&mut rows, "Skills", &analytics.skill_activity_usage);
-    push_activity_rows(&mut rows, "Subagents", &analytics.subagent_activity_usage);
-    if rows.is_empty() {
-        rows.push(ActivityRow::Section("no activity usage"));
+fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
+    let Some(turn) = turn else {
+        return vec![ActivityRow::Detail {
+            field: "status".to_string(),
+            value: "no selected turn".to_string(),
+        }];
+    };
+
+    let mut rows = vec![ActivityRow::Section("Turn")];
+    push_detail(&mut rows, "index", format!("turn {}", turn.index));
+    push_detail(&mut rows, "request", short_id(turn.request_id.as_deref()));
+    if let Some(model) = &turn.model {
+        push_detail(&mut rows, "model", model.clone());
     }
+    if let Some(mode) = &turn.mode {
+        push_detail(&mut rows, "mode", mode.clone());
+    }
+    push_detail(
+        &mut rows,
+        "input",
+        format!("{} tok", token_value(turn.input_tokens)),
+    );
+    push_detail(&mut rows, "output", format!("{} tok", turn.output_tokens));
+    if let Some(cached) = turn.cached_tokens {
+        push_detail(&mut rows, "cached", format!("{cached} tok"));
+    }
+    push_detail(
+        &mut rows,
+        "output %",
+        format!("{:.1}%", turn.pct_output_tokens),
+    );
+    push_detail(&mut rows, "credits", turn_credit_text(turn));
+    push_detail(
+        &mut rows,
+        "elapsed",
+        format!("{:.1}s", turn.elapsed_ms.unwrap_or(0) as f64 / 1000.0),
+    );
+
+    push_named_values(&mut rows, "Tools", &turn.tools);
+    push_named_values(&mut rows, "Commands", &turn.terminal_commands);
+    push_named_values(&mut rows, "Skills", &turn.skills);
+    push_named_values(&mut rows, "Subagents", &turn.subagents);
     rows
 }
 
-fn push_activity_rows(rows: &mut Vec<ActivityRow>, title: &'static str, usage: &[ActivityUsage]) {
-    if usage.is_empty() {
+fn push_detail(rows: &mut Vec<ActivityRow>, field: &str, value: String) {
+    rows.push(ActivityRow::Detail {
+        field: field.to_string(),
+        value,
+    });
+}
+
+fn push_named_values(rows: &mut Vec<ActivityRow>, title: &'static str, values: &[String]) {
+    if values.is_empty() {
         return;
     }
     rows.push(ActivityRow::Section(title));
-    rows.extend(usage.iter().map(|item| ActivityRow::Usage {
-        name: item.name.clone(),
-        calls: item.calls.to_string(),
-        request_count: item.request_count.to_string(),
-        input_tokens: token_value(item.input_tokens),
-        output_tokens: item.output_tokens.to_string(),
-        cached_tokens: token_value(item.cached_tokens),
-        output_credits: format_output_credits(item),
-        credits: activity_credit_text(item),
-    }));
+    for (index, value) in unique_values(values).into_iter().enumerate() {
+        push_detail(rows, &(index + 1).to_string(), value);
+    }
 }
 
 fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
     match row {
         ActivityRow::Section(title) => section_row(title, wide),
-        ActivityRow::Usage {
-            name,
-            calls,
-            request_count,
-            input_tokens,
-            output_tokens,
-            cached_tokens,
-            output_credits,
-            credits,
-        } if wide => Row::new(vec![
+        ActivityRow::Detail { field, value } if wide => Row::new(vec![
             Cell::from(""),
-            Cell::from(name.clone()),
-            Cell::from(calls.clone()),
-            Cell::from(request_count.clone()),
-            Cell::from(input_tokens.clone()),
-            Cell::from(output_tokens.clone()),
-            Cell::from(cached_tokens.clone()),
-            Cell::from(output_credits.clone()),
-            Cell::from(credits.clone()),
+            Cell::from(field.clone()),
+            Cell::from(value.clone()),
         ]),
-        ActivityRow::Usage {
-            name,
-            calls,
-            request_count,
-            output_tokens,
-            credits,
-            ..
-        } => Row::new(vec![
-            Cell::from(name.clone()),
-            Cell::from(format!("{calls}/{request_count}")),
-            Cell::from(output_tokens.clone()),
-            Cell::from(credits.clone()),
-        ]),
+        ActivityRow::Detail { field, value } => {
+            Row::new(vec![Cell::from(field.clone()), Cell::from(value.clone())])
+        }
     }
 }
 
@@ -374,18 +382,16 @@ fn section_row(title: &'static str, wide: bool) -> Row<'static> {
         title.to_string(),
         Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
     ))];
-    let column_count = if wide { 9 } else { 6 };
+    let column_count = if wide { 3 } else { 2 };
     cells.extend((1..column_count).map(|_| Cell::from("")));
     Row::new(cells)
 }
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec![
-            "kind", "activity", "calls", "reqs", "in", "out", "cached", "outAIC", "AIC",
-        ]
+        vec!["section", "field", "value"]
     } else {
-        vec!["activity", "use", "out", "AIC"]
+        vec!["field", "value"]
     };
     Row::new(cells).style(Style::new().add_modifier(Modifier::BOLD))
 }
@@ -393,23 +399,12 @@ fn activity_header(wide: bool) -> Row<'static> {
 fn activity_widths(wide: bool) -> Vec<Constraint> {
     if wide {
         vec![
-            Constraint::Length(9),
-            Constraint::Min(16),
-            Constraint::Length(5),
-            Constraint::Length(4),
-            Constraint::Length(7),
-            Constraint::Length(7),
-            Constraint::Length(7),
-            Constraint::Length(8),
-            Constraint::Length(8),
+            Constraint::Length(10),
+            Constraint::Length(12),
+            Constraint::Min(20),
         ]
     } else {
-        vec![
-            Constraint::Min(8),
-            Constraint::Length(3),
-            Constraint::Length(5),
-            Constraint::Length(8),
-        ]
+        vec![Constraint::Length(9), Constraint::Min(12)]
     }
 }
 
@@ -427,23 +422,11 @@ fn activity_window(
     (start, end)
 }
 
-fn format_output_credits(item: &ActivityUsage) -> String {
-    if item.output_credits > 0.0 {
-        format!("{:.2} out", item.output_credits)
-    } else {
-        "n/a".to_string()
-    }
-}
-
-fn activity_credit_text(item: &ActivityUsage) -> String {
-    match (item.credit_source, item.credits) {
-        (CreditSource::Reported, Some(total)) => format!("{total:.2} rpt"),
-        (CreditSource::Estimated, Some(total)) => format!("{total:.2} est"),
-        (CreditSource::Mixed, Some(total)) => format!("{total:.2} mix"),
-        (CreditSource::OutputOnly, _) if item.output_credits > 0.0 => {
-            format!("{:.2} out", item.output_credits)
-        }
-        _ => "n/a".to_string(),
+fn turn_credit_text(turn: &TurnMetrics) -> String {
+    match turn.credits {
+        Some(total) => format!("{total:.2} rpt"),
+        None if turn.output_credits > 0.0 => format!("{:.2} AIC output", turn.output_credits),
+        None => "n/a".to_string(),
     }
 }
 
@@ -498,13 +481,17 @@ fn short_id(request_id: Option<&str>) -> String {
 }
 
 fn dedup_join(values: &[String]) -> String {
+    unique_values(values).join(", ")
+}
+
+fn unique_values(values: &[String]) -> Vec<String> {
     let mut seen = Vec::new();
     for value in values {
         if !seen.contains(value) {
             seen.push(value.clone());
         }
     }
-    seen.join(", ")
+    seen
 }
 
 /// Draw the bottom timeline: each turn is a section of one horizontal bar,
