@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vibe_watch::session_scan::{
-    discover_sessions, load_analytics, scan_sessions, FormatFilter, ScanEvent,
+    discover_sessions, load_analytics, scan_candidates_with, scan_sessions, FormatFilter,
+    ScanEvent, SessionCandidate,
 };
 
 fn fixture_path(relative: &str) -> PathBuf {
@@ -136,6 +137,47 @@ fn scan_sessions_reports_loaded_and_error_rows() {
     assert_eq!(errors, 1);
     assert_eq!(progress.expect("progress").processed, 2);
     assert!(finished);
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn scan_candidates_streams_loaded_events_before_later_errors_finish() {
+    let dir = unique_temp_dir("stream");
+    let good = dir.join("good/events.jsonl");
+    let bad = dir.join("bad/events.jsonl");
+    copy_fixture("cli_session/events.jsonl", &good);
+    fs::create_dir_all(bad.parent().expect("bad parent")).expect("bad parent dir");
+    fs::write(&bad, "not jsonl").expect("bad session");
+
+    let candidates = vec![
+        SessionCandidate {
+            path: good,
+            modified: UNIX_EPOCH,
+        },
+        SessionCandidate {
+            path: bad,
+            modified: UNIX_EPOCH,
+        },
+    ];
+    let mut seen_loaded_before_error = false;
+    let mut saw_error = false;
+
+    scan_candidates_with(candidates, FormatFilter::Auto, |event| {
+        match event {
+            ScanEvent::Loaded(_) => {
+                seen_loaded_before_error = !saw_error;
+            }
+            ScanEvent::Error(_) => saw_error = true,
+            _ => {}
+        }
+        true
+    });
+
+    assert!(
+        seen_loaded_before_error,
+        "loaded sessions should be emitted before later candidates finish"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }

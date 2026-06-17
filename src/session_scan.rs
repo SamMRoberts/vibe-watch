@@ -109,40 +109,63 @@ pub fn discover_sessions(
 
 pub fn scan_sessions(root: Option<&Path>, filter: FormatFilter) -> Result<Vec<ScanEvent>> {
     let candidates = discover_sessions(root, filter)?;
-    Ok(scan_candidates(candidates, filter))
+    let mut events = Vec::new();
+    scan_candidates_with(candidates, filter, |event| {
+        events.push(event);
+        true
+    });
+    Ok(events)
 }
 
 pub fn scan_candidates(candidates: Vec<SessionCandidate>, filter: FormatFilter) -> Vec<ScanEvent> {
+    let mut events = Vec::new();
+    scan_candidates_with(candidates, filter, |event| {
+        events.push(event);
+        true
+    });
+    events
+}
+
+pub fn scan_candidates_with(
+    candidates: Vec<SessionCandidate>,
+    filter: FormatFilter,
+    mut emit: impl FnMut(ScanEvent) -> bool,
+) {
     let total = candidates.len();
-    let mut events = Vec::with_capacity(total.saturating_mul(2).saturating_add(2));
-    events.push(ScanEvent::Progress(ScanProgress {
+    if !emit(ScanEvent::Progress(ScanProgress {
         processed: 0,
         total,
         finished: total == 0,
-    }));
+    })) {
+        return;
+    }
 
     for (index, candidate) in candidates.into_iter().enumerate() {
-        match load_analytics(&candidate.path, filter) {
-            Ok(analytics) => events.push(ScanEvent::Loaded(Box::new(LoadedSession {
+        let keep_going = match load_analytics(&candidate.path, filter) {
+            Ok(analytics) => emit(ScanEvent::Loaded(Box::new(LoadedSession {
                 path: candidate.path.clone(),
                 modified: candidate.modified,
                 analytics,
             }))),
-            Err(error) => events.push(ScanEvent::Error(SessionLoadError {
+            Err(error) => emit(ScanEvent::Error(SessionLoadError {
                 path: candidate.path.clone(),
                 modified: Some(candidate.modified),
                 message: error.to_string(),
             })),
+        };
+        if !keep_going {
+            return;
         }
-        events.push(ScanEvent::Progress(ScanProgress {
+        if !emit(ScanEvent::Progress(ScanProgress {
             processed: index + 1,
             total,
             finished: index + 1 == total,
-        }));
+        })) {
+            return;
+        }
     }
 
-    events.push(ScanEvent::Finished);
-    events
+    let _ = emit(ScanEvent::Finished);
 }
 
 fn detect_format(data: &str, filter: FormatFilter) -> Result<DetectedFormat> {

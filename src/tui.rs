@@ -338,14 +338,12 @@ fn browser_event_loop(
 ) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = session_scan::scan_sessions(path.as_deref(), filter);
+        let result = session_scan::discover_sessions(path.as_deref(), filter);
         match result {
-            Ok(events) => {
-                for event in events {
-                    if sender.send(event).is_err() {
-                        break;
-                    }
-                }
+            Ok(candidates) => {
+                session_scan::scan_candidates_with(candidates, filter, |event| {
+                    sender.send(event).is_ok()
+                });
             }
             Err(error) => {
                 let _ = sender.send(ScanEvent::Error(SessionLoadError {

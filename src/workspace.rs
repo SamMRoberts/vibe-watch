@@ -28,11 +28,51 @@ fn read_vscode_workspace(log_path: &Path) -> Result<Option<String>> {
         .with_context(|| format!("reading {}", sidecar.display()))?;
     let root: Value =
         serde_json::from_str(&data).with_context(|| format!("parsing {}", sidecar.display()))?;
-    let Some(folder) = root.get("folder").and_then(Value::as_str) else {
+    if let Some(folder) = root.get("folder").and_then(Value::as_str) {
+        return Ok(normalize_workspace_path(folder));
+    }
+
+    let Some(workspace) = root.get("workspace").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    read_vscode_workspace_file(workspace)
+}
+
+fn read_vscode_workspace_file(workspace: &str) -> Result<Option<String>> {
+    let Some(path) = workspace_uri_to_path(workspace) else {
+        return Ok(normalize_workspace_path(workspace));
+    };
+    let Some(path) = existing_file(Some(path)) else {
         return Ok(None);
     };
 
-    Ok(normalize_workspace_path(folder))
+    let data =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let root: Value =
+        serde_json::from_str(&data).with_context(|| format!("parsing {}", path.display()))?;
+    let Some(folders) = root.get("folders").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+
+    folders
+        .iter()
+        .filter_map(|folder| folder.get("path").and_then(Value::as_str))
+        .find_map(normalize_workspace_folder)
+        .map(Some)
+        .map(Ok)
+        .unwrap_or(Ok(None))
+}
+
+fn normalize_workspace_folder(path: &str) -> Option<String> {
+    normalize_workspace_path(path).and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn workspace_uri_to_path(uri: &str) -> Option<PathBuf> {
+    let rest = uri.strip_prefix("file://")?;
+    percent_decode(rest).map(PathBuf::from)
 }
 
 fn read_cli_workspace(log_path: &Path) -> Result<Option<String>> {
@@ -150,5 +190,41 @@ mod tests {
             Some("/tmp/root")
         );
         assert_eq!(parsed.get("cwd").map(String::as_str), Some("/tmp/cwd"));
+    }
+
+    #[test]
+    fn resolves_vscode_workspace_uri_to_first_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "vibe-watch-workspace-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let chat_sessions = root.join("storage/chatSessions");
+        let workspace_file = root.join("Workspaces/test.code-workspace");
+        std::fs::create_dir_all(&chat_sessions).expect("chat dir");
+        std::fs::create_dir_all(workspace_file.parent().expect("workspace parent"))
+            .expect("workspace dir");
+        let workspace_uri = format!("file://{}", workspace_file.display());
+        std::fs::write(
+            root.join("storage/workspace.json"),
+            format!(r#"{{"workspace":"{}"}}"#, workspace_uri),
+        )
+        .expect("sidecar");
+        std::fs::write(
+            &workspace_file,
+            r#"{"folders":[{"path":"file:///tmp/vibe-watch-workspace-uri"}]}"#,
+        )
+        .expect("workspace file");
+        let log_path = chat_sessions.join("session.jsonl");
+        std::fs::write(&log_path, "").expect("log");
+
+        assert_eq!(
+            resolve_repository_path(&log_path, WorkspaceFormat::Vscode).expect("resolve"),
+            Some("/tmp/vibe-watch-workspace-uri".to_string())
+        );
+
+        std::fs::remove_dir_all(root).ok();
     }
 }
