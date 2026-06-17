@@ -12,6 +12,7 @@
 use anyhow::{Context, Result};
 use serde_json::{Map, Value};
 
+use crate::analytics::ActivityEvent;
 use crate::log_fields::log_fields;
 
 /// A reconstructed VS Code Copilot Chat session.
@@ -53,6 +54,7 @@ pub struct ChatRequest {
     pub subagents: Vec<String>,
     pub skills: Vec<String>,
     pub terminal_commands: Vec<String>,
+    pub activity_events: Vec<ActivityEvent>,
     pub had_reasoning: bool,
 }
 
@@ -268,6 +270,7 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
     let f = &log_fields().chat;
     if let Some(tool_id) = item.get(&f.response.tool_id).and_then(Value::as_str) {
         turn.tools.push(tool_id.to_string());
+        push_activity_event(turn, "tool", tool_id);
     }
     match item
         .pointer(&f.response.tool_specific_kind)
@@ -276,6 +279,7 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
         Some(kind) if kind == f.response.subagent_kind => {
             if let Some(name) = item.pointer(&f.response.agent_name).and_then(Value::as_str) {
                 turn.subagents.push(name.to_string());
+                push_activity_event(turn, "agent", name);
             }
         }
         Some(kind) if kind == f.response.terminal_kind => {
@@ -284,13 +288,22 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
                 .and_then(Value::as_str)
             {
                 turn.terminal_commands.push(command.to_string());
+                push_activity_event(turn, "cmd", command);
             }
         }
         _ => {}
     }
     if let Some(skill) = detect_skill(item) {
+        push_activity_event(turn, "skill", &skill);
         turn.skills.push(skill);
     }
+}
+
+fn push_activity_event(turn: &mut ChatRequest, kind: &str, name: &str) {
+    turn.activity_events.push(ActivityEvent {
+        kind: kind.to_string(),
+        name: name.to_string(),
+    });
 }
 
 /// Detect a `SKILL.md` read and return the skill folder name, if any.

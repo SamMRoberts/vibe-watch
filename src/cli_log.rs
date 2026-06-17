@@ -9,6 +9,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
+use crate::analytics::ActivityEvent;
 use crate::log_fields::log_fields;
 
 /// A reconstructed Copilot CLI session.
@@ -36,6 +37,7 @@ pub struct CliTurn {
     pub skills: Vec<String>,
     pub subagents: Vec<String>,
     pub terminal_commands: Vec<String>,
+    pub activity_events: Vec<ActivityEvent>,
 }
 
 impl CliTurn {
@@ -145,16 +147,19 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
                 if let Some(turn) = session.turns.last_mut() {
                     if let Some(name) = data.get(&f.data.tool_name).and_then(Value::as_str) {
                         turn.tools.push(name.to_string());
+                        push_activity_event(turn, "tool", name);
                         if is_subagent(name) {
                             let agent = data
                                 .pointer(&f.data.agent_name)
                                 .and_then(Value::as_str)
                                 .unwrap_or(name);
                             turn.subagents.push(agent.to_string());
+                            push_activity_event(turn, "agent", agent);
                         }
                     }
                     if let Some(command) = data.pointer(&f.data.command).and_then(Value::as_str) {
                         turn.terminal_commands.push(command.to_string());
+                        push_activity_event(turn, "cmd", command);
                     }
                     bump_end(turn, ts);
                 }
@@ -163,6 +168,7 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
                 if let Some(turn) = session.turns.last_mut() {
                     if let Some(name) = data.get(&f.data.skill_name).and_then(Value::as_str) {
                         turn.skills.push(name.to_string());
+                        push_activity_event(turn, "skill", name);
                     }
                     bump_end(turn, ts);
                 }
@@ -184,6 +190,13 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
 
     session.primary_model = pick_primary_model(&session, current_model);
     Ok(session)
+}
+
+fn push_activity_event(turn: &mut CliTurn, kind: &str, name: &str) {
+    turn.activity_events.push(ActivityEvent {
+        kind: kind.to_string(),
+        name: name.to_string(),
+    });
 }
 
 fn bump_end(turn: &mut CliTurn, ts: Option<i64>) {

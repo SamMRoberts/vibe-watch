@@ -91,6 +91,20 @@ fn per_turn_metrics_match() {
     assert!((t1.pct_output_tokens - 75.0).abs() < 1e-9);
     assert_eq!(t1.terminal_commands, vec!["cargo test"]);
     assert_eq!(t1.skills, vec!["demo-skill"]);
+    let activity_events: Vec<(&str, &str)> = t1
+        .activity_events
+        .iter()
+        .map(|event| (event.kind.as_str(), event.name.as_str()))
+        .collect();
+    assert_eq!(
+        activity_events,
+        vec![
+            ("tool", "run_in_terminal"),
+            ("cmd", "cargo test"),
+            ("tool", "copilot_readFile"),
+            ("skill", "demo-skill"),
+        ]
+    );
 }
 
 #[test]

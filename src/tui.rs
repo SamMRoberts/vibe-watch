@@ -297,101 +297,84 @@ fn render_aggregates(
 
 #[derive(Debug, Clone)]
 enum ActivityRow {
-    Section(&'static str),
-    Detail { field: String, value: String },
+    Event {
+        seq: String,
+        kind: String,
+        activity: String,
+        output_tokens: String,
+        credits: String,
+    },
 }
 
 fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
     let Some(turn) = turn else {
-        return vec![ActivityRow::Detail {
-            field: "status".to_string(),
-            value: "no selected turn".to_string(),
+        return vec![ActivityRow::Event {
+            seq: "-".to_string(),
+            kind: "status".to_string(),
+            activity: "no selected turn".to_string(),
+            output_tokens: "-".to_string(),
+            credits: "n/a".to_string(),
         }];
     };
 
-    let mut rows = vec![ActivityRow::Section("Turn")];
-    push_detail(&mut rows, "index", format!("turn {}", turn.index));
-    push_detail(&mut rows, "request", short_id(turn.request_id.as_deref()));
-    if let Some(model) = &turn.model {
-        push_detail(&mut rows, "model", model.clone());
+    if turn.activity_events.is_empty() {
+        return vec![ActivityRow::Event {
+            seq: "-".to_string(),
+            kind: "activity".to_string(),
+            activity: "none recorded".to_string(),
+            output_tokens: turn.output_tokens.to_string(),
+            credits: turn_associated_credit_text(turn),
+        }];
     }
-    if let Some(mode) = &turn.mode {
-        push_detail(&mut rows, "mode", mode.clone());
-    }
-    push_detail(
-        &mut rows,
-        "input",
-        format!("{} tok", token_value(turn.input_tokens)),
-    );
-    push_detail(&mut rows, "output", format!("{} tok", turn.output_tokens));
-    if let Some(cached) = turn.cached_tokens {
-        push_detail(&mut rows, "cached", format!("{cached} tok"));
-    }
-    push_detail(
-        &mut rows,
-        "output %",
-        format!("{:.1}%", turn.pct_output_tokens),
-    );
-    push_detail(&mut rows, "credits", turn_credit_text(turn));
-    push_detail(
-        &mut rows,
-        "elapsed",
-        format!("{:.1}s", turn.elapsed_ms.unwrap_or(0) as f64 / 1000.0),
-    );
 
-    push_named_values(&mut rows, "Tools", &turn.tools);
-    push_named_values(&mut rows, "Commands", &turn.terminal_commands);
-    push_named_values(&mut rows, "Skills", &turn.skills);
-    push_named_values(&mut rows, "Subagents", &turn.subagents);
-    rows
-}
-
-fn push_detail(rows: &mut Vec<ActivityRow>, field: &str, value: String) {
-    rows.push(ActivityRow::Detail {
-        field: field.to_string(),
-        value,
-    });
-}
-
-fn push_named_values(rows: &mut Vec<ActivityRow>, title: &'static str, values: &[String]) {
-    if values.is_empty() {
-        return;
-    }
-    rows.push(ActivityRow::Section(title));
-    for (index, value) in unique_values(values).into_iter().enumerate() {
-        push_detail(rows, &(index + 1).to_string(), value);
-    }
+    turn.activity_events
+        .iter()
+        .enumerate()
+        .map(|(index, event)| ActivityRow::Event {
+            seq: (index + 1).to_string(),
+            kind: event.kind.clone(),
+            activity: event.name.clone(),
+            output_tokens: turn.output_tokens.to_string(),
+            credits: turn_associated_credit_text(turn),
+        })
+        .collect()
 }
 
 fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
     match row {
-        ActivityRow::Section(title) => section_row(title, wide),
-        ActivityRow::Detail { field, value } if wide => Row::new(vec![
-            Cell::from(""),
-            Cell::from(field.clone()),
-            Cell::from(value.clone()),
+        ActivityRow::Event {
+            seq,
+            kind,
+            activity,
+            output_tokens,
+            credits,
+        } if wide => Row::new(vec![
+            Cell::from(seq.clone()),
+            Cell::from(kind.clone()),
+            Cell::from(activity.clone()),
+            Cell::from(output_tokens.clone()),
+            Cell::from(credits.clone()),
         ]),
-        ActivityRow::Detail { field, value } => {
-            Row::new(vec![Cell::from(field.clone()), Cell::from(value.clone())])
-        }
+        ActivityRow::Event {
+            seq,
+            kind,
+            activity,
+            credits,
+            ..
+        } => Row::new(vec![
+            Cell::from(seq.clone()),
+            Cell::from(kind.clone()),
+            Cell::from(activity.clone()),
+            Cell::from(credits.clone()),
+        ]),
     }
-}
-
-fn section_row(title: &'static str, wide: bool) -> Row<'static> {
-    let mut cells = vec![Cell::from(Span::styled(
-        title.to_string(),
-        Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-    ))];
-    let column_count = if wide { 3 } else { 2 };
-    cells.extend((1..column_count).map(|_| Cell::from("")));
-    Row::new(cells)
 }
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec!["section", "field", "value"]
+        vec!["#", "kind", "activity", "out", "assoc"]
     } else {
-        vec!["field", "value"]
+        vec!["#", "kind", "activity", "AIC"]
     };
     Row::new(cells).style(Style::new().add_modifier(Modifier::BOLD))
 }
@@ -399,12 +382,19 @@ fn activity_header(wide: bool) -> Row<'static> {
 fn activity_widths(wide: bool) -> Vec<Constraint> {
     if wide {
         vec![
-            Constraint::Length(10),
-            Constraint::Length(12),
-            Constraint::Min(20),
+            Constraint::Length(3),
+            Constraint::Length(7),
+            Constraint::Min(18),
+            Constraint::Length(7),
+            Constraint::Length(8),
         ]
     } else {
-        vec![Constraint::Length(9), Constraint::Min(12)]
+        vec![
+            Constraint::Length(3),
+            Constraint::Length(5),
+            Constraint::Min(12),
+            Constraint::Length(5),
+        ]
     }
 }
 
@@ -422,10 +412,10 @@ fn activity_window(
     (start, end)
 }
 
-fn turn_credit_text(turn: &TurnMetrics) -> String {
+fn turn_associated_credit_text(turn: &TurnMetrics) -> String {
     match turn.credits {
-        Some(total) => format!("{total:.2} rpt"),
-        None if turn.output_credits > 0.0 => format!("{:.2} AIC output", turn.output_credits),
+        Some(total) => format!("{total:.2}a"),
+        None if turn.output_credits > 0.0 => format!("{:.2}a", turn.output_credits),
         None => "n/a".to_string(),
     }
 }

@@ -72,6 +72,19 @@ fn per_turn_metrics_and_modes() {
     assert_eq!(t1.output_tokens, 600);
     assert!((t1.pct_output_tokens - 75.0).abs() < 1e-9);
     assert_eq!(t1.mode.as_deref(), Some("interactive"));
+    let activity_events: Vec<(&str, &str)> = t1
+        .activity_events
+        .iter()
+        .map(|event| (event.kind.as_str(), event.name.as_str()))
+        .collect();
+    assert_eq!(
+        activity_events,
+        vec![
+            ("tool", "view"),
+            ("tool", "subagent.run"),
+            ("agent", "Explore"),
+        ]
+    );
 }
 
 #[test]

@@ -44,6 +44,13 @@ pub struct Aggregate {
     pub count: usize,
 }
 
+/// One activity observed within a turn, in source-log order.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActivityEvent {
+    pub kind: String,
+    pub name: String,
+}
+
 /// Usage associated with activity calls in their enclosing request or turn.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityUsage {
@@ -101,6 +108,7 @@ pub struct TurnMetrics {
     pub subagents: Vec<String>,
     pub skills: Vec<String>,
     pub terminal_commands: Vec<String>,
+    pub activity_events: Vec<ActivityEvent>,
     pub had_reasoning: bool,
 }
 
@@ -217,6 +225,7 @@ impl SessionAnalytics {
                 subagents: request.subagents.clone(),
                 skills: request.skills.clone(),
                 terminal_commands: request.terminal_commands.clone(),
+                activity_events: request.activity_events.clone(),
                 had_reasoning: request.had_reasoning,
             });
         }
@@ -344,6 +353,7 @@ impl SessionAnalytics {
                 subagents: turn.subagents.clone(),
                 skills: turn.skills.clone(),
                 terminal_commands: turn.terminal_commands.clone(),
+                activity_events: turn.activity_events.clone(),
                 had_reasoning: false,
             });
         }

@@ -41,6 +41,12 @@ fn buffer_text(buffer: &Buffer) -> String {
     text
 }
 
+fn line_index(text: &str, needle: &str) -> usize {
+    text.lines()
+        .position(|line| line.contains(needle))
+        .unwrap_or_else(|| panic!("missing {needle}:\n{text}"))
+}
+
 fn render_analytics_to_text(
     analytics: &SessionAnalytics,
     width: u16,
@@ -124,9 +130,11 @@ fn renders_turns_and_activity() {
     assert!(text.contains("3000"), "missing turn 1 tokens:\n{text}");
 
     // Activity table follows the selected turn (turn 0 by default).
-    assert!(text.contains("field"), "missing field column:\n{text}");
-    assert!(text.contains("value"), "missing value column:\n{text}");
-    assert!(text.contains("out"), "missing output token column:\n{text}");
+    assert!(text.contains("kind"), "missing kind column:\n{text}");
+    assert!(
+        text.contains("activity"),
+        "missing activity column:\n{text}"
+    );
     assert!(text.contains("AIC"), "missing credit column:\n{text}");
     assert!(
         text.contains("copilot_applyPatch"),
@@ -169,13 +177,19 @@ fn renders_activity_for_selected_turn() {
         text.contains("cargo test"),
         "missing selected turn command:\n{text}"
     );
+    let terminal_line = line_index(&text, "run_in_terminal");
+    let command_line = line_index(&text, "cargo test");
+    let read_file_line = line_index(&text, "copilot_readFile");
+    let skill_line = line_index(&text, "demo-skill");
     assert!(
-        text.contains("3000"),
-        "missing selected turn output tokens:\n{text}"
+        terminal_line < command_line
+            && command_line < read_file_line
+            && read_file_line < skill_line,
+        "activity rows should follow source order:\n{text}"
     );
     assert!(
-        text.contains("7.50 rpt"),
-        "missing selected turn credits:\n{text}"
+        text.contains("7.50a"),
+        "missing selected turn associated credits:\n{text}"
     );
     assert!(
         !text.contains("copilot_applyPatch"),
@@ -187,8 +201,15 @@ fn renders_activity_for_selected_turn() {
 fn renders_wide_selected_turn_activity_columns() {
     let text = render_to_text(240, 30, &ViewState::default());
 
-    assert!(text.contains("section"), "missing section column:\n{text}");
-    assert!(text.contains("field"), "missing field column:\n{text}");
+    assert!(text.contains("kind"), "missing kind column:\n{text}");
+    assert!(
+        text.contains("activity"),
+        "missing activity column:\n{text}"
+    );
+    assert!(
+        text.contains("assoc"),
+        "missing associated AIC column:\n{text}"
+    );
     assert!(
         text.contains("copilot_applyPatch"),
         "missing selected turn tool in wide mode:\n{text}"
@@ -212,17 +233,14 @@ fn renders_cli_subagent_activity_usage() {
         },
     );
 
-    assert!(
-        text.contains("Subagents"),
-        "missing subagent section:\n{text}"
-    );
+    assert!(text.contains("agent"), "missing subagent kind:\n{text}");
     assert!(text.contains("Explore"), "missing subagent name:\n{text}");
     assert!(
         text.contains("600"),
         "missing subagent output tokens:\n{text}"
     );
     assert!(
-        text.contains("1.80 AIC"),
+        text.contains("1.80a"),
         "missing subagent output credits:\n{text}"
     );
 }
@@ -237,7 +255,7 @@ fn renders_scrolled_activity_rows() {
 
     assert!(text.contains("Activity"), "missing activity panel:\n{text}");
     assert!(
-        text.contains("Tools"),
+        text.contains("tool"),
         "missing selected turn tools section:\n{text}"
     );
     assert!(

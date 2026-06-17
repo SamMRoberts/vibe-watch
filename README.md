@@ -17,7 +17,7 @@ It currently supports two log formats:
 - Aggregate tool, skill, and subagent usage
 - Request/turn-associated usage breakdowns for tools, skills, and subagents
 - Per-model usage summaries for CLI session logs
-- An interactive TUI for exploring turns and selected-turn activity details
+- An interactive TUI for exploring selected-turn activity sequences
 
 ## Build
 
@@ -81,7 +81,7 @@ The TUI supports:
 
 The dashboard header shows token usage by category: input, output, and cached. When a log format does not expose a category, the value is shown as `n/a` rather than estimated from unrelated data.
 
-The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show turn metadata, token and credit details, tools, terminal commands, skills, and subagents for the highlighted row in the Turns pane.
+The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show the turn's recorded tools, terminal commands, skills, and subagents in source-log order, with associated output tokens and AI Credits. The order reflects the sequence captured by the input log; credit values remain associated request/turn usage rather than exact per-call metering.
 
 ## Token and credit mapping
 
