@@ -17,7 +17,7 @@ It currently supports two log formats:
 - Aggregate tool, skill, and subagent usage
 - Request/turn-associated usage breakdowns for tools, skills, and subagents
 - Per-model usage summaries for CLI session logs
-- An interactive TUI for exploring turns and session activity
+- An interactive TUI for exploring turns and activity-associated usage
 
 ## Build
 
@@ -76,9 +76,12 @@ cargo run -- tui /path/to/session.jsonl
 The TUI supports:
 
 - `Up` and `Down` to move between turns
+- `PageUp` and `PageDown`, or `[` and `]`, to scroll the activity usage pane
 - `q` to quit
 
 The dashboard header shows token usage by category: input, output, and cached. When a log format does not expose a category, the value is shown as `n/a` rather than estimated from unrelated data.
+
+The dashboard activity pane uses a Ratatui table to show tool, skill, and subagent activity usage. Compact terminals show activity name, call/request count, output tokens, and credits; wider terminals also show input, cached, and output-only credit columns when those values are available.
 
 ## Token and credit mapping
 

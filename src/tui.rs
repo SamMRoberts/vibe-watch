@@ -13,19 +13,23 @@ use ratatui::crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, List, ListItem, Paragraph, Row, Table};
+use ratatui::widgets::{
+    Block, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
+};
 use ratatui::{Frame, Terminal};
 
-use crate::analytics::{Aggregate, CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
+use crate::analytics::{ActivityUsage, CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
 
 /// View state shared between the event loop and [`render`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ViewState {
     /// Index of the currently highlighted turn.
     pub selected: usize,
+    /// First visible row in the activity usage table.
+    pub activity_scroll: usize,
 }
 
 /// Launch the interactive dashboard, returning when the user quits.
@@ -70,6 +74,12 @@ fn event_loop(
                 KeyCode::Up | KeyCode::Char('k') => {
                     state.selected = state.selected.saturating_sub(1);
                 }
+                KeyCode::PageDown | KeyCode::Char(']') => {
+                    state.activity_scroll = state.activity_scroll.saturating_add(3);
+                }
+                KeyCode::PageUp | KeyCode::Char('[') => {
+                    state.activity_scroll = state.activity_scroll.saturating_sub(3);
+                }
                 _ => {}
             }
         }
@@ -92,7 +102,7 @@ pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState
     let body =
         Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).split(rows[1]);
     render_turns(frame, body[0], analytics, state);
-    render_aggregates(frame, body[1], analytics);
+    render_aggregates(frame, body[1], analytics, state);
 
     render_footer(frame, rows[2], analytics, state);
     render_timeline(frame, rows[3], analytics, state);
@@ -236,31 +246,204 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
     frame.render_widget(table, area);
 }
 
-fn render_aggregates(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
-    let mut items: Vec<ListItem> = Vec::new();
-    push_section(&mut items, "Tools", &analytics.tool_usage, 6);
-    push_section(&mut items, "Skills", &analytics.skill_usage, 5);
-    push_section(&mut items, "Subagents", &analytics.subagent_usage, 4);
-    if items.is_empty() {
-        items.push(ListItem::new("(no tool activity)"));
+fn render_aggregates(
+    frame: &mut Frame,
+    area: Rect,
+    analytics: &SessionAnalytics,
+    state: &ViewState,
+) {
+    let rows = activity_rows(analytics);
+    let inner_height = area.height.saturating_sub(2);
+    let visible_rows = usize::from(inner_height.saturating_sub(1));
+    let (start, end) = activity_window(rows.len(), visible_rows, state.activity_scroll);
+    let wide = area.width >= 86;
+    let visible = rows[start..end]
+        .iter()
+        .map(|row| activity_table_row(row, wide));
+
+    let table = Table::new(visible, activity_widths(wide))
+        .header(activity_header(wide))
+        .column_spacing(1)
+        .block(Block::bordered().title(" Activity usage "));
+    frame.render_widget(table, area);
+
+    if visible_rows > 0 && rows.len() > visible_rows {
+        let mut scrollbar_state = ScrollbarState::new(rows.len())
+            .position(start)
+            .viewport_content_length(visible_rows);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"))
+            .thumb_style(Style::new().fg(Color::Cyan))
+            .track_style(Style::new().fg(Color::DarkGray));
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
     }
-    let list = List::new(items).block(Block::bordered().title(" Activity "));
-    frame.render_widget(list, area);
 }
 
-fn push_section(items: &mut Vec<ListItem>, title: &str, data: &[Aggregate], limit: usize) {
-    if data.is_empty() {
+#[derive(Debug, Clone)]
+enum ActivityRow {
+    Section(&'static str),
+    Usage {
+        name: String,
+        calls: String,
+        request_count: String,
+        input_tokens: String,
+        output_tokens: String,
+        cached_tokens: String,
+        output_credits: String,
+        credits: String,
+    },
+}
+
+fn activity_rows(analytics: &SessionAnalytics) -> Vec<ActivityRow> {
+    let mut rows = Vec::new();
+    push_activity_rows(&mut rows, "Tools", &analytics.tool_activity_usage);
+    push_activity_rows(&mut rows, "Skills", &analytics.skill_activity_usage);
+    push_activity_rows(&mut rows, "Subagents", &analytics.subagent_activity_usage);
+    if rows.is_empty() {
+        rows.push(ActivityRow::Section("no activity usage"));
+    }
+    rows
+}
+
+fn push_activity_rows(rows: &mut Vec<ActivityRow>, title: &'static str, usage: &[ActivityUsage]) {
+    if usage.is_empty() {
         return;
     }
-    items.push(ListItem::new(Line::from(Span::styled(
+    rows.push(ActivityRow::Section(title));
+    rows.extend(usage.iter().map(|item| ActivityRow::Usage {
+        name: item.name.clone(),
+        calls: item.calls.to_string(),
+        request_count: item.request_count.to_string(),
+        input_tokens: token_value(item.input_tokens),
+        output_tokens: item.output_tokens.to_string(),
+        cached_tokens: token_value(item.cached_tokens),
+        output_credits: format_output_credits(item),
+        credits: activity_credit_text(item),
+    }));
+}
+
+fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
+    match row {
+        ActivityRow::Section(title) => section_row(title, wide),
+        ActivityRow::Usage {
+            name,
+            calls,
+            request_count,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            output_credits,
+            credits,
+        } if wide => Row::new(vec![
+            Cell::from(""),
+            Cell::from(name.clone()),
+            Cell::from(calls.clone()),
+            Cell::from(request_count.clone()),
+            Cell::from(input_tokens.clone()),
+            Cell::from(output_tokens.clone()),
+            Cell::from(cached_tokens.clone()),
+            Cell::from(output_credits.clone()),
+            Cell::from(credits.clone()),
+        ]),
+        ActivityRow::Usage {
+            name,
+            calls,
+            request_count,
+            output_tokens,
+            credits,
+            ..
+        } => Row::new(vec![
+            Cell::from(name.clone()),
+            Cell::from(format!("{calls}/{request_count}")),
+            Cell::from(output_tokens.clone()),
+            Cell::from(credits.clone()),
+        ]),
+    }
+}
+
+fn section_row(title: &'static str, wide: bool) -> Row<'static> {
+    let mut cells = vec![Cell::from(Span::styled(
         title.to_string(),
         Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
-    ))));
-    for entry in data.iter().take(limit) {
-        items.push(ListItem::new(format!(
-            "  {:>4}  {}",
-            entry.count, entry.name
-        )));
+    ))];
+    let column_count = if wide { 9 } else { 6 };
+    cells.extend((1..column_count).map(|_| Cell::from("")));
+    Row::new(cells)
+}
+
+fn activity_header(wide: bool) -> Row<'static> {
+    let cells = if wide {
+        vec![
+            "kind", "activity", "calls", "reqs", "in", "out", "cached", "outAIC", "AIC",
+        ]
+    } else {
+        vec!["activity", "use", "out", "AIC"]
+    };
+    Row::new(cells).style(Style::new().add_modifier(Modifier::BOLD))
+}
+
+fn activity_widths(wide: bool) -> Vec<Constraint> {
+    if wide {
+        vec![
+            Constraint::Length(9),
+            Constraint::Min(16),
+            Constraint::Length(5),
+            Constraint::Length(4),
+            Constraint::Length(7),
+            Constraint::Length(7),
+            Constraint::Length(7),
+            Constraint::Length(8),
+            Constraint::Length(8),
+        ]
+    } else {
+        vec![
+            Constraint::Min(8),
+            Constraint::Length(3),
+            Constraint::Length(5),
+            Constraint::Length(8),
+        ]
+    }
+}
+
+fn activity_window(
+    total_rows: usize,
+    visible_rows: usize,
+    requested_scroll: usize,
+) -> (usize, usize) {
+    if total_rows == 0 || visible_rows == 0 {
+        return (0, 0);
+    }
+    let max_start = total_rows.saturating_sub(visible_rows);
+    let start = requested_scroll.min(max_start);
+    let end = (start + visible_rows).min(total_rows);
+    (start, end)
+}
+
+fn format_output_credits(item: &ActivityUsage) -> String {
+    if item.output_credits > 0.0 {
+        format!("{:.2} out", item.output_credits)
+    } else {
+        "n/a".to_string()
+    }
+}
+
+fn activity_credit_text(item: &ActivityUsage) -> String {
+    match (item.credit_source, item.credits) {
+        (CreditSource::Reported, Some(total)) => format!("{total:.2} rpt"),
+        (CreditSource::Estimated, Some(total)) => format!("{total:.2} est"),
+        (CreditSource::Mixed, Some(total)) => format!("{total:.2} mix"),
+        (CreditSource::OutputOnly, _) if item.output_credits > 0.0 => {
+            format!("{:.2} out", item.output_credits)
+        }
+        _ => "n/a".to_string(),
     }
 }
 
@@ -272,7 +455,7 @@ fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, st
     let lines = vec![
         Line::from(Span::styled(detail, Style::new().fg(Color::Gray))),
         Line::from(Span::styled(
-            "↑/↓ select turn   q quit",
+            "↑/↓ select turn   activity PgUp/PgDn or [/]   q quit",
             Style::new().fg(Color::DarkGray),
         )),
     ];

@@ -114,9 +114,76 @@ fn renders_turns_and_activity() {
     // Per-turn output token counts from the fixture.
     assert!(text.contains("1000"), "missing turn 0 tokens:\n{text}");
     assert!(text.contains("3000"), "missing turn 1 tokens:\n{text}");
-    // Aggregated activity.
+
+    // Activity usage table.
+    assert!(text.contains("use"), "missing calls/reqs column:\n{text}");
+    assert!(text.contains("out"), "missing output token column:\n{text}");
+    assert!(text.contains("AIC"), "missing credit column:\n{text}");
     assert!(text.contains("demo-skill"), "missing skill:\n{text}");
     assert!(text.contains("run_in_terminal"), "missing tool:\n{text}");
+    assert!(
+        text.contains("7.50 rpt"),
+        "missing reported skill credits:\n{text}"
+    );
+}
+
+#[test]
+fn renders_wide_activity_usage_columns() {
+    let text = render_to_text(240, 30, &ViewState::default());
+
+    assert!(text.contains("calls"), "missing calls column:\n{text}");
+    assert!(text.contains("reqs"), "missing reqs column:\n{text}");
+    assert!(
+        text.contains("outAIC"),
+        "missing output credit column:\n{text}"
+    );
+    assert!(
+        text.contains("9.00 out"),
+        "missing output-only skill credits:\n{text}"
+    );
+}
+
+#[test]
+fn renders_cli_subagent_activity_usage() {
+    let analytics = load_cli_analytics();
+    let text = render_analytics_to_text(&analytics, 140, 30, &ViewState::default());
+
+    assert!(
+        text.contains("Subagents"),
+        "missing subagent section:\n{text}"
+    );
+    assert!(text.contains("Explore"), "missing subagent name:\n{text}");
+    assert!(
+        text.contains("600"),
+        "missing subagent output tokens:\n{text}"
+    );
+    assert!(
+        text.contains("1.80 out"),
+        "missing subagent output credits:\n{text}"
+    );
+}
+
+#[test]
+fn renders_scrolled_activity_rows() {
+    let state = ViewState {
+        selected: 0,
+        activity_scroll: 4,
+    };
+    let text = render_to_text(120, 20, &state);
+
+    assert!(text.contains("Activity"), "missing activity panel:\n{text}");
+    assert!(
+        text.contains("Skills"),
+        "missing scrolled skill section:\n{text}"
+    );
+    assert!(
+        text.contains("demo-skill"),
+        "missing scrolled skill row:\n{text}"
+    );
+    assert!(
+        text.contains("activity PgUp/PgDn"),
+        "missing activity scroll help:\n{text}"
+    );
 }
 
 #[test]
@@ -145,7 +212,14 @@ fn renders_timeline_panel() {
     );
 
     // Selecting turn 1 updates the timeline title and still renders.
-    let text = render_to_text(120, 30, &ViewState { selected: 1 });
+    let text = render_to_text(
+        120,
+        30,
+        &ViewState {
+            selected: 1,
+            ..ViewState::default()
+        },
+    );
     assert!(
         text.contains("turn 1"),
         "timeline should follow selection:\n{text}"
