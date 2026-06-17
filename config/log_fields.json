@@ -1,0 +1,109 @@
+{
+    "_comment": "Property references for the session logs that vibe-watch reads. Both the VS Code Copilot Chat log (`chat`) and the Copilot CLI log (`cli`) are JSON/JSONL files. Every key, event type, and JSON pointer the parsers look up is defined here so that field renames in the log formats only require editing this file -- no Rust changes. Values starting with `/` are JSON pointers (RFC 6901, relative to the object noted in each section's comment); all other values are plain object keys or literal match strings. Add new entries as the log formats grow.",
+    "chat": {
+        "_comment": "VS Code Copilot Chat `.jsonl` delta journal. Each line is `{kind, k, v}`.",
+        "journal": {
+            "_comment": "Top-level keys on every journal line.",
+            "kind": "kind",
+            "value": "v",
+            "path": "k"
+        },
+        "header": {
+            "_comment": "JSON pointers into the first journal line (`kind:0`) used to recognise a chat log.",
+            "session_id": "/v/sessionId",
+            "requests": "/v/requests"
+        },
+        "session": {
+            "_comment": "JSON pointers into the reconstructed session root object.",
+            "session_id": "/sessionId",
+            "custom_title": "/customTitle",
+            "creation_date": "/creationDate",
+            "requests": "/requests",
+            "model_metadata": "/inputState/selectedModel/metadata"
+        },
+        "model": {
+            "_comment": "Keys within the model metadata object.",
+            "id": "id",
+            "name": "name",
+            "input_cost": "inputCost",
+            "output_cost": "outputCost",
+            "cache_cost": "cacheCost"
+        },
+        "request": {
+            "_comment": "Keys (and pointers) within a single request object in the `requests` array.",
+            "request_id": "requestId",
+            "timestamp": "timestamp",
+            "completion_tokens": "completionTokens",
+            "elapsed_ms": "elapsedMs",
+            "first_progress": "/result/timings/firstProgress",
+            "total_elapsed": "/result/timings/totalElapsed",
+            "response": "response"
+        },
+        "response": {
+            "_comment": "Keys, literal `kind` values, and pointers within a request's `response` array items.",
+            "kind": "kind",
+            "tool_invocation_kind": "toolInvocationSerialized",
+            "thinking_kind": "thinking",
+            "tool_id": "toolId",
+            "tool_specific_kind": "/toolSpecificData/kind",
+            "subagent_kind": "subagent",
+            "terminal_kind": "terminal",
+            "agent_name": "/toolSpecificData/agentName",
+            "command_original": "/toolSpecificData/commandLine/original",
+            "invocation_message": "invocationMessage",
+            "message_value": "value",
+            "message_uris": "uris"
+        },
+        "skill": {
+            "_comment": "Markers used to detect a skill read from a tool invocation message or URI.",
+            "marker_file": "SKILL.md",
+            "path_segment": "/skills/"
+        }
+    },
+    "cli": {
+        "_comment": "Copilot CLI `events.jsonl`. Each line is a flat `{type, data, id, parentId, timestamp}` event.",
+        "event": {
+            "_comment": "Top-level keys on every event line.",
+            "type": "type",
+            "data": "data",
+            "timestamp": "timestamp",
+            "chat_kind": "kind"
+        },
+        "types": {
+            "_comment": "Literal values of the event `type` field that the parser handles.",
+            "session_start": "session.start",
+            "session_model_change": "session.model_change",
+            "session_mode_changed": "session.mode_changed",
+            "user_message": "user.message",
+            "assistant_message": "assistant.message",
+            "tool_execution_start": "tool.execution_start",
+            "skill_invoked": "skill.invoked",
+            "session_shutdown": "session.shutdown"
+        },
+        "data": {
+            "_comment": "Keys and pointers within an event's `data` object.",
+            "session_id": "sessionId",
+            "cwd": "/context/cwd",
+            "new_model": "newModel",
+            "new_mode": "newMode",
+            "agent_mode": "agentMode",
+            "output_tokens": "outputTokens",
+            "tool_name": "toolName",
+            "agent_name": "/arguments/agentName",
+            "command": "/arguments/command",
+            "skill_name": "name",
+            "model_metrics": "modelMetrics"
+        },
+        "model_metrics": {
+            "_comment": "Keys and pointers within a single model entry of `modelMetrics`.",
+            "request_count": "/requests/count",
+            "request_cost": "/requests/cost",
+            "usage_prefix": "/usage/",
+            "input_tokens": "inputTokens",
+            "output_tokens": "outputTokens",
+            "cache_read_tokens": "cacheReadTokens",
+            "cache_write_tokens": "cacheWriteTokens",
+            "reasoning_tokens": "reasoningTokens"
+        }
+    }
+}

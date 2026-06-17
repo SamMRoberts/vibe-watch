@@ -2,6 +2,7 @@
 //!
 //! The library is split into focused modules:
 //! - [`pricing`]: model AIC rate tables and credit math.
+//! - [`log_fields`]: externalized property references for the session logs.
 //! - [`chat_log`]: parser for VS Code Copilot Chat `.jsonl` session logs.
 //! - [`analytics`]: typed metrics (per-turn tokens, credits, percentages, timeline).
 //! - [`output`]: human-readable table and JSON rendering.
@@ -11,6 +12,7 @@ pub mod analytics;
 pub mod chat_log;
 pub mod cli;
 pub mod cli_log;
+pub mod log_fields;
 pub mod output;
 pub mod pricing;
 pub mod tui;

@@ -9,6 +9,8 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
+use crate::log_fields::log_fields;
+
 /// A reconstructed Copilot CLI session.
 #[derive(Debug, Clone, Default)]
 pub struct CliSession {
@@ -63,13 +65,15 @@ pub fn looks_like_cli_log(first_line: &str) -> bool {
     let Ok(value) = serde_json::from_str::<Value>(first_line) else {
         return false;
     };
-    value.get("type").and_then(Value::as_str).is_some()
-        && value.get("data").is_some()
-        && value.get("kind").is_none()
+    let f = &log_fields().cli.event;
+    value.get(&f.r#type).and_then(Value::as_str).is_some()
+        && value.get(&f.data).is_some()
+        && value.get(&f.chat_kind).is_none()
 }
 
 /// Parse a CLI events log from its full text contents.
 pub fn parse_str(data: &str) -> Result<CliSession> {
+    let f = &log_fields().cli;
     let mut session = CliSession::default();
     let mut current_mode: Option<String> = None;
     let mut current_model: Option<String> = None;
@@ -81,37 +85,37 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
         }
         let event: Value = serde_json::from_str(line)
             .with_context(|| format!("invalid JSON on line {}", line_no + 1))?;
-        let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-        let data = event.get("data").cloned().unwrap_or(Value::Null);
+        let event_type = event.get(&f.event.r#type).and_then(Value::as_str).unwrap_or("");
+        let data = event.get(&f.event.data).cloned().unwrap_or(Value::Null);
         let ts = event
-            .get("timestamp")
+            .get(&f.event.timestamp)
             .and_then(Value::as_str)
             .and_then(parse_iso_ms);
 
         match event_type {
-            "session.start" => {
+            t if t == f.types.session_start => {
                 session.session_id = data
-                    .get("sessionId")
+                    .get(&f.data.session_id)
                     .and_then(Value::as_str)
                     .map(String::from);
                 session.cwd = data
-                    .pointer("/context/cwd")
+                    .pointer(&f.data.cwd)
                     .and_then(Value::as_str)
                     .map(String::from);
             }
-            "session.model_change" => {
-                if let Some(model) = data.get("newModel").and_then(Value::as_str) {
+            t if t == f.types.session_model_change => {
+                if let Some(model) = data.get(&f.data.new_model).and_then(Value::as_str) {
                     current_model = Some(model.to_string());
                 }
             }
-            "session.mode_changed" => {
-                if let Some(mode) = data.get("newMode").and_then(Value::as_str) {
+            t if t == f.types.session_mode_changed => {
+                if let Some(mode) = data.get(&f.data.new_mode).and_then(Value::as_str) {
                     current_mode = Some(mode.to_string());
                 }
             }
-            "user.message" => {
+            t if t == f.types.user_message => {
                 let mode = data
-                    .get("agentMode")
+                    .get(&f.data.agent_mode)
                     .and_then(Value::as_str)
                     .map(String::from)
                     .or_else(|| current_mode.clone());
@@ -124,45 +128,45 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
                     ..CliTurn::default()
                 });
             }
-            "assistant.message" => {
+            t if t == f.types.assistant_message => {
                 if let Some(turn) = session.turns.last_mut() {
                     turn.output_tokens += data
-                        .get("outputTokens")
+                        .get(&f.data.output_tokens)
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
                     bump_end(turn, ts);
                 }
             }
-            "tool.execution_start" => {
+            t if t == f.types.tool_execution_start => {
                 if let Some(turn) = session.turns.last_mut() {
-                    if let Some(name) = data.get("toolName").and_then(Value::as_str) {
+                    if let Some(name) = data.get(&f.data.tool_name).and_then(Value::as_str) {
                         turn.tools.push(name.to_string());
                         if is_subagent(name) {
                             let agent = data
-                                .pointer("/arguments/agentName")
+                                .pointer(&f.data.agent_name)
                                 .and_then(Value::as_str)
                                 .unwrap_or(name);
                             turn.subagents.push(agent.to_string());
                         }
                     }
                     if let Some(command) =
-                        data.pointer("/arguments/command").and_then(Value::as_str)
+                        data.pointer(&f.data.command).and_then(Value::as_str)
                     {
                         turn.terminal_commands.push(command.to_string());
                     }
                     bump_end(turn, ts);
                 }
             }
-            "skill.invoked" => {
+            t if t == f.types.skill_invoked => {
                 if let Some(turn) = session.turns.last_mut() {
-                    if let Some(name) = data.get("name").and_then(Value::as_str) {
+                    if let Some(name) = data.get(&f.data.skill_name).and_then(Value::as_str) {
                         turn.skills.push(name.to_string());
                     }
                     bump_end(turn, ts);
                 }
             }
-            "session.shutdown" => {
-                if let Some(metrics) = data.get("modelMetrics").and_then(Value::as_object) {
+            t if t == f.types.session_shutdown => {
+                if let Some(metrics) = data.get(&f.data.model_metrics).and_then(Value::as_object) {
                     for (name, value) in metrics {
                         session.model_usage.push(model_usage_from(name, value));
                     }
@@ -191,24 +195,25 @@ fn is_subagent(tool_name: &str) -> bool {
 }
 
 fn model_usage_from(name: &str, value: &Value) -> CliModelUsage {
+    let f = &log_fields().cli.model_metrics;
     let get = |key: &str| {
         value
-            .pointer(&format!("/usage/{key}"))
+            .pointer(&format!("{}{key}", f.usage_prefix))
             .and_then(Value::as_u64)
             .unwrap_or(0)
     };
     CliModelUsage {
         name: name.to_string(),
         requests: value
-            .pointer("/requests/count")
+            .pointer(&f.request_count)
             .and_then(Value::as_u64)
             .unwrap_or(0),
-        reported_cost: value.pointer("/requests/cost").and_then(Value::as_f64),
-        input_tokens: get("inputTokens"),
-        output_tokens: get("outputTokens"),
-        cache_read_tokens: get("cacheReadTokens"),
-        cache_write_tokens: get("cacheWriteTokens"),
-        reasoning_tokens: get("reasoningTokens"),
+        reported_cost: value.pointer(&f.request_cost).and_then(Value::as_f64),
+        input_tokens: get(&f.input_tokens),
+        output_tokens: get(&f.output_tokens),
+        cache_read_tokens: get(&f.cache_read_tokens),
+        cache_write_tokens: get(&f.cache_write_tokens),
+        reasoning_tokens: get(&f.reasoning_tokens),
     }
 }
 
