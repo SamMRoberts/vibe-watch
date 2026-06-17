@@ -17,7 +17,7 @@ It currently supports two log formats:
 - Aggregate tool, skill, and subagent usage
 - Request/turn-associated usage breakdowns for tools, skills, and subagents
 - Per-model usage summaries for CLI session logs
-- An interactive TUI for exploring selected-turn activity sequences
+- An interactive TUI for browsing repositories, sessions, selected-turn activity sequences, and progressive scan progress
 
 ## Build
 
@@ -70,14 +70,29 @@ cargo run -- analyze /path/to/events.jsonl --format cli
 ### Open the terminal dashboard
 
 ```bash
+cargo run -- tui
 cargo run -- tui /path/to/session.jsonl
+cargo run -- tui /path/to/session-root
 ```
+
+With no path, the TUI scans the default local Copilot session roots when they exist:
+
+- VS Code Copilot Chat sessions under `~/Library/Application Support/Code/User/workspaceStorage`
+- Copilot CLI sessions under `~/.copilot/session-state`
+
+Passing a file opens the browser around that session. Passing a directory recursively scans supported session logs under that directory. The `--format auto|vscode|cli` flag still controls format detection; forcing `vscode` or `cli` limits discovery to that log family.
 
 The TUI supports:
 
-- `Up` and `Down` to move between turns
-- `PageUp` and `PageDown`, or `[` and `]`, to scroll the Activity pane
-- `q` to quit
+- `Up` and `Down`, or `j` and `k`, to move through repositories, sessions, or turns
+- `Enter` or `Right` to drill from repositories to sessions, then into a session detail view
+- `Left` or `Backspace` to go back
+- `PageUp` and `PageDown`, or `[` and `]`, to scroll the Activity pane in a session detail view
+- `q` to quit, and `Esc` to go back or quit from the top level
+
+The initial dashboard lists repositories as they are loaded. Each repository row shows its loaded session count, total turns, and available AI Credit summary. Selecting a repository opens the session list for that repository; each loaded session row shows its title or session id, turn count, AI Credit value, and path. Sessions that cannot be read or parsed appear as error rows with their path and error message, so one bad log does not stop the rest of the scan.
+
+The TUI loads sessions progressively. Candidates are discovered and processed newest-first by modified time, and the Progress bar shows how many sessions have completed processing, the total candidate count, and the number of visible error rows. The dashboard updates as each session finishes loading.
 
 The dashboard header shows token usage by category: input, output, and cached. When a log format does not expose a category, the value is shown as `n/a` rather than estimated from unrelated data.
 

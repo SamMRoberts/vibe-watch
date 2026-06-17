@@ -5,6 +5,9 @@
 //! `TestBackend` in unit tests.
 
 use std::io::{self, Stdout};
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
@@ -17,11 +20,14 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
+    Block, Cell, Gauge, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
 };
 use ratatui::{Frame, Terminal};
 
 use crate::analytics::{CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
+use crate::session_scan::{
+    self, FormatFilter, LoadedSession, ScanEvent, ScanProgress, SessionLoadError,
+};
 
 /// View state shared between the event loop and [`render`].
 #[derive(Debug, Default, Clone, Copy)]
@@ -32,10 +38,236 @@ pub struct ViewState {
     pub activity_scroll: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserView {
+    Repositories,
+    Sessions,
+    SessionDetail,
+}
+
+#[derive(Debug, Clone)]
+pub struct BrowserState {
+    pub view: BrowserView,
+    pub selected_repo: usize,
+    pub selected_session: usize,
+    pub detail: ViewState,
+    progress: ScanProgress,
+    repositories: Vec<RepositoryGroup>,
+}
+
+impl BrowserState {
+    pub fn new(progress: ScanProgress) -> Self {
+        Self {
+            view: BrowserView::Repositories,
+            selected_repo: 0,
+            selected_session: 0,
+            detail: ViewState::default(),
+            progress,
+            repositories: Vec::new(),
+        }
+    }
+
+    pub fn add_loaded(&mut self, session: LoadedSession) {
+        let repository = session
+            .analytics
+            .repository_path
+            .clone()
+            .unwrap_or_else(|| "(unknown repository)".to_string());
+        self.group_mut(repository)
+            .entries
+            .push(SessionEntry::Loaded(Box::new(session)));
+        self.clamp_selection();
+    }
+
+    pub fn add_error(&mut self, error: SessionLoadError) {
+        self.group_mut("(errors)".to_string())
+            .entries
+            .push(SessionEntry::Error(error));
+        self.clamp_selection();
+    }
+
+    pub fn set_progress(&mut self, progress: ScanProgress) {
+        self.progress = progress;
+    }
+
+    pub fn apply_scan_event(&mut self, event: ScanEvent) {
+        match event {
+            ScanEvent::Progress(progress) => self.set_progress(progress),
+            ScanEvent::Loaded(session) => self.add_loaded(*session),
+            ScanEvent::Error(error) => self.add_error(error),
+            ScanEvent::Finished => {
+                self.progress.finished = true;
+            }
+        }
+    }
+
+    fn select_next(&mut self) {
+        match self.view {
+            BrowserView::Repositories => {
+                if !self.repositories.is_empty() {
+                    self.selected_repo = (self.selected_repo + 1).min(self.repositories.len() - 1);
+                    self.selected_session = 0;
+                    self.detail = ViewState::default();
+                }
+            }
+            BrowserView::Sessions => {
+                if let Some(group) = self.selected_group() {
+                    if !group.entries.is_empty() {
+                        self.selected_session =
+                            (self.selected_session + 1).min(group.entries.len() - 1);
+                        self.detail = ViewState::default();
+                    }
+                }
+            }
+            BrowserView::SessionDetail => self.select_next_turn(),
+        }
+    }
+
+    fn select_previous(&mut self) {
+        match self.view {
+            BrowserView::Repositories => {
+                self.selected_repo = self.selected_repo.saturating_sub(1);
+                self.selected_session = 0;
+                self.detail = ViewState::default();
+            }
+            BrowserView::Sessions => {
+                self.selected_session = self.selected_session.saturating_sub(1);
+                self.detail = ViewState::default();
+            }
+            BrowserView::SessionDetail => {
+                let next = self.detail.selected.saturating_sub(1);
+                if next != self.detail.selected {
+                    self.detail.selected = next;
+                    self.detail.activity_scroll = 0;
+                }
+            }
+        }
+    }
+
+    fn drill_in(&mut self) {
+        match self.view {
+            BrowserView::Repositories => {
+                if self.selected_group().is_some() {
+                    self.view = BrowserView::Sessions;
+                    self.selected_session = 0;
+                    self.detail = ViewState::default();
+                }
+            }
+            BrowserView::Sessions => {
+                if self.selected_loaded_session().is_some() {
+                    self.view = BrowserView::SessionDetail;
+                    self.detail = ViewState::default();
+                }
+            }
+            BrowserView::SessionDetail => {}
+        }
+    }
+
+    fn go_back(&mut self) -> bool {
+        match self.view {
+            BrowserView::Repositories => false,
+            BrowserView::Sessions => {
+                self.view = BrowserView::Repositories;
+                true
+            }
+            BrowserView::SessionDetail => {
+                self.view = BrowserView::Sessions;
+                true
+            }
+        }
+    }
+
+    fn select_next_turn(&mut self) {
+        let Some(session) = self.selected_loaded_session() else {
+            return;
+        };
+        let turn_count = session.analytics.turns.len();
+        if turn_count == 0 {
+            return;
+        }
+        let next = (self.detail.selected + 1).min(turn_count - 1);
+        if next != self.detail.selected {
+            self.detail.selected = next;
+            self.detail.activity_scroll = 0;
+        }
+    }
+
+    fn group_mut(&mut self, repository: String) -> &mut RepositoryGroup {
+        if let Some(index) = self
+            .repositories
+            .iter()
+            .position(|group| group.repository == repository)
+        {
+            return &mut self.repositories[index];
+        }
+        self.repositories.push(RepositoryGroup {
+            repository,
+            entries: Vec::new(),
+        });
+        self.repositories
+            .last_mut()
+            .expect("repository just pushed")
+    }
+
+    fn selected_group(&self) -> Option<&RepositoryGroup> {
+        self.repositories.get(self.selected_repo)
+    }
+
+    fn selected_loaded_session(&self) -> Option<&LoadedSession> {
+        let group = self.selected_group()?;
+        match group.entries.get(self.selected_session)? {
+            SessionEntry::Loaded(session) => Some(session.as_ref()),
+            SessionEntry::Error(_) => None,
+        }
+    }
+
+    fn clamp_selection(&mut self) {
+        if self.repositories.is_empty() {
+            self.selected_repo = 0;
+            self.selected_session = 0;
+            return;
+        }
+        self.selected_repo = self.selected_repo.min(self.repositories.len() - 1);
+        let entry_count = self.repositories[self.selected_repo].entries.len();
+        self.selected_session = if entry_count == 0 {
+            0
+        } else {
+            self.selected_session.min(entry_count - 1)
+        };
+    }
+
+    fn error_count(&self) -> usize {
+        self.repositories
+            .iter()
+            .flat_map(|group| &group.entries)
+            .filter(|entry| matches!(entry, SessionEntry::Error(_)))
+            .count()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RepositoryGroup {
+    repository: String,
+    entries: Vec<SessionEntry>,
+}
+
+#[derive(Debug, Clone)]
+enum SessionEntry {
+    Loaded(Box<LoadedSession>),
+    Error(SessionLoadError),
+}
+
 /// Launch the interactive dashboard, returning when the user quits.
 pub fn run(analytics: &SessionAnalytics) -> Result<()> {
     let mut terminal = setup_terminal()?;
     let result = event_loop(&mut terminal, analytics);
+    restore_terminal(&mut terminal)?;
+    result
+}
+
+pub fn run_browser(path: Option<PathBuf>, filter: FormatFilter) -> Result<()> {
+    let mut terminal = setup_terminal()?;
+    let result = browser_event_loop(&mut terminal, path, filter);
     restore_terminal(&mut terminal)?;
     result
 }
@@ -95,6 +327,84 @@ fn event_loop(
     Ok(())
 }
 
+fn browser_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    path: Option<PathBuf>,
+    filter: FormatFilter,
+) -> Result<()> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = session_scan::scan_sessions(path.as_deref(), filter);
+        match result {
+            Ok(events) => {
+                for event in events {
+                    if sender.send(event).is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = sender.send(ScanEvent::Error(SessionLoadError {
+                    path: path.unwrap_or_else(|| PathBuf::from("(default roots)")),
+                    modified: None,
+                    message: error.to_string(),
+                }));
+                let _ = sender.send(ScanEvent::Progress(ScanProgress {
+                    processed: 0,
+                    total: 0,
+                    finished: true,
+                }));
+                let _ = sender.send(ScanEvent::Finished);
+            }
+        }
+    });
+
+    let mut state = BrowserState::new(ScanProgress::default());
+    loop {
+        for event in receiver.try_iter() {
+            state.apply_scan_event(event);
+        }
+
+        terminal.draw(|frame| render_browser(frame, &state))?;
+
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
+        if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match key.code {
+                KeyCode::Char('q') => break,
+                KeyCode::Esc => {
+                    if !state.go_back() {
+                        break;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => state.select_next(),
+                KeyCode::Up | KeyCode::Char('k') => state.select_previous(),
+                KeyCode::Enter | KeyCode::Right => state.drill_in(),
+                KeyCode::Left | KeyCode::Backspace => {
+                    state.go_back();
+                }
+                KeyCode::PageDown | KeyCode::Char(']')
+                    if state.view == BrowserView::SessionDetail =>
+                {
+                    state.detail.activity_scroll = state.detail.activity_scroll.saturating_add(3);
+                }
+                KeyCode::PageUp | KeyCode::Char('[')
+                    if state.view == BrowserView::SessionDetail =>
+                {
+                    state.detail.activity_scroll = state.detail.activity_scroll.saturating_sub(3);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Draw the full dashboard into `frame`. Pure with respect to the terminal.
 pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState) {
     let rows = Layout::vertical([
@@ -114,6 +424,280 @@ pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState
 
     render_footer(frame, rows[2], analytics, state);
     render_timeline(frame, rows[3], analytics, state);
+}
+
+pub fn render_browser(frame: &mut Frame, state: &BrowserState) {
+    if state.view == BrowserView::SessionDetail {
+        if let Some(session) = state.selected_loaded_session() {
+            render(frame, &session.analytics, &state.detail);
+            return;
+        }
+    }
+
+    let rows = Layout::vertical([
+        Constraint::Length(4),
+        Constraint::Min(6),
+        Constraint::Length(3),
+        Constraint::Length(3),
+    ])
+    .split(frame.area());
+
+    render_browser_header(frame, rows[0], state);
+    match state.view {
+        BrowserView::Repositories | BrowserView::SessionDetail => {
+            render_repositories(frame, rows[1], state)
+        }
+        BrowserView::Sessions => render_sessions(frame, rows[1], state),
+    }
+    render_progress(frame, rows[2], state);
+    render_browser_footer(frame, rows[3], state);
+}
+
+fn render_browser_header(frame: &mut Frame, area: Rect, state: &BrowserState) {
+    let loaded = state
+        .repositories
+        .iter()
+        .flat_map(|group| &group.entries)
+        .filter(|entry| matches!(entry, SessionEntry::Loaded(_)))
+        .count();
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("Repositories ", Style::new().fg(Color::Cyan).bold()),
+            Span::raw(format!("{}   ", state.repositories.len())),
+            Span::styled("sessions ", Style::new().fg(Color::DarkGray)),
+            Span::raw(loaded.to_string()),
+            Span::raw(format!("   errors {}", state.error_count())),
+        ]),
+        Line::from(Span::styled(
+            "Enter/Right drill in   Left/Backspace back   q quit",
+            Style::new().fg(Color::DarkGray),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines).block(Block::bordered().title(" vibe-watch sessions ")),
+        area,
+    );
+}
+
+fn render_repositories(frame: &mut Frame, area: Rect, state: &BrowserState) {
+    let rows = state.repositories.iter().enumerate().map(|(index, group)| {
+        let selected = index == state.selected_repo;
+        let style = selected_row_style(selected);
+        Row::new(vec![
+            Cell::from(group.repository.clone()),
+            Cell::from(group.entries.len().to_string()),
+            Cell::from(group_turn_count(group).to_string()),
+            Cell::from(group_credit_summary(group)),
+        ])
+        .style(style)
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(58),
+            Constraint::Length(10),
+            Constraint::Length(8),
+            Constraint::Length(18),
+        ],
+    )
+    .header(
+        Row::new(vec!["repository", "sessions", "turns", "AIC"])
+            .style(Style::new().add_modifier(Modifier::BOLD)),
+    )
+    .block(Block::bordered().title(" Repositories "));
+    frame.render_widget(table, area);
+}
+
+fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
+    let Some(group) = state.selected_group() else {
+        frame.render_widget(
+            Paragraph::new("No repository selected").block(Block::bordered().title(" Sessions ")),
+            area,
+        );
+        return;
+    };
+
+    let rows = group.entries.iter().enumerate().map(|(index, entry)| {
+        let selected = index == state.selected_session;
+        let style = selected_row_style(selected);
+        match entry {
+            SessionEntry::Loaded(session) => Row::new(vec![
+                Cell::from(session_label(&session.analytics)),
+                Cell::from(session.analytics.turn_count.to_string()),
+                Cell::from(analytics_credit_summary(&session.analytics)),
+                Cell::from(short_path(&session.path)),
+                Cell::from("loaded"),
+            ])
+            .style(style),
+            SessionEntry::Error(error) => Row::new(vec![
+                Cell::from(short_path(&error.path)),
+                Cell::from("-"),
+                Cell::from("n/a"),
+                Cell::from(error.message.clone()),
+                Cell::from("error"),
+            ])
+            .style(style.fg(Color::Red)),
+        }
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(30),
+            Constraint::Length(7),
+            Constraint::Length(18),
+            Constraint::Percentage(38),
+            Constraint::Length(8),
+        ],
+    )
+    .header(
+        Row::new(vec!["session", "turns", "AIC", "path/error", "status"])
+            .style(Style::new().add_modifier(Modifier::BOLD)),
+    )
+    .block(Block::bordered().title(format!(" Sessions - {} ", group.repository)));
+    frame.render_widget(table, area);
+}
+
+fn render_progress(frame: &mut Frame, area: Rect, state: &BrowserState) {
+    let ratio = if state.progress.total == 0 {
+        1.0
+    } else {
+        state.progress.processed as f64 / state.progress.total as f64
+    };
+    let label = if state.progress.finished {
+        format!(
+            "Loaded {}/{}   errors {}",
+            state.progress.processed,
+            state.progress.total,
+            state.error_count()
+        )
+    } else {
+        format!(
+            "Loading {}/{}   errors {}",
+            state.progress.processed,
+            state.progress.total,
+            state.error_count()
+        )
+    };
+    let gauge = Gauge::default()
+        .block(Block::bordered().title(" Progress "))
+        .gauge_style(Style::new().fg(Color::Green))
+        .ratio(ratio.clamp(0.0, 1.0))
+        .label(label);
+    frame.render_widget(gauge, area);
+}
+
+fn render_browser_footer(frame: &mut Frame, area: Rect, state: &BrowserState) {
+    let detail = match state.view {
+        BrowserView::Repositories => "repository dashboard",
+        BrowserView::Sessions => "repository sessions",
+        BrowserView::SessionDetail => "session detail",
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            detail,
+            Style::new().fg(Color::Gray),
+        )))
+        .block(Block::bordered()),
+        area,
+    );
+}
+
+fn selected_row_style(selected: bool) -> Style {
+    if selected {
+        Style::new()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::new()
+    }
+}
+
+fn group_turn_count(group: &RepositoryGroup) -> usize {
+    group
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            SessionEntry::Loaded(session) => Some(session.analytics.turn_count),
+            SessionEntry::Error(_) => None,
+        })
+        .sum()
+}
+
+fn group_credit_summary(group: &RepositoryGroup) -> String {
+    let mut total = 0.0;
+    let mut any = false;
+    let mut source = None;
+    for entry in &group.entries {
+        let SessionEntry::Loaded(session) = entry else {
+            continue;
+        };
+        if let Some(value) = analytics_credit_value(&session.analytics) {
+            total += value;
+            any = true;
+            source.get_or_insert(session.analytics.credit_source);
+        }
+    }
+    if any {
+        format!(
+            "{total:.1} {}",
+            credit_source_label(source.unwrap_or(CreditSource::Unknown))
+        )
+    } else {
+        "n/a".to_string()
+    }
+}
+
+fn analytics_credit_summary(analytics: &SessionAnalytics) -> String {
+    analytics_credit_value(analytics).map_or_else(
+        || "n/a".to_string(),
+        |value| {
+            format!(
+                "{value:.1} {}",
+                credit_source_label(analytics.credit_source)
+            )
+        },
+    )
+}
+
+fn analytics_credit_value(analytics: &SessionAnalytics) -> Option<f64> {
+    match (analytics.credit_source, analytics.total_credits) {
+        (CreditSource::Reported | CreditSource::Estimated | CreditSource::Mixed, Some(value)) => {
+            Some(value)
+        }
+        (CreditSource::OutputOnly, _) => Some(analytics.total_output_credits),
+        _ => None,
+    }
+}
+
+fn credit_source_label(source: CreditSource) -> &'static str {
+    match source {
+        CreditSource::Reported => "reported",
+        CreditSource::Estimated => "estimated",
+        CreditSource::Mixed => "mixed",
+        CreditSource::OutputOnly => "output-only",
+        CreditSource::Unknown => "unknown",
+    }
+}
+
+fn session_label(analytics: &SessionAnalytics) -> String {
+    analytics
+        .title
+        .clone()
+        .or_else(|| analytics.session_id.clone())
+        .unwrap_or_else(|| "(unknown session)".to_string())
+}
+
+fn short_path(path: &std::path::Path) -> String {
+    let parts: Vec<String> = path
+        .components()
+        .rev()
+        .take(2)
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    parts.into_iter().rev().collect::<Vec<_>>().join("/")
 }
 
 fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {

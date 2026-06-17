@@ -7,7 +7,8 @@ use ratatui::Terminal;
 use vibe_watch::analytics::SessionAnalytics;
 use vibe_watch::chat_log;
 use vibe_watch::cli_log;
-use vibe_watch::tui::{render, ViewState};
+use vibe_watch::session_scan::{LoadedSession, ScanProgress, SessionLoadError};
+use vibe_watch::tui::{render, render_browser, BrowserState, BrowserView, ViewState};
 
 fn load_chat_analytics() -> SessionAnalytics {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chat_min.jsonl");
@@ -66,12 +67,152 @@ fn render_to_text(width: u16, height: u16, state: &ViewState) -> String {
     render_analytics_to_text(&analytics, width, height, state)
 }
 
+fn render_browser_to_text(state: &BrowserState, width: u16, height: u16) -> String {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal
+        .draw(|frame| render_browser(frame, state))
+        .expect("draw");
+    buffer_text(terminal.backend().buffer())
+}
+
+fn loaded_session(path: &str, analytics: SessionAnalytics) -> LoadedSession {
+    LoadedSession {
+        path: std::path::PathBuf::from(path),
+        modified: std::time::SystemTime::UNIX_EPOCH,
+        analytics,
+    }
+}
+
+fn load_error(path: &str, message: &str) -> SessionLoadError {
+    SessionLoadError {
+        path: std::path::PathBuf::from(path),
+        modified: None,
+        message: message.to_string(),
+    }
+}
+
+fn browser_state_with_sessions() -> BrowserState {
+    let mut state = BrowserState::new(ScanProgress {
+        processed: 2,
+        total: 3,
+        finished: false,
+    });
+
+    let mut vscode = load_chat_analytics();
+    vscode.repository_path = Some("/tmp/vibe-watch-vscode".to_string());
+    let mut cli = load_cli_analytics();
+    cli.repository_path = Some("/tmp/vibe-watch-cli".to_string());
+    state.add_loaded(loaded_session("/tmp/vscode/chat_min.jsonl", vscode));
+    state.add_loaded(loaded_session("/tmp/cli/events.jsonl", cli));
+    state.add_error(load_error(
+        "/tmp/bad/events.jsonl",
+        "unrecognized log format",
+    ));
+    state
+}
+
 fn activity_pane_text(text: &str) -> String {
     text.lines()
         .filter(|line| line.contains('│'))
         .filter_map(|line| line.rsplit_once('│').map(|(_, right)| right))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[test]
+fn browser_dashboard_lists_repositories_and_session_counts() {
+    let state = browser_state_with_sessions();
+    let text = render_browser_to_text(&state, 140, 32);
+
+    assert!(
+        text.contains("Repositories"),
+        "missing dashboard title:\n{text}"
+    );
+    assert!(
+        text.contains("/tmp/vibe-watch-vscode"),
+        "missing VS Code repo row:\n{text}"
+    );
+    assert!(
+        text.contains("/tmp/vibe-watch-cli"),
+        "missing CLI repo row:\n{text}"
+    );
+    assert!(
+        text.contains("sessions"),
+        "missing session count column:\n{text}"
+    );
+    assert!(text.contains("turns"), "missing turn count column:\n{text}");
+    assert!(
+        text.contains("12.0 reported"),
+        "missing reported AIC:\n{text}"
+    );
+    assert!(text.contains("3.0 reported"), "missing CLI AIC:\n{text}");
+}
+
+#[test]
+fn browser_session_list_shows_turns_aic_and_errors() {
+    let mut state = browser_state_with_sessions();
+    state.view = BrowserView::Sessions;
+    state.selected_repo = 2;
+
+    let text = render_browser_to_text(&state, 140, 32);
+
+    assert!(
+        text.contains("Sessions"),
+        "missing session list title:\n{text}"
+    );
+    assert!(
+        text.contains("bad/events.jsonl") || text.contains("events.jsonl"),
+        "missing error row path:\n{text}"
+    );
+    assert!(
+        text.contains("unrecognized log format"),
+        "missing error message:\n{text}"
+    );
+
+    state.selected_repo = 0;
+    let text = render_browser_to_text(&state, 140, 32);
+    assert!(text.contains("test-session"), "missing session id:\n{text}");
+    assert!(text.contains("2"), "missing turn count:\n{text}");
+    assert!(
+        text.contains("12.0 reported"),
+        "missing session AIC:\n{text}"
+    );
+}
+
+#[test]
+fn browser_detail_reuses_selected_session_turn_activity_view() {
+    let mut state = browser_state_with_sessions();
+    state.view = BrowserView::SessionDetail;
+    state.selected_repo = 0;
+    state.selected_session = 0;
+    state.detail.selected = 1;
+
+    let text = render_browser_to_text(&state, 140, 32);
+
+    assert!(
+        text.contains("Turns"),
+        "missing detail turns panel:\n{text}"
+    );
+    assert!(text.contains("Activity"), "missing activity panel:\n{text}");
+    assert!(
+        text.contains("turn 1"),
+        "missing selected turn detail:\n{text}"
+    );
+    assert!(
+        text.contains("run_in_terminal"),
+        "missing selected session activity:\n{text}"
+    );
+}
+
+#[test]
+fn browser_progress_bar_updates_while_loading() {
+    let state = browser_state_with_sessions();
+    let text = render_browser_to_text(&state, 120, 24);
+
+    assert!(text.contains("Loading"), "missing progress label:\n{text}");
+    assert!(text.contains("2/3"), "missing processed/total:\n{text}");
+    assert!(text.contains("errors 1"), "missing error count:\n{text}");
 }
 
 #[test]
