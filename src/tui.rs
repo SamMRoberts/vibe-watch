@@ -790,6 +790,22 @@ fn credit_summary(analytics: &SessionAnalytics) -> String {
     }
 }
 
+fn turn_credit_value(turn: &TurnMetrics) -> Option<f64> {
+    turn.credits.or({
+        if turn.output_credits > 0.0 {
+            Some(turn.output_credits)
+        } else {
+            None
+        }
+    })
+}
+
+fn turn_credit_cell(turn: &TurnMetrics) -> String {
+    turn_credit_value(turn)
+        .map(|value| format!("{value:.1}"))
+        .unwrap_or_else(|| "n/a".to_string())
+}
+
 fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {
     let max_tokens = analytics
         .turns
@@ -807,6 +823,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
             Cell::from(short_id(turn.request_id.as_deref())),
             Cell::from(token_value(turn.input_tokens)),
             Cell::from(turn.output_tokens.to_string()),
+            Cell::from(turn_credit_cell(turn)),
             Cell::from(format!("{:.1}%", turn.pct_output_tokens)),
             Cell::from(Span::styled(bar, Style::new().fg(Color::Green))),
         ])
@@ -819,6 +836,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         Constraint::Length(8),
         Constraint::Length(8),
         Constraint::Length(6),
+        Constraint::Length(6),
         Constraint::Min(14),
     ];
     let header = Row::new(vec![
@@ -826,6 +844,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         "request",
         "in_tok",
         "out_tok",
+        "AIC",
         "%tok",
         "output share",
     ])

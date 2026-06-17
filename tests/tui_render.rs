@@ -285,6 +285,7 @@ fn renders_turns_and_activity() {
     let text = render_to_text(120, 30, &ViewState::default());
     assert!(text.contains("Turns"), "missing turns panel:\n{text}");
     assert!(text.contains("Activity"), "missing activity panel:\n{text}");
+    assert!(text.contains("AIC"), "missing AIC column:\n{text}");
     assert!(
         text.contains("in_tok"),
         "missing input token column:\n{text}"
@@ -296,6 +297,8 @@ fn renders_turns_and_activity() {
     // Per-turn output token counts from the fixture.
     assert!(text.contains("1000"), "missing turn 0 tokens:\n{text}");
     assert!(text.contains("3000"), "missing turn 1 tokens:\n{text}");
+    assert!(text.contains("4.5"), "missing turn 0 AIC:\n{text}");
+    assert!(text.contains("7.5"), "missing turn 1 AIC:\n{text}");
 
     // Activity table follows the selected turn (turn 0 by default).
     assert!(text.contains("kind"), "missing kind column:\n{text}");
