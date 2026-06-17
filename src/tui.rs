@@ -329,15 +329,11 @@ impl BrowserEffects {
         }
 
         match event {
-            ScanEvent::Loaded(_) => self.progress.add_unique_effect(
-                "scan-loaded",
-                fx::fade_from_fg(Color::Green, (160, Interpolation::SineOut)),
-            ),
             ScanEvent::Error(_) => self.progress.add_unique_effect(
                 "scan-error",
-                fx::fade_from_fg(Color::Red, (260, Interpolation::SineOut)),
+                fx::fade_from_fg(Color::DarkGray, (120, Interpolation::Linear)),
             ),
-            ScanEvent::Progress(_) | ScanEvent::Finished => {}
+            ScanEvent::Loaded(_) | ScanEvent::Progress(_) | ScanEvent::Finished => {}
         }
     }
 
