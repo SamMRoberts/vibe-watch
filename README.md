@@ -15,6 +15,7 @@ It currently supports two log formats:
 - Reported AI credit usage when logs provide it, with pricing-based estimates as a fallback
 - Per-turn output token and elapsed-time metrics
 - Aggregate tool, skill, and subagent usage
+- Request/turn-associated usage breakdowns for tools, skills, and subagents
 - Per-model usage summaries for CLI session logs
 - An interactive TUI for exploring turns and session activity
 
@@ -94,6 +95,17 @@ Credit values use this precedence:
 1. Reported credits/costs from the log, such as VS Code `result.details` credit text or CLI `requests.cost`
 2. Estimated credits from token usage and known model pricing when no reported value is available
 3. Output-only credits for formats that expose only output usage
+
+## Activity usage breakdowns
+
+The text and JSON reports include two levels of activity reporting:
+
+- Count-only aggregates: how many times each tool, skill, or subagent appeared
+- Associated usage breakdowns: the tokens and credits recorded on the enclosing request or turn for each activity name
+
+Associated usage is not exact per-call metering. Current VS Code and Copilot CLI logs attach token and credit usage to requests, turns, or session/model summaries rather than to each individual tool, skill, or subagent call. vibe-watch therefore counts every call, but adds an enclosing request or turn's usage only once per activity name in that request or turn. This prevents repeated calls to the same activity from multiplying the entire request cost.
+
+For VS Code chat logs, activity usage can include request input tokens, output tokens, output-only credits, and reported request credits when those fields are present. For Copilot CLI logs, activity usage currently includes turn output tokens and output-only credits; session shutdown input, cache, and reasoning totals remain session/model-level data and are not attributed to individual activities.
 
 ## Input formats
 

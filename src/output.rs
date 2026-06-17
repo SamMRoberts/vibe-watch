@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 
-use crate::analytics::{Aggregate, CreditSource, ModelUsage, RatesSource, SessionAnalytics};
+use crate::analytics::{
+    ActivityUsage, Aggregate, CreditSource, ModelUsage, RatesSource, SessionAnalytics,
+};
 
 /// Print analytics as a compact, aligned text report.
 pub fn print_table(analytics: &SessionAnalytics) {
@@ -68,6 +70,9 @@ pub fn print_table(analytics: &SessionAnalytics) {
     print_aggregate("Tools", &analytics.tool_usage);
     print_aggregate("Skills", &analytics.skill_usage);
     print_aggregate("Subagents", &analytics.subagent_usage);
+    print_activity_usage("Tool request usage", &analytics.tool_activity_usage);
+    print_activity_usage("Skill request usage", &analytics.skill_activity_usage);
+    print_activity_usage("Subagent request usage", &analytics.subagent_activity_usage);
 }
 
 /// Print analytics as pretty JSON.
@@ -174,6 +179,42 @@ fn print_aggregate(label: &str, items: &[Aggregate]) {
     println!("{label}:");
     for item in items {
         println!("  {:>4}  {}", item.count, item.name);
+    }
+}
+
+fn print_activity_usage(label: &str, items: &[ActivityUsage]) {
+    if items.is_empty() {
+        return;
+    }
+    println!();
+    println!("{label}:");
+    println!(
+        "  {:>5} {:>5} {:>10} {:>10} {:>10} {:>12}  name",
+        "calls", "reqs", "in_tok", "out_tok", "cached", "credits"
+    );
+    for item in items {
+        println!(
+            "  {:>5} {:>5} {:>10} {:>10} {:>10} {:>12}  {}",
+            item.calls,
+            item.request_count,
+            token_value(item.input_tokens),
+            item.output_tokens,
+            token_value(item.cached_tokens),
+            activity_credit_text(item),
+            item.name
+        );
+    }
+}
+
+fn activity_credit_text(item: &ActivityUsage) -> String {
+    match (item.credit_source, item.credits) {
+        (CreditSource::Reported, Some(total)) => format!("{total:.2} rpt"),
+        (CreditSource::Estimated, Some(total)) => format!("{total:.2} est"),
+        (CreditSource::Mixed, Some(total)) => format!("{total:.2} mix"),
+        (CreditSource::OutputOnly, _) if item.output_credits > 0.0 => {
+            format!("{:.2} out", item.output_credits)
+        }
+        _ => "n/a".to_string(),
     }
 }
 

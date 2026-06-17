@@ -88,6 +88,46 @@ fn per_model_breakdown_present() {
     assert_eq!(model.reported_cost, Some(3.0));
     assert!((model.credits.expect("credits") - 3.0).abs() < 1e-9);
     assert!((model.estimated_credits.expect("estimate") - 7.75).abs() < 1e-9);
-    // Wall clock: min start 2s, max end 13s == 11000 ms.
-    assert_eq!(analytics.wall_clock_ms, Some(11000));
+    // Wall clock: min start 2s, max end 13.5s == 11500 ms.
+    assert_eq!(analytics.wall_clock_ms, Some(11500));
+}
+
+#[test]
+fn activity_usage_breaks_down_associated_turn_usage() {
+    let analytics = load_fixture();
+
+    let shell = analytics
+        .tool_activity_usage
+        .iter()
+        .find(|usage| usage.name == "shell")
+        .expect("shell usage");
+    assert_eq!(shell.calls, 1);
+    assert_eq!(shell.request_count, 1);
+    assert_eq!(shell.input_tokens, None);
+    assert_eq!(shell.output_tokens, 200);
+    assert_eq!(shell.cached_tokens, None);
+    assert_eq!(shell.credits, None);
+    assert_eq!(shell.credit_source, CreditSource::OutputOnly);
+
+    let skill = analytics
+        .skill_activity_usage
+        .iter()
+        .find(|usage| usage.name == "scope-guard")
+        .expect("skill usage");
+    assert_eq!(skill.calls, 1);
+    assert_eq!(skill.request_count, 1);
+    assert_eq!(skill.output_tokens, 200);
+    assert_eq!(skill.credits, None);
+
+    let subagent = analytics
+        .subagent_activity_usage
+        .iter()
+        .find(|usage| usage.name == "Explore")
+        .expect("subagent usage");
+    assert_eq!(subagent.calls, 1);
+    assert_eq!(subagent.request_count, 1);
+    assert_eq!(subagent.output_tokens, 600);
+    assert_eq!(subagent.input_tokens, None);
+    assert_eq!(subagent.cache_read_tokens, None);
+    assert_eq!(subagent.reasoning_tokens, None);
 }

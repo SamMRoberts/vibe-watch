@@ -1,7 +1,7 @@
 //! Typed analytics derived from a parsed session: per-turn tokens, credits,
 //! percentages, timeline, and tool/skill/subagent frequencies.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -42,6 +42,23 @@ pub enum CreditSource {
 pub struct Aggregate {
     pub name: String,
     pub count: usize,
+}
+
+/// Usage associated with activity calls in their enclosing request or turn.
+#[derive(Debug, Clone, Serialize)]
+pub struct ActivityUsage {
+    pub name: String,
+    pub calls: usize,
+    pub request_count: usize,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: u64,
+    pub cached_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
+    pub output_credits: f64,
+    pub credits: Option<f64>,
+    pub credit_source: CreditSource,
 }
 
 /// Per-model token usage and cost reported for a session.
@@ -117,6 +134,9 @@ pub struct SessionAnalytics {
     pub tool_usage: Vec<Aggregate>,
     pub skill_usage: Vec<Aggregate>,
     pub subagent_usage: Vec<Aggregate>,
+    pub tool_activity_usage: Vec<ActivityUsage>,
+    pub skill_activity_usage: Vec<ActivityUsage>,
+    pub subagent_activity_usage: Vec<ActivityUsage>,
 }
 
 impl SessionAnalytics {
@@ -135,6 +155,9 @@ impl SessionAnalytics {
         let mut tool_counts: HashMap<String, usize> = HashMap::new();
         let mut skill_counts: HashMap<String, usize> = HashMap::new();
         let mut subagent_counts: HashMap<String, usize> = HashMap::new();
+        let mut tool_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
+        let mut skill_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
+        let mut subagent_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
         let mut total_output_credits = 0.0;
         let mut total_reported_credits = 0.0;
         let mut has_reported_credits = false;
@@ -152,12 +175,28 @@ impl SessionAnalytics {
             for tool in &request.tools {
                 *tool_counts.entry(tool.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut tool_activity, &request.tools);
+            record_chat_activity_usage(&mut tool_activity, &request.tools, request, output_credits);
             for skill in &request.skills {
                 *skill_counts.entry(skill.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut skill_activity, &request.skills);
+            record_chat_activity_usage(
+                &mut skill_activity,
+                &request.skills,
+                request,
+                output_credits,
+            );
             for subagent in &request.subagents {
                 *subagent_counts.entry(subagent.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut subagent_activity, &request.subagents);
+            record_chat_activity_usage(
+                &mut subagent_activity,
+                &request.subagents,
+                request,
+                output_credits,
+            );
 
             turns.push(TurnMetrics {
                 index,
@@ -223,6 +262,9 @@ impl SessionAnalytics {
             tool_usage: sorted_aggregates(tool_counts),
             skill_usage: sorted_aggregates(skill_counts),
             subagent_usage: sorted_aggregates(subagent_counts),
+            tool_activity_usage: sorted_activity_usage(tool_activity),
+            skill_activity_usage: sorted_activity_usage(skill_activity),
+            subagent_activity_usage: sorted_activity_usage(subagent_activity),
         }
     }
 
@@ -241,6 +283,9 @@ impl SessionAnalytics {
         let mut tool_counts: HashMap<String, usize> = HashMap::new();
         let mut skill_counts: HashMap<String, usize> = HashMap::new();
         let mut subagent_counts: HashMap<String, usize> = HashMap::new();
+        let mut tool_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
+        let mut skill_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
+        let mut subagent_activity: HashMap<String, ActivityUsageAccumulator> = HashMap::new();
         let mut total_output_credits = 0.0;
 
         for turn in &session.turns {
@@ -252,12 +297,33 @@ impl SessionAnalytics {
             for tool in &turn.tools {
                 *tool_counts.entry(tool.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut tool_activity, &turn.tools);
+            record_cli_activity_usage(
+                &mut tool_activity,
+                &turn.tools,
+                turn.output_tokens,
+                output_credits,
+            );
             for skill in &turn.skills {
                 *skill_counts.entry(skill.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut skill_activity, &turn.skills);
+            record_cli_activity_usage(
+                &mut skill_activity,
+                &turn.skills,
+                turn.output_tokens,
+                output_credits,
+            );
             for subagent in &turn.subagents {
                 *subagent_counts.entry(subagent.clone()).or_default() += 1;
             }
+            record_activity_calls(&mut subagent_activity, &turn.subagents);
+            record_cli_activity_usage(
+                &mut subagent_activity,
+                &turn.subagents,
+                turn.output_tokens,
+                output_credits,
+            );
 
             turns.push(TurnMetrics {
                 index: turn.index,
@@ -401,6 +467,236 @@ impl SessionAnalytics {
             tool_usage: sorted_aggregates(tool_counts),
             skill_usage: sorted_aggregates(skill_counts),
             subagent_usage: sorted_aggregates(subagent_counts),
+            tool_activity_usage: sorted_activity_usage(tool_activity),
+            skill_activity_usage: sorted_activity_usage(skill_activity),
+            subagent_activity_usage: sorted_activity_usage(subagent_activity),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ActivityUsageAccumulator {
+    name: String,
+    calls: usize,
+    request_count: usize,
+    input_tokens: u64,
+    saw_input_tokens: bool,
+    output_tokens: u64,
+    cached_tokens: u64,
+    saw_cached_tokens: bool,
+    cache_read_tokens: u64,
+    saw_cache_read_tokens: bool,
+    cache_write_tokens: u64,
+    saw_cache_write_tokens: bool,
+    reasoning_tokens: u64,
+    saw_reasoning_tokens: bool,
+    output_credits: f64,
+    credits: f64,
+    reported_count: usize,
+    estimated_count: usize,
+    output_only_count: usize,
+}
+
+impl ActivityUsageAccumulator {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            calls: 0,
+            request_count: 0,
+            input_tokens: 0,
+            saw_input_tokens: false,
+            output_tokens: 0,
+            cached_tokens: 0,
+            saw_cached_tokens: false,
+            cache_read_tokens: 0,
+            saw_cache_read_tokens: false,
+            cache_write_tokens: 0,
+            saw_cache_write_tokens: false,
+            reasoning_tokens: 0,
+            saw_reasoning_tokens: false,
+            output_credits: 0.0,
+            credits: 0.0,
+            reported_count: 0,
+            estimated_count: 0,
+            output_only_count: 0,
+        }
+    }
+
+    fn add_call(&mut self) {
+        self.calls += 1;
+    }
+
+    fn add_associated_usage(&mut self, usage: AssociatedUsage) {
+        self.request_count += 1;
+        if let Some(input_tokens) = usage.input_tokens {
+            self.input_tokens += input_tokens;
+            self.saw_input_tokens = true;
+        }
+        self.output_tokens += usage.output_tokens;
+        if let Some(cached_tokens) = usage.cached_tokens {
+            self.cached_tokens += cached_tokens;
+            self.saw_cached_tokens = true;
+        }
+        if let Some(cache_read_tokens) = usage.cache_read_tokens {
+            self.cache_read_tokens += cache_read_tokens;
+            self.saw_cache_read_tokens = true;
+        }
+        if let Some(cache_write_tokens) = usage.cache_write_tokens {
+            self.cache_write_tokens += cache_write_tokens;
+            self.saw_cache_write_tokens = true;
+        }
+        if let Some(reasoning_tokens) = usage.reasoning_tokens {
+            self.reasoning_tokens += reasoning_tokens;
+            self.saw_reasoning_tokens = true;
+        }
+        self.output_credits += usage.output_credits;
+        match usage.credit_source {
+            CreditSource::Reported => {
+                if let Some(credits) = usage.credits {
+                    self.credits += credits;
+                    self.reported_count += 1;
+                }
+            }
+            CreditSource::Estimated => {
+                if let Some(credits) = usage.credits {
+                    self.credits += credits;
+                    self.estimated_count += 1;
+                }
+            }
+            CreditSource::Mixed => {
+                if let Some(credits) = usage.credits {
+                    self.credits += credits;
+                    self.reported_count += 1;
+                    self.estimated_count += 1;
+                }
+            }
+            CreditSource::OutputOnly => self.output_only_count += 1,
+            CreditSource::Unknown => {}
+        }
+    }
+
+    fn into_usage(self) -> ActivityUsage {
+        let credit_source = match (
+            self.reported_count,
+            self.estimated_count,
+            self.output_only_count,
+        ) {
+            (0, 0, count) if count > 0 => CreditSource::OutputOnly,
+            (0, 0, _) => CreditSource::Unknown,
+            (reported, 0, 0) if reported > 0 => CreditSource::Reported,
+            (0, estimated, 0) if estimated > 0 => CreditSource::Estimated,
+            _ => CreditSource::Mixed,
+        };
+        ActivityUsage {
+            name: self.name,
+            calls: self.calls,
+            request_count: self.request_count,
+            input_tokens: self.saw_input_tokens.then_some(self.input_tokens),
+            output_tokens: self.output_tokens,
+            cached_tokens: self.saw_cached_tokens.then_some(self.cached_tokens),
+            cache_read_tokens: self.saw_cache_read_tokens.then_some(self.cache_read_tokens),
+            cache_write_tokens: self
+                .saw_cache_write_tokens
+                .then_some(self.cache_write_tokens),
+            reasoning_tokens: self.saw_reasoning_tokens.then_some(self.reasoning_tokens),
+            output_credits: self.output_credits,
+            credits: matches!(
+                credit_source,
+                CreditSource::Reported | CreditSource::Estimated | CreditSource::Mixed
+            )
+            .then_some(self.credits),
+            credit_source,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct AssociatedUsage {
+    input_tokens: Option<u64>,
+    output_tokens: u64,
+    cached_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
+    cache_write_tokens: Option<u64>,
+    reasoning_tokens: Option<u64>,
+    output_credits: f64,
+    credits: Option<f64>,
+    credit_source: CreditSource,
+}
+
+fn record_activity_calls(
+    activity: &mut HashMap<String, ActivityUsageAccumulator>,
+    names: &[String],
+) {
+    for name in names {
+        activity
+            .entry(name.clone())
+            .or_insert_with(|| ActivityUsageAccumulator::new(name.clone()))
+            .add_call();
+    }
+}
+
+fn record_chat_activity_usage(
+    activity: &mut HashMap<String, ActivityUsageAccumulator>,
+    names: &[String],
+    request: &crate::chat_log::ChatRequest,
+    output_credits: f64,
+) {
+    let usage = AssociatedUsage {
+        input_tokens: request.prompt_tokens,
+        output_tokens: request.completion_tokens,
+        cached_tokens: None,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_tokens: None,
+        output_credits,
+        credits: request.reported_credits,
+        credit_source: if request.reported_credits.is_some() {
+            CreditSource::Reported
+        } else if output_credits > 0.0 {
+            CreditSource::OutputOnly
+        } else {
+            CreditSource::Unknown
+        },
+    };
+    record_associated_usage(activity, names, usage);
+}
+
+fn record_cli_activity_usage(
+    activity: &mut HashMap<String, ActivityUsageAccumulator>,
+    names: &[String],
+    output_tokens: u64,
+    output_credits: f64,
+) {
+    let usage = AssociatedUsage {
+        input_tokens: None,
+        output_tokens,
+        cached_tokens: None,
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_tokens: None,
+        output_credits,
+        credits: None,
+        credit_source: if output_credits > 0.0 {
+            CreditSource::OutputOnly
+        } else {
+            CreditSource::Unknown
+        },
+    };
+    record_associated_usage(activity, names, usage);
+}
+
+fn record_associated_usage(
+    activity: &mut HashMap<String, ActivityUsageAccumulator>,
+    names: &[String],
+    usage: AssociatedUsage,
+) {
+    let mut unique_names = HashSet::new();
+    for name in names {
+        if unique_names.insert(name.as_str()) {
+            activity
+                .entry(name.clone())
+                .or_insert_with(|| ActivityUsageAccumulator::new(name.clone()))
+                .add_associated_usage(usage);
         }
     }
 }
@@ -491,6 +787,17 @@ fn sorted_aggregates(counts: HashMap<String, usize>) -> Vec<Aggregate> {
         .collect();
     aggregates.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
     aggregates
+}
+
+fn sorted_activity_usage(
+    activity: HashMap<String, ActivityUsageAccumulator>,
+) -> Vec<ActivityUsage> {
+    let mut usages: Vec<ActivityUsage> = activity
+        .into_values()
+        .map(ActivityUsageAccumulator::into_usage)
+        .collect();
+    usages.sort_by(|a, b| b.calls.cmp(&a.calls).then_with(|| a.name.cmp(&b.name)));
+    usages
 }
 
 #[cfg(test)]
