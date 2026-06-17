@@ -85,20 +85,21 @@ Passing a file opens the browser around that session. Passing a directory recurs
 The TUI supports:
 
 - `Up` and `Down`, or `j` and `k`, to move through repositories, sessions, or turns
+- `Home` and `End` to jump to the first or last repository, session, or turn in the current view
 - `Enter` or `Right` to drill from repositories to sessions, then into a session detail view
 - `Left` or `Backspace` to go back
 - `PageUp` and `PageDown`, or `[` and `]`, to scroll the Activity pane in a session detail view
 - `q` to quit, and `Esc` to go back or quit from the top level
 
-The initial dashboard lists repositories as they are loaded. Each repository row shows its loaded session count, total turns, and available AI Credit summary. Selecting a repository opens the session list for that repository; each loaded session row shows its title or session id, turn count, AI Credit value, and path. Sessions that cannot be read or parsed appear as error rows with their path and error message, so one bad log does not stop the rest of the scan.
+The initial dashboard lists repositories as they are loaded. Each repository row shows its loaded session count, total turns, and available AI Credit summary. The selected repository or session row is marked with `>` in addition to color highlighting, so selection remains visible in low-color terminals. Selecting a repository opens the session list for that repository; each loaded session row shows its title or session id, turn count, AI Credit value, and path. Sessions that cannot be read or parsed appear as error rows with their path and error message, so one bad log does not stop the rest of the scan.
 
-The TUI loads sessions progressively. Candidates are discovered and processed newest-first by modified time, and the Progress bar shows how many sessions have completed processing, the total candidate count, and the number of visible error rows. The dashboard updates as each session finishes loading.
+The TUI loads sessions progressively. Candidates are discovered and processed newest-first by modified time, and the Progress bar shows whether it is loading, loaded, or finished with no sessions found, plus the number of visible error rows. The dashboard updates as each session finishes loading. While motion is enabled, repository/session browser changes use short TachyonFX fades or sweeps to reinforce scan and navigation updates without animating the whole dashboard. Set `VIBE_WATCH_NO_MOTION=1` or `NO_COLOR=1` to disable those effects.
 
 The dashboard header shows token usage by category: input, output, and cached. When a log format does not expose a category, the value is shown as `n/a` rather than estimated from unrelated data.
 
 The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show the turn's recorded tools, terminal commands, skills, and subagents in source-log order, with rows color-coded by activity kind. Consecutive activities with the same kind and name are grouped into one row with a count, while non-consecutive repeats stay separate so the action sequence remains clear. The pane focuses on the action sequence and does not show AI Credit values; credit totals remain in the dashboard header and reports.
 
-The Turns table and Timeline now share the same per-turn color palette. Each turn keeps the same color in both places so it is easier to match the selected row with its timeline segment at a glance. The selected timeline slice also uses explicit marker glyphs, so the active turn stands out even when adjacent slices have similar widths.
+The Turns table and Timeline now share the same per-turn color palette. Each turn keeps the same color in both places so it is easier to match the selected row with its timeline segment at a glance. Long turn lists keep the selected turn visible and show a scrollbar when rows are clipped. The selected timeline slice also uses explicit marker glyphs, so the active turn stands out even when adjacent slices have similar widths.
 
 ## Token and credit mapping
 

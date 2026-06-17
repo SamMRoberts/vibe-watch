@@ -7,7 +7,7 @@
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
@@ -17,12 +17,13 @@ use ratatui::crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, Cell, Gauge, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
 };
 use ratatui::{Frame, Terminal};
+use tachyonfx::{fx, EffectManager, Interpolation, Motion};
 
 use crate::analytics::{CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
 use crate::session_scan::{
@@ -101,6 +102,52 @@ impl BrowserState {
             ScanEvent::Error(error) => self.add_error(error),
             ScanEvent::Finished => {
                 self.progress.finished = true;
+            }
+        }
+    }
+
+    fn select_first(&mut self) {
+        match self.view {
+            BrowserView::Repositories => {
+                self.selected_repo = 0;
+                self.selected_session = 0;
+                self.detail = ViewState::default();
+            }
+            BrowserView::Sessions => {
+                self.selected_session = 0;
+                self.detail = ViewState::default();
+            }
+            BrowserView::SessionDetail => {
+                self.detail.selected = 0;
+                self.detail.activity_scroll = 0;
+            }
+        }
+    }
+
+    fn select_last(&mut self) {
+        match self.view {
+            BrowserView::Repositories => {
+                if !self.repositories.is_empty() {
+                    self.selected_repo = self.repositories.len() - 1;
+                    self.selected_session = 0;
+                    self.detail = ViewState::default();
+                }
+            }
+            BrowserView::Sessions => {
+                if let Some(group) = self.selected_group() {
+                    if !group.entries.is_empty() {
+                        self.selected_session = group.entries.len() - 1;
+                        self.detail = ViewState::default();
+                    }
+                }
+            }
+            BrowserView::SessionDetail => {
+                if let Some(session) = self.selected_loaded_session() {
+                    if !session.analytics.turns.is_empty() {
+                        self.detail.selected = session.analytics.turns.len() - 1;
+                        self.detail.activity_scroll = 0;
+                    }
+                }
             }
         }
     }
@@ -261,6 +308,112 @@ enum SessionEntry {
     Error(SessionLoadError),
 }
 
+#[derive(Debug, Default)]
+struct BrowserEffects {
+    body: EffectManager<&'static str>,
+    progress: EffectManager<&'static str>,
+    enabled: bool,
+}
+
+impl BrowserEffects {
+    fn new() -> Self {
+        Self {
+            enabled: motion_enabled(),
+            ..Self::default()
+        }
+    }
+
+    fn on_scan_event(&mut self, event: &ScanEvent) {
+        if !self.enabled {
+            return;
+        }
+
+        match event {
+            ScanEvent::Loaded(_) => self.body.add_unique_effect(
+                "scan-loaded",
+                fx::sweep_in(
+                    Motion::LeftToRight,
+                    8,
+                    0,
+                    Color::DarkGray,
+                    (220, Interpolation::QuadOut),
+                ),
+            ),
+            ScanEvent::Error(_) => self.progress.add_unique_effect(
+                "scan-error",
+                fx::fade_from_fg(Color::Red, (260, Interpolation::SineOut)),
+            ),
+            ScanEvent::Progress(_) | ScanEvent::Finished => {}
+        }
+    }
+
+    fn on_navigation(&mut self) {
+        if !self.enabled {
+            return;
+        }
+
+        self.body.add_unique_effect(
+            "view-transition",
+            fx::fade_from_fg(Color::DarkGray, (180, Interpolation::SineOut)),
+        );
+    }
+
+    fn is_running(&self) -> bool {
+        self.enabled && (self.body.is_running() || self.progress.is_running())
+    }
+
+    fn process(&mut self, frame: &mut Frame, state: &BrowserState, elapsed: Duration) {
+        if !self.is_running() {
+            return;
+        }
+
+        let areas = browser_effect_areas(frame.area(), state.view);
+        let elapsed = elapsed.into();
+        self.body
+            .process_effects(elapsed, frame.buffer_mut(), areas.body);
+        self.progress
+            .process_effects(elapsed, frame.buffer_mut(), areas.progress);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BrowserEffectAreas {
+    body: Rect,
+    progress: Rect,
+}
+
+fn motion_enabled() -> bool {
+    std::env::var_os("VIBE_WATCH_NO_MOTION").is_none() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn browser_effect_areas(area: Rect, view: BrowserView) -> BrowserEffectAreas {
+    if view == BrowserView::SessionDetail {
+        let rows = Layout::vertical([
+            Constraint::Length(6),
+            Constraint::Min(6),
+            Constraint::Length(4),
+            Constraint::Length(3),
+        ])
+        .split(area);
+        return BrowserEffectAreas {
+            body: rows[1],
+            progress: rows[3],
+        };
+    }
+
+    let rows = Layout::vertical([
+        Constraint::Length(4),
+        Constraint::Min(6),
+        Constraint::Length(3),
+        Constraint::Length(3),
+    ])
+    .split(area);
+    BrowserEffectAreas {
+        body: rows[1],
+        progress: rows[2],
+    }
+}
+
 /// Launch the interactive dashboard, returning when the user quits.
 pub fn run(analytics: &SessionAnalytics) -> Result<()> {
     let mut terminal = setup_terminal()?;
@@ -324,6 +477,14 @@ fn event_loop(
                 KeyCode::PageUp | KeyCode::Char('[') => {
                     state.activity_scroll = state.activity_scroll.saturating_sub(3);
                 }
+                KeyCode::Home => {
+                    state.selected = 0;
+                    state.activity_scroll = 0;
+                }
+                KeyCode::End if turn_count > 0 => {
+                    state.selected = turn_count - 1;
+                    state.activity_scroll = 0;
+                }
                 _ => {}
             }
         }
@@ -362,14 +523,28 @@ fn browser_event_loop(
     });
 
     let mut state = BrowserState::new(ScanProgress::default());
+    let mut effects = BrowserEffects::new();
+    let mut last_frame = Instant::now();
     loop {
         for event in receiver.try_iter() {
+            effects.on_scan_event(&event);
             state.apply_scan_event(event);
         }
 
-        terminal.draw(|frame| render_browser(frame, &state))?;
+        let now = Instant::now();
+        let elapsed = now.duration_since(last_frame);
+        last_frame = now;
+        terminal.draw(|frame| {
+            render_browser(frame, &state);
+            effects.process(frame, &state, elapsed);
+        })?;
 
-        if !event::poll(Duration::from_millis(100))? {
+        let timeout = if effects.is_running() {
+            Duration::from_millis(33)
+        } else {
+            Duration::from_millis(100)
+        };
+        if !event::poll(timeout)? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
@@ -382,12 +557,23 @@ fn browser_event_loop(
                     if !state.go_back() {
                         break;
                     }
+                    effects.on_navigation();
                 }
                 KeyCode::Down | KeyCode::Char('j') => state.select_next(),
                 KeyCode::Up | KeyCode::Char('k') => state.select_previous(),
-                KeyCode::Enter | KeyCode::Right => state.drill_in(),
+                KeyCode::Home => state.select_first(),
+                KeyCode::End => state.select_last(),
+                KeyCode::Enter | KeyCode::Right => {
+                    let before = state.view;
+                    state.drill_in();
+                    if state.view != before {
+                        effects.on_navigation();
+                    }
+                }
                 KeyCode::Left | KeyCode::Backspace => {
-                    state.go_back();
+                    if state.go_back() {
+                        effects.on_navigation();
+                    }
                 }
                 KeyCode::PageDown | KeyCode::Char(']')
                     if state.view == BrowserView::SessionDetail =>
@@ -486,6 +672,7 @@ fn render_repositories(frame: &mut Frame, area: Rect, state: &BrowserState) {
         let selected = index == state.selected_repo;
         let style = selected_row_style(selected);
         Row::new(vec![
+            Cell::from(selected_marker(selected)),
             Cell::from(group.repository.clone()),
             Cell::from(group.entries.len().to_string()),
             Cell::from(group_turn_count(group).to_string()),
@@ -497,14 +684,15 @@ fn render_repositories(frame: &mut Frame, area: Rect, state: &BrowserState) {
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(58),
+            Constraint::Length(2),
+            Constraint::Percentage(56),
             Constraint::Length(10),
             Constraint::Length(8),
             Constraint::Length(18),
         ],
     )
     .header(
-        Row::new(vec!["repository", "sessions", "turns", "AIC"])
+        Row::new(vec!["", "repository", "sessions", "turns", "AIC"])
             .style(Style::new().add_modifier(Modifier::BOLD)),
     )
     .block(Block::bordered().title(" Repositories "));
@@ -525,6 +713,7 @@ fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
         let style = selected_row_style(selected);
         match entry {
             SessionEntry::Loaded(session) => Row::new(vec![
+                Cell::from(selected_marker(selected)),
                 Cell::from(session_label(&session.analytics)),
                 Cell::from(session.analytics.turn_count.to_string()),
                 Cell::from(analytics_credit_summary(&session.analytics)),
@@ -533,6 +722,7 @@ fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
             ])
             .style(style),
             SessionEntry::Error(error) => Row::new(vec![
+                Cell::from(selected_marker(selected)),
                 Cell::from(short_path(&error.path)),
                 Cell::from("-"),
                 Cell::from("n/a"),
@@ -546,7 +736,8 @@ fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(30),
+            Constraint::Length(2),
+            Constraint::Percentage(28),
             Constraint::Length(7),
             Constraint::Length(18),
             Constraint::Percentage(38),
@@ -554,7 +745,7 @@ fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
         ],
     )
     .header(
-        Row::new(vec!["session", "turns", "AIC", "path/error", "status"])
+        Row::new(vec!["", "session", "turns", "AIC", "path/error", "status"])
             .style(Style::new().add_modifier(Modifier::BOLD)),
     )
     .block(Block::bordered().title(format!(" Sessions - {} ", group.repository)));
@@ -563,31 +754,39 @@ fn render_sessions(frame: &mut Frame, area: Rect, state: &BrowserState) {
 
 fn render_progress(frame: &mut Frame, area: Rect, state: &BrowserState) {
     let ratio = if state.progress.total == 0 {
-        1.0
+        if state.progress.finished {
+            0.0
+        } else {
+            1.0
+        }
     } else {
         state.progress.processed as f64 / state.progress.total as f64
     };
-    let label = if state.progress.finished {
-        format!(
-            "Loaded {}/{}   errors {}",
-            state.progress.processed,
-            state.progress.total,
-            state.error_count()
-        )
-    } else {
-        format!(
-            "Loading {}/{}   errors {}",
-            state.progress.processed,
-            state.progress.total,
-            state.error_count()
-        )
-    };
+    let label = progress_label(state);
     let gauge = Gauge::default()
         .block(Block::bordered().title(" Progress "))
         .gauge_style(Style::new().fg(Color::Green))
         .ratio(ratio.clamp(0.0, 1.0))
         .label(label);
     frame.render_widget(gauge, area);
+}
+
+fn progress_label(state: &BrowserState) -> String {
+    if state.progress.finished && state.progress.total == 0 {
+        return format!("No sessions found   errors {}", state.error_count());
+    }
+
+    let verb = if state.progress.finished {
+        "Loaded"
+    } else {
+        "Loading"
+    };
+    format!(
+        "{verb} {}/{}   errors {}",
+        state.progress.processed,
+        state.progress.total,
+        state.error_count()
+    )
 }
 
 fn render_browser_footer(frame: &mut Frame, area: Rect, state: &BrowserState) {
@@ -614,6 +813,14 @@ fn selected_row_style(selected: bool) -> Style {
             .add_modifier(Modifier::BOLD)
     } else {
         Style::new()
+    }
+}
+
+fn selected_marker(selected: bool) -> &'static str {
+    if selected {
+        ">"
+    } else {
+        ""
     }
 }
 
@@ -813,11 +1020,15 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         .map(|t| t.output_tokens)
         .max()
         .unwrap_or(0);
+    let visible_rows = turn_visible_rows(area);
+    let selected = selected_turn_index(analytics, state);
+    let start = visible_window_start(analytics.turns.len(), selected, visible_rows);
+    let end = (start + visible_rows).min(analytics.turns.len());
 
-    let rows = analytics.turns.iter().map(|turn| {
+    let rows = analytics.turns[start..end].iter().map(|turn| {
         let bar = bar_string(turn.output_tokens, max_tokens, 14);
-        let selected = turn.index == state.selected;
-        let style = turn_row_style(turn.index, selected);
+        let is_selected = turn.index == selected;
+        let style = turn_row_style(turn.index, is_selected);
         Row::new(vec![
             Cell::from(turn.index.to_string()),
             Cell::from(short_id(turn.request_id.as_deref())),
@@ -853,6 +1064,45 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         .header(header)
         .block(Block::bordered().title(" Turns "));
     frame.render_widget(table, area);
+
+    if visible_rows > 0 && analytics.turns.len() > visible_rows {
+        let mut scrollbar_state = ScrollbarState::new(analytics.turns.len())
+            .position(start)
+            .viewport_content_length(visible_rows);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"))
+            .thumb_style(Style::new().fg(Color::Cyan))
+            .track_style(Style::new().fg(Color::DarkGray));
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
+    }
+}
+
+fn turn_visible_rows(area: Rect) -> usize {
+    usize::from(area.height.saturating_sub(3))
+}
+
+fn selected_turn_index(analytics: &SessionAnalytics, state: &ViewState) -> usize {
+    analytics
+        .turns
+        .len()
+        .checked_sub(1)
+        .map_or(0, |last| state.selected.min(last))
+}
+
+fn visible_window_start(total_rows: usize, selected: usize, visible_rows: usize) -> usize {
+    if total_rows == 0 || visible_rows == 0 || total_rows <= visible_rows {
+        return 0;
+    }
+    let max_start = total_rows - visible_rows;
+    selected.saturating_sub(visible_rows / 2).min(max_start)
 }
 
 fn render_aggregates(
@@ -1369,6 +1619,26 @@ mod tests {
                 ("4", "tool", "1", "read"),
             ]
         );
+    }
+
+    #[test]
+    fn visible_window_keeps_selected_turn_centered_when_possible() {
+        assert_eq!(visible_window_start(40, 25, 5), 23);
+        assert_eq!(visible_window_start(40, 1, 5), 0);
+        assert_eq!(visible_window_start(40, 39, 5), 35);
+        assert_eq!(visible_window_start(3, 2, 5), 0);
+        assert_eq!(visible_window_start(40, 25, 0), 0);
+    }
+
+    #[test]
+    fn progress_label_distinguishes_empty_finished_scan() {
+        let state = BrowserState::new(ScanProgress {
+            processed: 0,
+            total: 0,
+            finished: true,
+        });
+
+        assert_eq!(progress_label(&state), "No sessions found   errors 0");
     }
 
     #[test]

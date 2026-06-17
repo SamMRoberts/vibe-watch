@@ -150,6 +150,31 @@ fn browser_dashboard_lists_repositories_and_session_counts() {
 }
 
 #[test]
+fn browser_repository_rows_include_selected_marker() {
+    let mut state = browser_state_with_sessions();
+    state.selected_repo = 1;
+    let text = render_browser_to_text(&state, 140, 32);
+
+    let selected_line = text
+        .lines()
+        .find(|line| line.contains("/tmp/vibe-watch-cli"))
+        .unwrap_or_else(|| panic!("missing selected repo row:\n{text}"));
+    assert!(
+        selected_line.contains('>'),
+        "selected repository row should include text marker:\n{text}"
+    );
+
+    let unselected_line = text
+        .lines()
+        .find(|line| line.contains("/tmp/vibe-watch-vscode"))
+        .unwrap_or_else(|| panic!("missing unselected repo row:\n{text}"));
+    assert!(
+        !unselected_line.contains('>'),
+        "unselected repository row should not include marker:\n{text}"
+    );
+}
+
+#[test]
 fn browser_session_list_shows_turns_aic_and_errors() {
     let mut state = browser_state_with_sessions();
     state.view = BrowserView::Sessions;
@@ -177,6 +202,24 @@ fn browser_session_list_shows_turns_aic_and_errors() {
     assert!(
         text.contains("12.0 reported"),
         "missing session AIC:\n{text}"
+    );
+}
+
+#[test]
+fn browser_session_rows_include_selected_marker() {
+    let mut state = browser_state_with_sessions();
+    state.view = BrowserView::Sessions;
+    state.selected_repo = 0;
+    state.selected_session = 0;
+
+    let text = render_browser_to_text(&state, 140, 32);
+    let selected_line = text
+        .lines()
+        .find(|line| line.contains("test-session"))
+        .unwrap_or_else(|| panic!("missing selected session row:\n{text}"));
+    assert!(
+        selected_line.contains('>'),
+        "selected session row should include text marker:\n{text}"
     );
 }
 
@@ -213,6 +256,23 @@ fn browser_progress_bar_updates_while_loading() {
     assert!(text.contains("Loading"), "missing progress label:\n{text}");
     assert!(text.contains("2/3"), "missing processed/total:\n{text}");
     assert!(text.contains("errors 1"), "missing error count:\n{text}");
+}
+
+#[test]
+fn browser_progress_reports_finished_empty_scan() {
+    let state = BrowserState::new(ScanProgress {
+        processed: 0,
+        total: 0,
+        finished: true,
+    });
+
+    let text = render_browser_to_text(&state, 120, 24);
+
+    assert!(
+        text.contains("No sessions found"),
+        "missing empty scan progress label:\n{text}"
+    );
+    assert!(text.contains("errors 0"), "missing error count:\n{text}");
 }
 
 #[test]
@@ -452,6 +512,42 @@ fn renders_selected_turn_input_token_detail() {
     assert!(
         text.contains("2000 in tok"),
         "missing selected turn input detail:\n{text}"
+    );
+}
+
+#[test]
+fn renders_long_turn_list_with_selected_turn_visible() {
+    let mut analytics = load_chat_analytics();
+    let template = analytics.turns[0].clone();
+    analytics.turns = (0..40)
+        .map(|index| {
+            let mut turn = template.clone();
+            turn.index = index;
+            turn.request_id = Some(format!("request_long-{index:02}"));
+            turn.output_tokens = (index as u64 + 1) * 10;
+            turn.pct_output_tokens = index as f64;
+            turn
+        })
+        .collect();
+    analytics.turn_count = analytics.turns.len();
+
+    let text = render_analytics_to_text(
+        &analytics,
+        120,
+        20,
+        &ViewState {
+            selected: 25,
+            ..ViewState::default()
+        },
+    );
+
+    assert!(
+        text.contains("long-25"),
+        "selected turn should remain visible in long lists:\n{text}"
+    );
+    assert!(
+        !text.contains("long-00"),
+        "long lists should not always render from the first turn:\n{text}"
     );
 }
 
