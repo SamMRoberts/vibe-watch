@@ -272,7 +272,7 @@ fn render_aggregates(
     let table = Table::new(visible, activity_widths(wide))
         .header(activity_header(wide))
         .column_spacing(1)
-        .block(Block::bordered().title(" Activity "));
+        .block(Block::bordered().title(" Activity (source order) "));
     frame.render_widget(table, area);
 
     if visible_rows > 0 && rows.len() > visible_rows {
@@ -302,7 +302,6 @@ enum ActivityRow {
         kind: String,
         activity: String,
         output_tokens: String,
-        credits: String,
     },
 }
 
@@ -313,7 +312,6 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             kind: "status".to_string(),
             activity: "no selected turn".to_string(),
             output_tokens: "-".to_string(),
-            credits: "n/a".to_string(),
         }];
     };
 
@@ -323,7 +321,6 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             kind: "activity".to_string(),
             activity: "none recorded".to_string(),
             output_tokens: turn.output_tokens.to_string(),
-            credits: turn_associated_credit_text(turn),
         }];
     }
 
@@ -335,7 +332,6 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             kind: event.kind.clone(),
             activity: event.name.clone(),
             output_tokens: turn.output_tokens.to_string(),
-            credits: turn_associated_credit_text(turn),
         })
         .collect()
 }
@@ -347,34 +343,32 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
             kind,
             activity,
             output_tokens,
-            credits,
         } if wide => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
             Cell::from(activity.clone()),
             Cell::from(output_tokens.clone()),
-            Cell::from(credits.clone()),
-        ]),
+        ])
+        .style(activity_style(kind)),
         ActivityRow::Event {
             seq,
             kind,
             activity,
-            credits,
             ..
         } => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
             Cell::from(activity.clone()),
-            Cell::from(credits.clone()),
-        ]),
+        ])
+        .style(activity_style(kind)),
     }
 }
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec!["#", "kind", "activity", "out", "assoc"]
+        vec!["#", "kind", "activity", "out"]
     } else {
-        vec!["#", "kind", "activity", "AIC"]
+        vec!["#", "kind", "activity"]
     };
     Row::new(cells).style(Style::new().add_modifier(Modifier::BOLD))
 }
@@ -386,15 +380,23 @@ fn activity_widths(wide: bool) -> Vec<Constraint> {
             Constraint::Length(7),
             Constraint::Min(18),
             Constraint::Length(7),
-            Constraint::Length(8),
         ]
     } else {
         vec![
             Constraint::Length(3),
             Constraint::Length(5),
             Constraint::Min(12),
-            Constraint::Length(5),
         ]
+    }
+}
+
+fn activity_style(kind: &str) -> Style {
+    match kind {
+        "tool" => Style::new().fg(Color::Cyan),
+        "cmd" => Style::new().fg(Color::Yellow),
+        "skill" => Style::new().fg(Color::Magenta),
+        "agent" => Style::new().fg(Color::Green),
+        _ => Style::new().fg(Color::Gray),
     }
 }
 
@@ -410,14 +412,6 @@ fn activity_window(
     let start = requested_scroll.min(max_start);
     let end = (start + visible_rows).min(total_rows);
     (start, end)
-}
-
-fn turn_associated_credit_text(turn: &TurnMetrics) -> String {
-    match turn.credits {
-        Some(total) => format!("{total:.2}a"),
-        None if turn.output_credits > 0.0 => format!("{:.2}a", turn.output_credits),
-        None => "n/a".to_string(),
-    }
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {
@@ -619,6 +613,15 @@ mod tests {
     fn dedup_join_removes_repeats() {
         let values = vec!["a".to_string(), "a".to_string(), "b".to_string()];
         assert_eq!(dedup_join(&values), "a, b");
+    }
+
+    #[test]
+    fn activity_style_colors_by_kind() {
+        assert_eq!(activity_style("tool"), Style::new().fg(Color::Cyan));
+        assert_eq!(activity_style("cmd"), Style::new().fg(Color::Yellow));
+        assert_eq!(activity_style("skill"), Style::new().fg(Color::Magenta));
+        assert_eq!(activity_style("agent"), Style::new().fg(Color::Green));
+        assert_eq!(activity_style("other"), Style::new().fg(Color::Gray));
     }
 
     #[test]

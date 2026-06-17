@@ -66,6 +66,14 @@ fn render_to_text(width: u16, height: u16, state: &ViewState) -> String {
     render_analytics_to_text(&analytics, width, height, state)
 }
 
+fn activity_pane_text(text: &str) -> String {
+    text.lines()
+        .filter(|line| line.contains('│'))
+        .filter_map(|line| line.rsplit_once('│').map(|(_, right)| right))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn renders_header_and_totals() {
     let text = render_to_text(120, 30, &ViewState::default());
@@ -135,7 +143,11 @@ fn renders_turns_and_activity() {
         text.contains("activity"),
         "missing activity column:\n{text}"
     );
-    assert!(text.contains("AIC"), "missing credit column:\n{text}");
+    let activity = activity_pane_text(&text);
+    assert!(
+        !activity.contains("AIC"),
+        "Activity pane should not show AIC:\n{text}"
+    );
     assert!(
         text.contains("copilot_applyPatch"),
         "missing turn 0 tool:\n{text}"
@@ -188,8 +200,8 @@ fn renders_activity_for_selected_turn() {
         "activity rows should follow source order:\n{text}"
     );
     assert!(
-        text.contains("7.50a"),
-        "missing selected turn associated credits:\n{text}"
+        !activity_pane_text(&text).contains("7.50"),
+        "Activity pane should not show selected turn credits:\n{text}"
     );
     assert!(
         !text.contains("copilot_applyPatch"),
@@ -206,9 +218,10 @@ fn renders_wide_selected_turn_activity_columns() {
         text.contains("activity"),
         "missing activity column:\n{text}"
     );
+    assert!(text.contains("out"), "missing output token column:\n{text}");
     assert!(
-        text.contains("assoc"),
-        "missing associated AIC column:\n{text}"
+        !activity_pane_text(&text).contains("assoc"),
+        "Activity pane should not show associated AIC column:\n{text}"
     );
     assert!(
         text.contains("copilot_applyPatch"),
@@ -240,8 +253,8 @@ fn renders_cli_subagent_activity_usage() {
         "missing subagent output tokens:\n{text}"
     );
     assert!(
-        text.contains("1.80a"),
-        "missing subagent output credits:\n{text}"
+        !activity_pane_text(&text).contains("1.80"),
+        "Activity pane should not show subagent output credits:\n{text}"
     );
 }
 
