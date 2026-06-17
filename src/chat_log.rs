@@ -42,6 +42,8 @@ pub struct ChatRequest {
     pub timestamp_ms: Option<i64>,
     /// Final output (completion) token count for the turn.
     pub completion_tokens: u64,
+    /// Credits reported by VS Code in `result.details`, when available.
+    pub reported_credits: Option<f64>,
     pub elapsed_ms: Option<i64>,
     pub first_progress_ms: Option<i64>,
     pub total_elapsed_ms: Option<i64>,
@@ -216,6 +218,10 @@ fn extract_request(request: &Value) -> ChatRequest {
         total_elapsed_ms: request
             .pointer(&f.request.total_elapsed)
             .and_then(Value::as_i64),
+        reported_credits: request
+            .pointer(&f.request.details)
+            .and_then(Value::as_str)
+            .and_then(parse_reported_credits),
         ..ChatRequest::default()
     };
 
@@ -232,6 +238,20 @@ fn extract_request(request: &Value) -> ChatRequest {
     }
 
     turn
+}
+
+fn parse_reported_credits(details: &str) -> Option<f64> {
+    let lower = details.to_ascii_lowercase();
+    let credits_index = lower.find("credits")?;
+    let before = details[..credits_index].trim_end();
+    let start = before
+        .rfind(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .map_or(0, |index| index + 1);
+    let number = before[start..].trim();
+    if number.is_empty() {
+        return None;
+    }
+    number.parse().ok()
 }
 
 fn collect_tool(item: &Value, turn: &mut ChatRequest) {

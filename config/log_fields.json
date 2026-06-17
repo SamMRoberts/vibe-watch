@@ -37,6 +37,7 @@
             "elapsed_ms": "elapsedMs",
             "first_progress": "/result/timings/firstProgress",
             "total_elapsed": "/result/timings/totalElapsed",
+            "details": "/result/details",
             "response": "response"
         },
         "response": {

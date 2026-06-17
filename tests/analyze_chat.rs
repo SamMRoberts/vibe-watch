@@ -24,10 +24,28 @@ fn totals_and_credits_match() {
     assert_eq!(analytics.total_cache_read_tokens, None);
     assert_eq!(analytics.total_cache_write_tokens, None);
     assert_eq!(analytics.total_reasoning_tokens, None);
+    assert_eq!(analytics.credit_source, CreditSource::Reported);
+    let total = analytics.total_credits.expect("reported credits");
+    assert!((total - 12.0).abs() < 1e-9, "got {total}");
+    let estimate = analytics.total_estimated_credits.expect("output estimate");
+    assert!((estimate - 12.0).abs() < 1e-9, "got {estimate}");
+    // 4000 output tokens at 3000 AIC / 1M == 12 AIC.
+    assert!((analytics.total_output_credits - 12.0).abs() < 1e-9);
+    assert!(!analytics.credits_partial);
+}
+
+#[test]
+fn falls_back_to_output_only_when_reported_details_are_absent() {
+    let data = r#"{"kind":0,"v":{"version":3,"creationDate":1000,"sessionId":"output-only","requests":[],"inputState":{"selectedModel":{"metadata":{"id":"gpt-5.5","name":"GPT-5.5","inputCost":500,"outputCost":3000,"cacheCost":50}}}}}
+{"kind":2,"k":["requests"],"v":[{"requestId":"request_r0","timestamp":1000}]}
+{"kind":1,"k":["requests",0,"completionTokens"],"v":4000}
+"#;
+    let session = chat_log::parse_str(data).expect("parse chat");
+    let analytics = SessionAnalytics::from_chat(&session);
+
     assert_eq!(analytics.total_credits, None);
     assert_eq!(analytics.total_estimated_credits, None);
     assert_eq!(analytics.credit_source, CreditSource::OutputOnly);
-    // 4000 output tokens at 3000 AIC / 1M == 12 AIC.
     assert!((analytics.total_output_credits - 12.0).abs() < 1e-9);
     assert!(analytics.credits_partial);
 }

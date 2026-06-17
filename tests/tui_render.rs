@@ -74,12 +74,8 @@ fn renders_header_and_totals() {
         "missing total tokens:\n{text}"
     );
     assert!(
-        text.contains("12.0 AIC output-only"),
-        "missing credits:\n{text}"
-    );
-    assert!(
-        text.contains("output-only"),
-        "missing partial-credit note:\n{text}"
+        text.contains("12.0 AIC reported"),
+        "missing reported credits:\n{text}"
     );
 }
 

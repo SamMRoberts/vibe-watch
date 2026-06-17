@@ -91,7 +91,7 @@ Reasoning tokens, when present as CLI `usage.reasoningTokens`, are preserved as 
 
 Credit values use this precedence:
 
-1. Reported credits/costs from the log, such as CLI `requests.cost`
+1. Reported credits/costs from the log, such as VS Code `result.details` credit text or CLI `requests.cost`
 2. Estimated credits from token usage and known model pricing when no reported value is available
 3. Output-only credits for formats that expose only output usage
 
@@ -105,7 +105,7 @@ These are the `.jsonl` chat session logs written by VS Code. On macOS they are t
 ~/Library/Application Support/Code/User/workspaceStorage/.../chatSessions/<session-id>.jsonl
 ```
 
-For this format, vibe-watch reconstructs the session from the delta journal and reports output-token-based credits from `completionTokens`. Input and cache token data are not available in the session log, so credits are marked as output-only.
+For this format, vibe-watch reconstructs the session from the delta journal and reports output token usage from `completionTokens`. When a request includes reported credit text in `result.details` such as `GPT-5.4 • 148.8 credits`, vibe-watch uses that reported value for credits. If no reported credit details are available, it falls back to output-token-based credits and marks them as output-only. Input and cache token counts are not available in this session log format.
 
 When `workspace.json` is present next to the containing workspace storage directory, vibe-watch also reports the repository path from its `folder` field.
 

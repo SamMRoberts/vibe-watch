@@ -3,8 +3,10 @@
 {"kind":1,"k":["requests",0,"completionTokens"],"v":100}
 {"kind":1,"k":["requests",0,"completionTokens"],"v":1000}
 {"kind":1,"k":["requests",0,"elapsedMs"],"v":2000}
+{"kind":1,"k":["requests",0,"result"],"v":{"details":"GPT-5.5 • 4.5 credits"}}
 {"kind":2,"k":["requests",0,"response"],"v":[{"kind":"toolInvocationSerialized","toolId":"copilot_applyPatch"},{"kind":"thinking"}]}
 {"kind":2,"k":["requests"],"v":[{"requestId":"request_r1","timestamp":4000}]}
 {"kind":1,"k":["requests",1,"completionTokens"],"v":3000}
 {"kind":1,"k":["requests",1,"elapsedMs"],"v":6000}
+{"kind":1,"k":["requests",1,"result"],"v":{"details":"GPT-5.5 • 7.5 credits"}}
 {"kind":2,"k":["requests",1,"response"],"v":[{"kind":"toolInvocationSerialized","toolId":"run_in_terminal","toolSpecificData":{"kind":"terminal","commandLine":{"original":"cargo test"}}},{"kind":"toolInvocationSerialized","toolId":"copilot_readFile","invocationMessage":{"value":"Read skill","uris":{"file:///x/skills/demo-skill/SKILL.md":{}}}}]}

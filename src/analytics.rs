@@ -135,12 +135,18 @@ impl SessionAnalytics {
         let mut skill_counts: HashMap<String, usize> = HashMap::new();
         let mut subagent_counts: HashMap<String, usize> = HashMap::new();
         let mut total_output_credits = 0.0;
+        let mut total_reported_credits = 0.0;
+        let mut has_reported_credits = false;
 
         for (index, request) in session.requests.iter().enumerate() {
             let output_credits = rates
                 .map(|r| r.output_credits(request.completion_tokens))
                 .unwrap_or(0.0);
             total_output_credits += output_credits;
+            if let Some(reported_credits) = request.reported_credits {
+                total_reported_credits += reported_credits;
+                has_reported_credits = true;
+            }
 
             for tool in &request.tools {
                 *tool_counts.entry(tool.clone()).or_default() += 1;
@@ -164,7 +170,7 @@ impl SessionAnalytics {
                 elapsed_ms: request.elapsed_ms,
                 first_progress_ms: request.first_progress_ms,
                 output_credits,
-                credits: None,
+                credits: request.reported_credits,
                 pct_output_tokens: percent(request.completion_tokens, total_output_tokens),
                 pct_time: percent_i64(request.elapsed_ms.unwrap_or(0), total_elapsed_ms),
                 tools: request.tools.clone(),
@@ -175,6 +181,20 @@ impl SessionAnalytics {
             });
         }
 
+        let total_estimated_credits = if has_reported_credits && rates.is_some() {
+            Some(total_output_credits)
+        } else {
+            None
+        };
+        let total_credits = has_reported_credits.then_some(total_reported_credits);
+        let credit_source = if has_reported_credits {
+            CreditSource::Reported
+        } else if rates.is_some() {
+            CreditSource::OutputOnly
+        } else {
+            CreditSource::Unknown
+        };
+
         SessionAnalytics {
             session_id: session.session_id.clone(),
             repository_path: session.repository_path.clone(),
@@ -183,7 +203,7 @@ impl SessionAnalytics {
             model_name: session.model.name.clone(),
             rates,
             rates_source,
-            credits_partial: true,
+            credits_partial: !has_reported_credits,
             turn_count: session.requests.len(),
             total_output_tokens,
             total_input_tokens: None,
@@ -192,13 +212,9 @@ impl SessionAnalytics {
             total_cache_write_tokens: None,
             total_reasoning_tokens: None,
             total_output_credits,
-            total_estimated_credits: None,
-            total_credits: None,
-            credit_source: if rates.is_some() {
-                CreditSource::OutputOnly
-            } else {
-                CreditSource::Unknown
-            },
+            total_estimated_credits,
+            total_credits,
+            credit_source,
             total_elapsed_ms,
             wall_clock_ms: wall_clock_ms(session),
             turns,

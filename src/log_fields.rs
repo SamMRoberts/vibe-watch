@@ -80,6 +80,7 @@ pub struct ChatRequestFields {
     pub elapsed_ms: String,
     pub first_progress: String,
     pub total_elapsed: String,
+    pub details: String,
     pub response: String,
 }
 
