@@ -83,7 +83,7 @@ The dashboard header shows token usage by category: input, output, and cached. W
 
 vibe-watch normalizes known token fields into three display categories:
 
-- Input: prompt/input token fields, such as VS Code `promptTokens` and CLI `usage.inputTokens`
+- Input: prompt/input token fields, such as VS Code `result.metadata.promptTokens` and CLI `usage.inputTokens`
 - Output: completion/output token fields, such as VS Code `completionTokens` and CLI `usage.outputTokens`
 - Cached: cache read and cache write token fields, such as CLI `usage.cacheReadTokens` plus `usage.cacheWriteTokens`
 
@@ -105,7 +105,7 @@ These are the `.jsonl` chat session logs written by VS Code. On macOS they are t
 ~/Library/Application Support/Code/User/workspaceStorage/.../chatSessions/<session-id>.jsonl
 ```
 
-For this format, vibe-watch reconstructs the session from the delta journal and reports output token usage from `completionTokens`. If a request includes `promptTokens`, vibe-watch counts those as input tokens. When a request includes reported credit text in `result.details` such as `GPT-5.4 • 148.8 credits`, vibe-watch uses that reported value for credits. If no reported credit details are available, it falls back to output-token-based credits and marks them as output-only. Cache token counts are not available in this session log format; input tokens are shown as `n/a` when `promptTokens` is absent.
+For this format, vibe-watch reconstructs the session from the delta journal and reports output token usage from `completionTokens`. If a request includes `result.metadata.promptTokens`, vibe-watch counts those as input tokens. When a request includes reported credit text in `result.details` such as `GPT-5.4 • 148.8 credits`, vibe-watch uses that reported value for credits. If no reported credit details are available, it falls back to output-token-based credits and marks them as output-only. Cache token counts are not available in this session log format; input tokens are shown as `n/a` when prompt token metadata is absent.
 
 When `workspace.json` is present next to the containing workspace storage directory, vibe-watch also reports the repository path from its `folder` field.
 

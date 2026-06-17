@@ -51,6 +51,20 @@ fn falls_back_to_output_only_when_reported_details_are_absent() {
 }
 
 #[test]
+fn direct_prompt_tokens_are_also_counted_as_input_tokens() {
+    let data = r#"{"kind":0,"v":{"version":3,"creationDate":1000,"sessionId":"direct-prompt","requests":[],"inputState":{"selectedModel":{"metadata":{"id":"gpt-5.5","name":"GPT-5.5","inputCost":500,"outputCost":3000,"cacheCost":50}}}}}
+{"kind":2,"k":["requests"],"v":[{"requestId":"request_r0","timestamp":1000}]}
+{"kind":1,"k":["requests",0,"promptTokens"],"v":1234}
+{"kind":1,"k":["requests",0,"completionTokens"],"v":4000}
+"#;
+    let session = chat_log::parse_str(data).expect("parse chat");
+    let analytics = SessionAnalytics::from_chat(&session);
+
+    assert_eq!(analytics.total_input_tokens, Some(1234));
+    assert_eq!(analytics.turns[0].input_tokens, Some(1234));
+}
+
+#[test]
 fn per_turn_metrics_match() {
     let analytics = load_fixture();
 

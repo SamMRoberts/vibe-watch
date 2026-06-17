@@ -34,6 +34,7 @@
             "request_id": "requestId",
             "timestamp": "timestamp",
             "prompt_tokens": "promptTokens",
+            "prompt_tokens_metadata": "/result/metadata/promptTokens",
             "completion_tokens": "completionTokens",
             "elapsed_ms": "elapsedMs",
             "first_progress": "/result/timings/firstProgress",

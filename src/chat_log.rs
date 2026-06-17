@@ -211,7 +211,12 @@ fn extract_request(request: &Value) -> ChatRequest {
         timestamp_ms: request.get(&f.request.timestamp).and_then(Value::as_i64),
         prompt_tokens: request
             .get(&f.request.prompt_tokens)
-            .and_then(Value::as_u64),
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                request
+                    .pointer(&f.request.prompt_tokens_metadata)
+                    .and_then(Value::as_u64)
+            }),
         completion_tokens: request
             .get(&f.request.completion_tokens)
             .and_then(Value::as_u64)
