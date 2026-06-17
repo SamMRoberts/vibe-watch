@@ -51,6 +51,13 @@ fn load_analytics_reuses_repository_sidecars() {
 }
 
 #[test]
+fn load_analytics_falls_back_to_cli_cwd_when_sidecar_is_missing() {
+    let cli = load_analytics(&fixture_path("cli_min.jsonl"), FormatFilter::Cli).expect("load cli");
+
+    assert_eq!(cli.repository_path.as_deref(), Some("/repo"));
+}
+
+#[test]
 fn discover_sessions_finds_supported_logs_under_directory() {
     let dir = unique_temp_dir("discover");
     copy_fixture(

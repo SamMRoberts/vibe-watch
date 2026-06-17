@@ -72,6 +72,10 @@ impl BrowserState {
             .analytics
             .repository_path
             .clone()
+            .and_then(|path| {
+                let trimmed = path.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            })
             .unwrap_or_else(|| "(unknown repository)".to_string());
         self.group_mut(repository)
             .entries

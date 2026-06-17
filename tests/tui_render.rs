@@ -216,6 +216,25 @@ fn browser_progress_bar_updates_while_loading() {
 }
 
 #[test]
+fn browser_dashboard_uses_unknown_label_for_blank_repository_path() {
+    let mut state = BrowserState::new(ScanProgress {
+        processed: 1,
+        total: 1,
+        finished: true,
+    });
+    let mut analytics = load_chat_analytics();
+    analytics.repository_path = Some("   ".to_string());
+    state.add_loaded(loaded_session("/tmp/blank/chat.jsonl", analytics));
+
+    let text = render_browser_to_text(&state, 120, 24);
+
+    assert!(
+        text.contains("(unknown repository)"),
+        "blank repository should use fallback label:\n{text}"
+    );
+}
+
+#[test]
 fn renders_header_and_totals() {
     let text = render_to_text(120, 30, &ViewState::default());
     assert!(text.contains("vibe-watch"), "missing title:\n{text}");

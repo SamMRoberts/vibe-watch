@@ -62,7 +62,8 @@ pub fn load_analytics(path: &Path, filter: FormatFilter) -> Result<SessionAnalyt
     let data =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let format = detect_format(&data, filter)?;
-    let repository_path = resolve_repository_path(path, workspace_format(format))?;
+    let repository_path =
+        normalize_repository_path(resolve_repository_path(path, workspace_format(format))?);
 
     match format {
         DetectedFormat::Vscode => {
@@ -72,10 +73,18 @@ pub fn load_analytics(path: &Path, filter: FormatFilter) -> Result<SessionAnalyt
         }
         DetectedFormat::Cli => {
             let mut session = cli_log::parse_str(&data)?;
-            session.repository_path = repository_path;
+            session.repository_path =
+                repository_path.or_else(|| normalize_repository_path(session.cwd.clone()));
             Ok(SessionAnalytics::from_cli(&session))
         }
     }
+}
+
+fn normalize_repository_path(path: Option<String>) -> Option<String> {
+    path.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
 }
 
 pub fn discover_sessions(
