@@ -139,6 +139,7 @@ fn renders_turns_and_activity() {
 
     // Activity table follows the selected turn (turn 0 by default).
     assert!(text.contains("kind"), "missing kind column:\n{text}");
+    assert!(text.contains("cnt"), "missing count column:\n{text}");
     assert!(
         text.contains("activity"),
         "missing activity column:\n{text}"
@@ -214,6 +215,7 @@ fn renders_wide_selected_turn_activity_columns() {
     let text = render_to_text(240, 30, &ViewState::default());
 
     assert!(text.contains("kind"), "missing kind column:\n{text}");
+    assert!(text.contains("cnt"), "missing count column:\n{text}");
     assert!(
         text.contains("activity"),
         "missing activity column:\n{text}"

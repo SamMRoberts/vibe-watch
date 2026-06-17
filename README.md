@@ -81,7 +81,7 @@ The TUI supports:
 
 The dashboard header shows token usage by category: input, output, and cached. When a log format does not expose a category, the value is shown as `n/a` rather than estimated from unrelated data.
 
-The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show the turn's recorded tools, terminal commands, skills, and subagents in source-log order, with rows color-coded by activity kind. The pane focuses on the action sequence and does not show AI Credit values; credit totals remain in the dashboard header and reports.
+The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show the turn's recorded tools, terminal commands, skills, and subagents in source-log order, with rows color-coded by activity kind. Consecutive activities with the same kind and name are grouped into one row with a count, while non-consecutive repeats stay separate so the action sequence remains clear. The pane focuses on the action sequence and does not show AI Credit values; credit totals remain in the dashboard header and reports.
 
 ## Token and credit mapping
 

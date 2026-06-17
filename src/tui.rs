@@ -300,6 +300,7 @@ enum ActivityRow {
     Event {
         seq: String,
         kind: String,
+        count: String,
         activity: String,
         output_tokens: String,
     },
@@ -310,6 +311,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
         return vec![ActivityRow::Event {
             seq: "-".to_string(),
             kind: "status".to_string(),
+            count: "-".to_string(),
             activity: "no selected turn".to_string(),
             output_tokens: "-".to_string(),
         }];
@@ -319,21 +321,38 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
         return vec![ActivityRow::Event {
             seq: "-".to_string(),
             kind: "activity".to_string(),
+            count: "0".to_string(),
             activity: "none recorded".to_string(),
             output_tokens: turn.output_tokens.to_string(),
         }];
     }
 
-    turn.activity_events
-        .iter()
-        .enumerate()
-        .map(|(index, event)| ActivityRow::Event {
-            seq: (index + 1).to_string(),
-            kind: event.kind.clone(),
-            activity: event.name.clone(),
-            output_tokens: turn.output_tokens.to_string(),
-        })
-        .collect()
+    grouped_activity_rows(turn)
+}
+
+fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
+    let mut rows = Vec::new();
+    for (index, event) in turn.activity_events.iter().enumerate() {
+        match rows.last_mut() {
+            Some(ActivityRow::Event {
+                kind,
+                count,
+                activity,
+                ..
+            }) if kind == &event.kind && activity == &event.name => {
+                let next_count = count.parse::<usize>().unwrap_or(1) + 1;
+                *count = next_count.to_string();
+            }
+            _ => rows.push(ActivityRow::Event {
+                seq: (index + 1).to_string(),
+                kind: event.kind.clone(),
+                count: "1".to_string(),
+                activity: event.name.clone(),
+                output_tokens: turn.output_tokens.to_string(),
+            }),
+        }
+    }
+    rows
 }
 
 fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
@@ -341,11 +360,13 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
         ActivityRow::Event {
             seq,
             kind,
+            count,
             activity,
             output_tokens,
         } if wide => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
+            Cell::from(count.clone()),
             Cell::from(activity.clone()),
             Cell::from(output_tokens.clone()),
         ])
@@ -353,11 +374,13 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
         ActivityRow::Event {
             seq,
             kind,
+            count,
             activity,
             ..
         } => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
+            Cell::from(count.clone()),
             Cell::from(activity.clone()),
         ])
         .style(activity_style(kind)),
@@ -366,9 +389,9 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec!["#", "kind", "activity", "out"]
+        vec!["#", "kind", "cnt", "activity", "out"]
     } else {
-        vec!["#", "kind", "activity"]
+        vec!["#", "kind", "cnt", "activity"]
     };
     Row::new(cells).style(Style::new().add_modifier(Modifier::BOLD))
 }
@@ -378,6 +401,7 @@ fn activity_widths(wide: bool) -> Vec<Constraint> {
         vec![
             Constraint::Length(3),
             Constraint::Length(7),
+            Constraint::Length(3),
             Constraint::Min(18),
             Constraint::Length(7),
         ]
@@ -385,6 +409,7 @@ fn activity_widths(wide: bool) -> Vec<Constraint> {
         vec![
             Constraint::Length(3),
             Constraint::Length(5),
+            Constraint::Length(3),
             Constraint::Min(12),
         ]
     }
@@ -622,6 +647,73 @@ mod tests {
         assert_eq!(activity_style("skill"), Style::new().fg(Color::Magenta));
         assert_eq!(activity_style("agent"), Style::new().fg(Color::Green));
         assert_eq!(activity_style("other"), Style::new().fg(Color::Gray));
+    }
+
+    #[test]
+    fn activity_rows_group_only_consecutive_matches() {
+        let mut turn = TurnMetrics {
+            index: 0,
+            request_id: None,
+            model: None,
+            mode: None,
+            timestamp_ms: None,
+            output_tokens: 10,
+            input_tokens: None,
+            cached_tokens: None,
+            elapsed_ms: None,
+            first_progress_ms: None,
+            output_credits: 0.0,
+            credits: None,
+            pct_output_tokens: 0.0,
+            pct_time: 0.0,
+            tools: Vec::new(),
+            subagents: Vec::new(),
+            skills: Vec::new(),
+            terminal_commands: Vec::new(),
+            activity_events: Vec::new(),
+            had_reasoning: false,
+        };
+        turn.activity_events = vec![
+            activity_event("tool", "read"),
+            activity_event("tool", "read"),
+            activity_event("skill", "plan"),
+            activity_event("tool", "read"),
+        ];
+
+        let rows = activity_rows(Some(&turn));
+        let summaries: Vec<(&str, &str, &str, &str)> = rows
+            .iter()
+            .map(|row| match row {
+                ActivityRow::Event {
+                    seq,
+                    kind,
+                    count,
+                    activity,
+                    ..
+                } => (
+                    seq.as_str(),
+                    kind.as_str(),
+                    count.as_str(),
+                    activity.as_str(),
+                ),
+            })
+            .collect();
+
+        assert_eq!(
+            summaries,
+            vec![
+                ("1", "tool", "2", "read"),
+                ("3", "skill", "1", "plan"),
+                ("4", "tool", "1", "read"),
+            ]
+        );
+    }
+
+    fn activity_event(kind: &str, name: &str) -> crate::analytics::ActivityEvent {
+        crate::analytics::ActivityEvent {
+            kind: kind.to_string(),
+            name: name.to_string(),
+        }
     }
 
     #[test]
