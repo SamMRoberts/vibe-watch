@@ -103,12 +103,29 @@ fn renders_turns_and_activity() {
     let text = render_to_text(120, 30, &ViewState::default());
     assert!(text.contains("Turns"), "missing turns panel:\n{text}");
     assert!(text.contains("Activity"), "missing activity panel:\n{text}");
+    assert!(
+        text.contains("in_tok"),
+        "missing input token column:\n{text}"
+    );
+    assert!(
+        text.contains("2000"),
+        "missing turn 0 input tokens:\n{text}"
+    );
     // Per-turn output token counts from the fixture.
     assert!(text.contains("1000"), "missing turn 0 tokens:\n{text}");
     assert!(text.contains("3000"), "missing turn 1 tokens:\n{text}");
     // Aggregated activity.
     assert!(text.contains("demo-skill"), "missing skill:\n{text}");
     assert!(text.contains("run_in_terminal"), "missing tool:\n{text}");
+}
+
+#[test]
+fn renders_selected_turn_input_token_detail() {
+    let text = render_to_text(120, 30, &ViewState::default());
+    assert!(
+        text.contains("2000 in tok"),
+        "missing selected turn input detail:\n{text}"
+    );
 }
 
 #[test]

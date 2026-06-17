@@ -205,6 +205,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         Row::new(vec![
             Cell::from(turn.index.to_string()),
             Cell::from(short_id(turn.request_id.as_deref())),
+            Cell::from(token_value(turn.input_tokens)),
             Cell::from(turn.output_tokens.to_string()),
             Cell::from(format!("{:.1}%", turn.pct_output_tokens)),
             Cell::from(Span::styled(bar, Style::new().fg(Color::Green))),
@@ -216,11 +217,19 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         Constraint::Length(3),
         Constraint::Length(12),
         Constraint::Length(8),
+        Constraint::Length(8),
         Constraint::Length(6),
         Constraint::Min(14),
     ];
-    let header = Row::new(vec!["#", "request", "out_tok", "%tok", "output share"])
-        .style(Style::new().add_modifier(Modifier::BOLD));
+    let header = Row::new(vec![
+        "#",
+        "request",
+        "in_tok",
+        "out_tok",
+        "%tok",
+        "output share",
+    ])
+    .style(Style::new().add_modifier(Modifier::BOLD));
     let table = Table::new(rows, widths)
         .header(header)
         .block(Block::bordered().title(" Turns "));
@@ -273,6 +282,7 @@ fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, st
 fn turn_detail(turn: &TurnMetrics) -> String {
     let mut parts = vec![
         format!("turn {}", turn.index),
+        format!("{} in tok", token_value(turn.input_tokens)),
         format!("{} out tok", turn.output_tokens),
         format!("{:.1}% tok", turn.pct_output_tokens),
         format!("{:.0}s", turn.elapsed_ms.unwrap_or(0) as f64 / 1000.0),
