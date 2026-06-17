@@ -83,6 +83,8 @@ The dashboard header shows token usage by category: input, output, and cached. W
 
 The dashboard Activity pane follows the currently selected turn. It uses a Ratatui table to show the turn's recorded tools, terminal commands, skills, and subagents in source-log order, with rows color-coded by activity kind. Consecutive activities with the same kind and name are grouped into one row with a count, while non-consecutive repeats stay separate so the action sequence remains clear. The pane focuses on the action sequence and does not show AI Credit values; credit totals remain in the dashboard header and reports.
 
+The Turns table and Timeline now share the same per-turn color palette. Each turn keeps the same color in both places so it is easier to match the selected row with its timeline segment at a glance.
+
 ## Token and credit mapping
 
 vibe-watch normalizes known token fields into three display categories:

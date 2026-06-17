@@ -215,11 +215,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
     let rows = analytics.turns.iter().map(|turn| {
         let bar = bar_string(turn.output_tokens, max_tokens, 14);
         let selected = turn.index == state.selected;
-        let style = if selected {
-            Style::new().fg(Color::Black).bg(Color::Cyan)
-        } else {
-            Style::new()
-        };
+        let style = turn_row_style(turn.index, selected);
         Row::new(vec![
             Cell::from(turn.index.to_string()),
             Cell::from(short_id(turn.request_id.as_deref())),
@@ -439,6 +435,45 @@ fn activity_window(
     (start, end)
 }
 
+fn turn_palette_color(index: usize) -> Color {
+    const PALETTE: [Color; 8] = [
+        Color::Cyan,
+        Color::Yellow,
+        Color::Green,
+        Color::Magenta,
+        Color::Blue,
+        Color::LightCyan,
+        Color::LightYellow,
+        Color::LightGreen,
+    ];
+
+    PALETTE[index % PALETTE.len()]
+}
+
+fn turn_row_style(index: usize, selected: bool) -> Style {
+    let color = turn_palette_color(index);
+    if selected {
+        Style::new()
+            .fg(Color::Black)
+            .bg(color)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(color)
+    }
+}
+
+fn timeline_segment_style(index: usize, selected: bool) -> Style {
+    let color = turn_palette_color(index);
+    if selected {
+        Style::new()
+            .bg(color)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().bg(color).fg(Color::Black)
+    }
+}
+
 fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {
     let detail = match analytics.turns.get(state.selected) {
         Some(turn) => turn_detail(turn),
@@ -534,16 +569,7 @@ fn render_timeline(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, 
         if length == 0 {
             continue;
         }
-        let style = if index == state.selected {
-            Style::new()
-                .bg(Color::Cyan)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD)
-        } else if index % 2 == 0 {
-            Style::new().bg(Color::Blue).fg(Color::White)
-        } else {
-            Style::new().bg(Color::DarkGray).fg(Color::White)
-        };
+        let style = timeline_segment_style(index, index == state.selected);
         spans.push(Span::styled(segment_label(index, length), style));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
@@ -707,6 +733,34 @@ mod tests {
                 ("4", "tool", "1", "read"),
             ]
         );
+    }
+
+    #[test]
+    fn turn_palette_uses_multiple_distinct_colors() {
+        let colors: Vec<Color> = (0..8).map(turn_palette_color).collect();
+        let unique = colors.iter().fold(Vec::new(), |mut seen, color| {
+            if !seen.contains(color) {
+                seen.push(*color);
+            }
+            seen
+        });
+
+        assert!(unique.len() >= 6, "expected richer palette, got {unique:?}");
+        assert_eq!(turn_palette_color(0), turn_palette_color(8));
+    }
+
+    #[test]
+    fn turn_styles_share_palette_color() {
+        let color = turn_palette_color(3);
+        let normal = turn_row_style(3, false);
+        let selected = turn_row_style(3, true);
+        let timeline = timeline_segment_style(3, false);
+        let selected_timeline = timeline_segment_style(3, true);
+
+        assert_eq!(normal.fg, Some(color));
+        assert_eq!(selected.bg, Some(color));
+        assert_eq!(timeline.bg, Some(color));
+        assert_eq!(selected_timeline.bg, Some(color));
     }
 
     fn activity_event(kind: &str, name: &str) -> crate::analytics::ActivityEvent {
