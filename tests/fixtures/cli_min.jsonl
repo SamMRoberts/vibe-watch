@@ -8,4 +8,4 @@
 {"type":"user.message","data":{"agentMode":"interactive","content":"Do it"},"timestamp":"2026-01-01T00:00:10.000Z"}
 {"type":"assistant.message","data":{"outputTokens":600,"toolRequests":[]},"timestamp":"2026-01-01T00:00:12.000Z"}
 {"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"/repo/src/main.rs"}},"timestamp":"2026-01-01T00:00:13.000Z"}
-{"type":"session.shutdown","data":{"modelMetrics":{"gpt-5.5":{"requests":{"count":5,"cost":3},"usage":{"inputTokens":10000,"outputTokens":800,"cacheReadTokens":5000,"cacheWriteTokens":0,"reasoningTokens":100}}}},"timestamp":"2026-01-01T00:00:14.000Z"}
+{"type":"session.shutdown","data":{"modelMetrics":{"gpt-5.5":{"requests":{"count":5,"cost":3},"usage":{"inputTokens":10000,"outputTokens":800,"cacheReadTokens":5000,"cacheWriteTokens":2000,"reasoningTokens":100}}}},"timestamp":"2026-01-01T00:00:14.000Z"}

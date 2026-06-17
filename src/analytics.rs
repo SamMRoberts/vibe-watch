@@ -21,6 +21,22 @@ pub enum RatesSource {
     Unknown,
 }
 
+/// Where the displayed total credit value came from.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CreditSource {
+    /// Explicit cost/credit values reported by the session log.
+    Reported,
+    /// Computed from token usage and known model rates.
+    Estimated,
+    /// Some models reported credits while others needed estimates.
+    Mixed,
+    /// Only output-side credits are known.
+    OutputOnly,
+    /// No usable credit value is available.
+    Unknown,
+}
+
 /// A named frequency count (tools, skills, subagents).
 #[derive(Debug, Clone, Serialize)]
 pub struct Aggregate {
@@ -40,7 +56,9 @@ pub struct ModelUsage {
     pub reasoning_tokens: u64,
     /// Cost reported by the agent runtime, in its own units (not normalized).
     pub reported_cost: Option<f64>,
-    /// Full AIC credits from the built-in rate table, when the model is known.
+    /// Full AIC credit estimate from the built-in rate table, when the model is known.
+    pub estimated_credits: Option<f64>,
+    /// Effective credits used for display: reported cost first, estimate second.
     pub credits: Option<f64>,
 }
 
@@ -85,8 +103,13 @@ pub struct SessionAnalytics {
     pub total_output_tokens: u64,
     pub total_input_tokens: Option<u64>,
     pub total_cached_tokens: Option<u64>,
+    pub total_cache_read_tokens: Option<u64>,
+    pub total_cache_write_tokens: Option<u64>,
+    pub total_reasoning_tokens: Option<u64>,
     pub total_output_credits: f64,
+    pub total_estimated_credits: Option<f64>,
     pub total_credits: Option<f64>,
+    pub credit_source: CreditSource,
     pub total_elapsed_ms: i64,
     pub wall_clock_ms: Option<i64>,
     pub turns: Vec<TurnMetrics>,
@@ -165,8 +188,17 @@ impl SessionAnalytics {
             total_output_tokens,
             total_input_tokens: None,
             total_cached_tokens: None,
+            total_cache_read_tokens: None,
+            total_cache_write_tokens: None,
+            total_reasoning_tokens: None,
             total_output_credits,
+            total_estimated_credits: None,
             total_credits: None,
+            credit_source: if rates.is_some() {
+                CreditSource::OutputOnly
+            } else {
+                CreditSource::Unknown
+            },
             total_elapsed_ms,
             wall_clock_ms: wall_clock_ms(session),
             turns,
@@ -235,18 +267,27 @@ impl SessionAnalytics {
 
         let mut per_model = Vec::with_capacity(session.model_usage.len());
         let mut summed_input = 0u64;
+        let mut summed_output = 0u64;
+        let mut summed_cache_read = 0u64;
+        let mut summed_cache_write = 0u64;
         let mut summed_cached = 0u64;
+        let mut summed_reasoning = 0u64;
         for usage in &session.model_usage {
             let model_rates = builtin_rates(&usage.name);
-            let credits = model_rates.map(|r| {
+            let estimated_credits = model_rates.map(|r| {
                 r.credits(
                     usage.input_tokens,
                     usage.output_tokens,
                     usage.cache_read_tokens + usage.cache_write_tokens,
                 )
             });
+            let credits = usage.reported_cost.or(estimated_credits);
             summed_input += usage.input_tokens;
+            summed_output += usage.output_tokens;
+            summed_cache_read += usage.cache_read_tokens;
+            summed_cache_write += usage.cache_write_tokens;
             summed_cached += usage.cache_read_tokens + usage.cache_write_tokens;
+            summed_reasoning += usage.reasoning_tokens;
             per_model.push(ModelUsage {
                 name: usage.name.clone(),
                 requests: usage.requests,
@@ -256,21 +297,58 @@ impl SessionAnalytics {
                 cache_write_tokens: usage.cache_write_tokens,
                 reasoning_tokens: usage.reasoning_tokens,
                 reported_cost: usage.reported_cost,
+                estimated_credits,
                 credits,
             });
         }
 
         let has_full_usage = !per_model.is_empty();
-        let (total_input_tokens, total_cached_tokens, total_credits) = if has_full_usage {
-            let full: f64 = per_model.iter().filter_map(|m| m.credits).sum();
-            let total_credits = if per_model.iter().any(|m| m.credits.is_some()) {
-                Some(full)
-            } else {
-                None
+        let (
+            total_output_tokens,
+            total_input_tokens,
+            total_cached_tokens,
+            total_cache_read_tokens,
+            total_cache_write_tokens,
+            total_reasoning_tokens,
+            total_estimated_credits,
+            total_credits,
+            credit_source,
+        ) = if has_full_usage {
+            let estimated = sum_optional(per_model.iter().map(|m| m.estimated_credits));
+            let reported_count = per_model
+                .iter()
+                .filter(|m| m.reported_cost.is_some())
+                .count();
+            let effective = sum_optional(per_model.iter().map(|m| m.credits));
+            let credit_source = match (reported_count, effective) {
+                (0, Some(_)) => CreditSource::Estimated,
+                (count, Some(_)) if count == per_model.len() => CreditSource::Reported,
+                (_, Some(_)) => CreditSource::Mixed,
+                (_, None) => CreditSource::Unknown,
             };
-            (Some(summed_input), Some(summed_cached), total_credits)
+            (
+                summed_output,
+                Some(summed_input),
+                Some(summed_cached),
+                Some(summed_cache_read),
+                Some(summed_cache_write),
+                Some(summed_reasoning),
+                estimated,
+                effective,
+                credit_source,
+            )
         } else {
-            (None, None, None)
+            (
+                total_output_tokens,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                CreditSource::Unknown,
+            )
         };
 
         let rates_source = if rates.is_some() {
@@ -292,8 +370,13 @@ impl SessionAnalytics {
             total_output_tokens,
             total_input_tokens,
             total_cached_tokens,
+            total_cache_read_tokens,
+            total_cache_write_tokens,
+            total_reasoning_tokens,
             total_output_credits,
+            total_estimated_credits,
             total_credits,
+            credit_source,
             total_elapsed_ms,
             wall_clock_ms: cli_wall_clock_ms(session),
             turns,
@@ -362,6 +445,16 @@ fn percent_i64(part: i64, whole: i64) -> f64 {
     } else {
         part as f64 / whole as f64 * 100.0
     }
+}
+
+fn sum_optional(values: impl Iterator<Item = Option<f64>>) -> Option<f64> {
+    let mut total = 0.0;
+    let mut saw_value = false;
+    for value in values.flatten() {
+        total += value;
+        saw_value = true;
+    }
+    saw_value.then_some(total)
 }
 
 fn sorted_aggregates(counts: HashMap<String, usize>) -> Vec<Aggregate> {

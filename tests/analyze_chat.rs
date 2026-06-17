@@ -1,6 +1,6 @@
 //! End-to-end analytics test over a fixture chat log.
 
-use vibe_watch::analytics::{RatesSource, SessionAnalytics};
+use vibe_watch::analytics::{CreditSource, RatesSource, SessionAnalytics};
 use vibe_watch::chat_log;
 
 fn load_fixture() -> SessionAnalytics {
@@ -19,6 +19,14 @@ fn totals_and_credits_match() {
     assert_eq!(analytics.rates_source, RatesSource::Embedded);
     assert_eq!(analytics.turn_count, 2);
     assert_eq!(analytics.total_output_tokens, 4000);
+    assert_eq!(analytics.total_input_tokens, None);
+    assert_eq!(analytics.total_cached_tokens, None);
+    assert_eq!(analytics.total_cache_read_tokens, None);
+    assert_eq!(analytics.total_cache_write_tokens, None);
+    assert_eq!(analytics.total_reasoning_tokens, None);
+    assert_eq!(analytics.total_credits, None);
+    assert_eq!(analytics.total_estimated_credits, None);
+    assert_eq!(analytics.credit_source, CreditSource::OutputOnly);
     // 4000 output tokens at 3000 AIC / 1M == 12 AIC.
     assert!((analytics.total_output_credits - 12.0).abs() < 1e-9);
     assert!(analytics.credits_partial);

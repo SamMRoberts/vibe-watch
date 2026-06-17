@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use crate::analytics::{Aggregate, ModelUsage, RatesSource, SessionAnalytics};
+use crate::analytics::{Aggregate, CreditSource, ModelUsage, RatesSource, SessionAnalytics};
 
 /// Print analytics as a compact, aligned text report.
 pub fn print_table(analytics: &SessionAnalytics) {
@@ -24,29 +24,17 @@ pub fn print_table(analytics: &SessionAnalytics) {
     print_rates(analytics);
     println!();
 
-    let credit_note = if analytics.credits_partial {
-        "  (output-only; input/cache tokens not recorded in this format)"
-    } else {
-        ""
-    };
     println!(
-        "Turns   : {}   Output tokens: {}   Output credits: {:.2} AIC{}",
-        analytics.turn_count,
-        analytics.total_output_tokens,
-        analytics.total_output_credits,
-        credit_note
+        "Turns   : {}   Output tokens: {}   Output credits: {:.2} AIC",
+        analytics.turn_count, analytics.total_output_tokens, analytics.total_output_credits
     );
-    if let (Some(input), Some(cached)) =
-        (analytics.total_input_tokens, analytics.total_cached_tokens)
-    {
-        println!(
-            "Tokens  : input {}   cached {}   output {}",
-            input, cached, analytics.total_output_tokens
-        );
-    }
-    if let Some(total) = analytics.total_credits {
-        println!("Credits : {total:.2} AIC total (input + output + cache)");
-    }
+    println!(
+        "Tokens  : input {}   cached {}   output {}",
+        token_value(analytics.total_input_tokens),
+        token_value(analytics.total_cached_tokens),
+        analytics.total_output_tokens
+    );
+    println!("Credits : {}", credit_text(analytics));
     print!(
         "Time    : model {:.1}s",
         analytics.total_elapsed_ms as f64 / 1000.0
@@ -107,6 +95,42 @@ fn print_rates(analytics: &SessionAnalytics) {
     }
 }
 
+fn token_value(value: Option<u64>) -> String {
+    value.map_or_else(|| "n/a".to_string(), |tokens| tokens.to_string())
+}
+
+fn credit_text(analytics: &SessionAnalytics) -> String {
+    match (analytics.credit_source, analytics.total_credits) {
+        (CreditSource::Reported, Some(total)) => {
+            format!("{total:.2} AIC reported (input + output + cache)")
+        }
+        (CreditSource::Estimated, Some(total)) => {
+            format!("{total:.2} AIC estimated (input + output + cache)")
+        }
+        (CreditSource::Mixed, Some(total)) => {
+            format!("{total:.2} AIC mixed reported/estimated (input + output + cache)")
+        }
+        (CreditSource::OutputOnly, _) => format!(
+            "{:.2} AIC output-only (input/cache tokens not recorded in this format)",
+            analytics.total_output_credits
+        ),
+        (CreditSource::Unknown, _) => "n/a".to_string(),
+        (_, None) => "n/a".to_string(),
+    }
+}
+
+fn model_credit_text(model: &ModelUsage) -> String {
+    match (model.reported_cost, model.estimated_credits, model.credits) {
+        (Some(reported), Some(estimated), _) => {
+            format!("{reported:.2} AIC reported; est {estimated:.2}")
+        }
+        (Some(reported), None, _) => format!("{reported:.2} AIC reported"),
+        (None, Some(estimated), _) => format!("{estimated:.2} AIC estimated"),
+        (None, None, Some(value)) => format!("{value:.2} AIC"),
+        (None, None, None) => "n/a".to_string(),
+    }
+}
+
 fn format_extras(turn: &crate::analytics::TurnMetrics) -> String {
     let mut parts = Vec::new();
     if let Some(mode) = &turn.mode {
@@ -128,10 +152,7 @@ fn print_models(models: &[ModelUsage]) {
     println!();
     println!("Per model:");
     for model in models {
-        let credits = match model.credits {
-            Some(value) => format!("{value:.2} AIC"),
-            None => "n/a".to_string(),
-        };
+        let credits = model_credit_text(model);
         println!(
             "  {:<18} {:>5} req   in {:>10}  out {:>9}  cache {:>10}  reason {:>8}   {}",
             model.name,

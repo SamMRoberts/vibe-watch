@@ -19,7 +19,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, List, ListItem, Paragraph, Row, Table};
 use ratatui::{Frame, Terminal};
 
-use crate::analytics::{Aggregate, RatesSource, SessionAnalytics, TurnMetrics};
+use crate::analytics::{Aggregate, CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
 
 /// View state shared between the event loop and [`render`].
 #[derive(Debug, Default, Clone, Copy)]
@@ -111,11 +111,8 @@ fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
             rates.input_per_m, rates.output_per_m, rates.cache_per_m
         ),
     };
-    let credit_note = if analytics.credits_partial {
-        " (output-only)"
-    } else {
-        ""
-    };
+    let tokens = token_summary(analytics);
+    let credits = credit_summary(analytics);
 
     let lines = vec![
         Line::from(vec![
@@ -147,15 +144,9 @@ fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
         Line::from(vec![
             Span::styled("Totals  ", Style::new().fg(Color::DarkGray)),
             Span::raw(format!("{} turns   ", analytics.turn_count)),
-            Span::styled(
-                format!("{} out tok", analytics.total_output_tokens),
-                Style::new().fg(Color::Green),
-            ),
+            Span::styled(tokens, Style::new().fg(Color::Green)),
             Span::raw("   "),
-            Span::styled(
-                format!("{:.1} AIC{}", analytics.total_output_credits, credit_note),
-                Style::new().fg(Color::Yellow),
-            ),
+            Span::styled(credits, Style::new().fg(Color::Yellow)),
             Span::raw(format!(
                 "   model {:.0}s",
                 analytics.total_elapsed_ms as f64 / 1000.0
@@ -167,6 +158,32 @@ fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
         .title(" vibe-watch ")
         .title_style(Style::new().bold());
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn token_summary(analytics: &SessionAnalytics) -> String {
+    format!(
+        "in {}   out {}   cached {}",
+        token_value(analytics.total_input_tokens),
+        analytics.total_output_tokens,
+        token_value(analytics.total_cached_tokens)
+    )
+}
+
+fn token_value(value: Option<u64>) -> String {
+    value.map_or_else(|| "n/a".to_string(), |tokens| tokens.to_string())
+}
+
+fn credit_summary(analytics: &SessionAnalytics) -> String {
+    match (analytics.credit_source, analytics.total_credits) {
+        (CreditSource::Reported, Some(total)) => format!("{total:.1} AIC reported"),
+        (CreditSource::Estimated, Some(total)) => format!("{total:.1} AIC estimated"),
+        (CreditSource::Mixed, Some(total)) => format!("{total:.1} AIC mixed"),
+        (CreditSource::OutputOnly, _) => {
+            format!("{:.1} AIC output-only", analytics.total_output_credits)
+        }
+        (CreditSource::Unknown, _) => "AIC n/a".to_string(),
+        (_, None) => "AIC n/a".to_string(),
+    }
 }
 
 fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {

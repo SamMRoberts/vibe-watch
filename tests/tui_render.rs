@@ -6,14 +6,24 @@ use ratatui::Terminal;
 
 use vibe_watch::analytics::SessionAnalytics;
 use vibe_watch::chat_log;
+use vibe_watch::cli_log;
 use vibe_watch::tui::{render, ViewState};
 
-fn load_analytics() -> SessionAnalytics {
+fn load_chat_analytics() -> SessionAnalytics {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chat_min.jsonl");
     let data = std::fs::read_to_string(path).expect("read fixture");
     let session = chat_log::parse_str(&data).expect("parse fixture");
     let mut analytics = SessionAnalytics::from_chat(&session);
     analytics.repository_path = Some("/tmp/vibe-watch-vscode".to_string());
+    analytics
+}
+
+fn load_cli_analytics() -> SessionAnalytics {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/cli_min.jsonl");
+    let data = std::fs::read_to_string(path).expect("read fixture");
+    let session = cli_log::parse_str(&data).expect("parse fixture");
+    let mut analytics = SessionAnalytics::from_cli(&session);
+    analytics.repository_path = Some("/tmp/vibe-watch-cli".to_string());
     analytics
 }
 
@@ -31,14 +41,23 @@ fn buffer_text(buffer: &Buffer) -> String {
     text
 }
 
-fn render_to_text(width: u16, height: u16, state: &ViewState) -> String {
-    let analytics = load_analytics();
+fn render_analytics_to_text(
+    analytics: &SessionAnalytics,
+    width: u16,
+    height: u16,
+    state: &ViewState,
+) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("terminal");
     terminal
-        .draw(|frame| render(frame, &analytics, state))
+        .draw(|frame| render(frame, analytics, state))
         .expect("draw");
     buffer_text(terminal.backend().buffer())
+}
+
+fn render_to_text(width: u16, height: u16, state: &ViewState) -> String {
+    let analytics = load_chat_analytics();
+    render_analytics_to_text(&analytics, width, height, state)
 }
 
 #[test]
@@ -51,13 +70,35 @@ fn renders_header_and_totals() {
     );
     assert!(text.contains("GPT-5.5"), "missing model:\n{text}");
     assert!(
-        text.contains("4000 out tok"),
+        text.contains("in n/a   out 4000   cached n/a"),
         "missing total tokens:\n{text}"
     );
-    assert!(text.contains("12.0 AIC"), "missing credits:\n{text}");
+    assert!(
+        text.contains("12.0 AIC output-only"),
+        "missing credits:\n{text}"
+    );
     assert!(
         text.contains("output-only"),
         "missing partial-credit note:\n{text}"
+    );
+}
+
+#[test]
+fn renders_cli_token_categories_and_reported_credits() {
+    let analytics = load_cli_analytics();
+    let text = render_analytics_to_text(&analytics, 140, 30, &ViewState::default());
+
+    assert!(
+        text.contains("/tmp/vibe-watch-cli"),
+        "missing repo path:\n{text}"
+    );
+    assert!(
+        text.contains("in 10000   out 800   cached 7000"),
+        "missing token categories:\n{text}"
+    );
+    assert!(
+        text.contains("3.0 AIC reported"),
+        "missing reported credits:\n{text}"
     );
 }
 
