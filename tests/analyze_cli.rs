@@ -14,6 +14,7 @@ fn load_fixture() -> SessionAnalytics {
 fn full_usage_yields_full_credits() {
     let analytics = load_fixture();
     assert_eq!(analytics.session_id.as_deref(), Some("cli-session"));
+    assert_eq!(analytics.repository_path, None);
     assert_eq!(analytics.model_id.as_deref(), Some("gpt-5.5"));
     assert_eq!(analytics.rates_source, RatesSource::Builtin);
     // session.shutdown provides full token breakdown, so credits are not partial.

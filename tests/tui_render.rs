@@ -12,7 +12,9 @@ fn load_analytics() -> SessionAnalytics {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chat_min.jsonl");
     let data = std::fs::read_to_string(path).expect("read fixture");
     let session = chat_log::parse_str(&data).expect("parse fixture");
-    SessionAnalytics::from_chat(&session)
+    let mut analytics = SessionAnalytics::from_chat(&session);
+    analytics.repository_path = Some("/tmp/vibe-watch-vscode".to_string());
+    analytics
 }
 
 fn buffer_text(buffer: &Buffer) -> String {
@@ -43,6 +45,10 @@ fn render_to_text(width: u16, height: u16, state: &ViewState) -> String {
 fn renders_header_and_totals() {
     let text = render_to_text(120, 30, &ViewState::default());
     assert!(text.contains("vibe-watch"), "missing title:\n{text}");
+    assert!(
+        text.contains("/tmp/vibe-watch-vscode"),
+        "missing repo path:\n{text}"
+    );
     assert!(text.contains("GPT-5.5"), "missing model:\n{text}");
     assert!(
         text.contains("4000 out tok"),

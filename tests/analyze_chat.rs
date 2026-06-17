@@ -14,6 +14,7 @@ fn load_fixture() -> SessionAnalytics {
 fn totals_and_credits_match() {
     let analytics = load_fixture();
     assert_eq!(analytics.session_id.as_deref(), Some("test-session"));
+    assert_eq!(analytics.repository_path, None);
     assert_eq!(analytics.model_id.as_deref(), Some("gpt-5.5"));
     assert_eq!(analytics.rates_source, RatesSource::Embedded);
     assert_eq!(analytics.turn_count, 2);

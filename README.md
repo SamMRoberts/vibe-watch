@@ -10,6 +10,7 @@ It currently supports two log formats:
 ## What it shows
 
 - Session totals for output tokens and AI credits
+- Repository path for the workspace that produced the session
 - Full token and credit breakdowns when the input log contains them
 - Per-turn output token and elapsed-time metrics
 - Aggregate tool, skill, and subagent usage
@@ -87,6 +88,8 @@ These are the `.jsonl` chat session logs written by VS Code. On macOS they are t
 
 For this format, vibe-watch reconstructs the session from the delta journal and reports output-token-based credits. Input and cache token data are not available in the log, so credits are marked as partial.
 
+When `workspace.json` is present next to the containing workspace storage directory, vibe-watch also reports the repository path from its `folder` field.
+
 ### Copilot CLI logs
 
 These are Copilot CLI `events.jsonl` logs, typically found under:
@@ -96,6 +99,8 @@ These are Copilot CLI `events.jsonl` logs, typically found under:
 ```
 
 When the session shutdown metrics are present, vibe-watch can report full input, output, cache, and total credit usage, plus a per-model breakdown.
+
+When `workspace.yaml` is present in the session directory, vibe-watch reports the repository path from `git_root`, falling back to `cwd`.
 
 ## Example workflow
 

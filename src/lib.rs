@@ -16,3 +16,4 @@ pub mod log_fields;
 pub mod output;
 pub mod pricing;
 pub mod tui;
+pub mod workspace;

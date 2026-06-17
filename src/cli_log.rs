@@ -15,6 +15,7 @@ use crate::log_fields::log_fields;
 #[derive(Debug, Clone, Default)]
 pub struct CliSession {
     pub session_id: Option<String>,
+    pub repository_path: Option<String>,
     pub cwd: Option<String>,
     /// Model with the most requests (or the last selected), used for rates.
     pub primary_model: Option<String>,
@@ -85,7 +86,10 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
         }
         let event: Value = serde_json::from_str(line)
             .with_context(|| format!("invalid JSON on line {}", line_no + 1))?;
-        let event_type = event.get(&f.event.r#type).and_then(Value::as_str).unwrap_or("");
+        let event_type = event
+            .get(&f.event.r#type)
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let data = event.get(&f.event.data).cloned().unwrap_or(Value::Null);
         let ts = event
             .get(&f.event.timestamp)
@@ -149,9 +153,7 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
                             turn.subagents.push(agent.to_string());
                         }
                     }
-                    if let Some(command) =
-                        data.pointer(&f.data.command).and_then(Value::as_str)
-                    {
+                    if let Some(command) = data.pointer(&f.data.command).and_then(Value::as_str) {
                         turn.terminal_commands.push(command.to_string());
                     }
                     bump_end(turn, ts);

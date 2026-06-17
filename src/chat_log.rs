@@ -18,6 +18,7 @@ use crate::log_fields::log_fields;
 #[derive(Debug, Clone)]
 pub struct ChatSession {
     pub session_id: Option<String>,
+    pub repository_path: Option<String>,
     pub custom_title: Option<String>,
     pub created_at_ms: Option<i64>,
     pub model: ChatModel,
@@ -73,7 +74,10 @@ pub fn parse_str(data: &str) -> Result<ChatSession> {
         }
         let record: Value = serde_json::from_str(line)
             .with_context(|| format!("invalid JSON on line {}", line_no + 1))?;
-        let kind = record.get(&f.journal.kind).and_then(Value::as_u64).unwrap_or(1);
+        let kind = record
+            .get(&f.journal.kind)
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
         let value = record.get(&f.journal.value).cloned().unwrap_or(Value::Null);
         match kind {
             0 => root = value,
@@ -150,7 +154,9 @@ fn extract(root: &Value) -> ChatSession {
         .pointer(&f.session.custom_title)
         .and_then(Value::as_str)
         .map(String::from);
-    let created_at_ms = root.pointer(&f.session.creation_date).and_then(Value::as_i64);
+    let created_at_ms = root
+        .pointer(&f.session.creation_date)
+        .and_then(Value::as_i64);
     let model = extract_model(root);
 
     let mut requests = Vec::new();
@@ -164,6 +170,7 @@ fn extract(root: &Value) -> ChatSession {
 
     ChatSession {
         session_id,
+        repository_path: None,
         custom_title,
         created_at_ms,
         model,
@@ -215,7 +222,9 @@ fn extract_request(request: &Value) -> ChatRequest {
     if let Some(response) = request.get(&f.request.response).and_then(Value::as_array) {
         for item in response {
             match item.get(&f.response.kind).and_then(Value::as_str) {
-                Some(kind) if kind == f.response.tool_invocation_kind => collect_tool(item, &mut turn),
+                Some(kind) if kind == f.response.tool_invocation_kind => {
+                    collect_tool(item, &mut turn)
+                }
                 Some(kind) if kind == f.response.thinking_kind => turn.had_reasoning = true,
                 _ => {}
             }
@@ -235,10 +244,7 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
         .and_then(Value::as_str)
     {
         Some(kind) if kind == f.response.subagent_kind => {
-            if let Some(name) = item
-                .pointer(&f.response.agent_name)
-                .and_then(Value::as_str)
-            {
+            if let Some(name) = item.pointer(&f.response.agent_name).and_then(Value::as_str) {
                 turn.subagents.push(name.to_string());
             }
         }
@@ -265,10 +271,16 @@ fn detect_skill(item: &Value) -> Option<String> {
     match message {
         Some(Value::String(text)) => candidates.push(text.clone()),
         Some(Value::Object(object)) => {
-            if let Some(text) = object.get(&f.response.message_value).and_then(Value::as_str) {
+            if let Some(text) = object
+                .get(&f.response.message_value)
+                .and_then(Value::as_str)
+            {
                 candidates.push(text.to_string());
             }
-            if let Some(uris) = object.get(&f.response.message_uris).and_then(Value::as_object) {
+            if let Some(uris) = object
+                .get(&f.response.message_uris)
+                .and_then(Value::as_object)
+            {
                 candidates.extend(uris.keys().cloned());
             }
         }

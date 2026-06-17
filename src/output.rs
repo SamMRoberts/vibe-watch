@@ -10,6 +10,9 @@ pub fn print_table(analytics: &SessionAnalytics) {
         "Session : {}",
         analytics.session_id.as_deref().unwrap_or("(unknown)")
     );
+    if let Some(path) = &analytics.repository_path {
+        println!("Repo    : {path}");
+    }
     if let Some(title) = &analytics.title {
         println!("Title   : {title}");
     }

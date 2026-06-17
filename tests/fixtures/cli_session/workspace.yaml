@@ -1,0 +1,4 @@
+id: cli-session
+cwd: /tmp/vibe-watch-cli-cwd
+git_root: /tmp/vibe-watch-cli-root
+repository: example/vibe-watch

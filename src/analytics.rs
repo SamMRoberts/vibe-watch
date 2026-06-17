@@ -73,6 +73,7 @@ pub struct TurnMetrics {
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionAnalytics {
     pub session_id: Option<String>,
+    pub repository_path: Option<String>,
     pub title: Option<String>,
     pub model_id: Option<String>,
     pub model_name: Option<String>,
@@ -153,6 +154,7 @@ impl SessionAnalytics {
 
         SessionAnalytics {
             session_id: session.session_id.clone(),
+            repository_path: session.repository_path.clone(),
             title: session.custom_title.clone(),
             model_id: session.model.id.clone(),
             model_name: session.model.name.clone(),
@@ -279,6 +281,7 @@ impl SessionAnalytics {
 
         SessionAnalytics {
             session_id: session.session_id.clone(),
+            repository_path: session.repository_path.clone(),
             title: session.cwd.clone(),
             model_id: primary.clone(),
             model_name: primary,
@@ -378,6 +381,7 @@ mod tests {
     fn session_with_rates() -> ChatSession {
         ChatSession {
             session_id: Some("s".into()),
+            repository_path: None,
             custom_title: None,
             created_at_ms: Some(0),
             model: ChatModel {

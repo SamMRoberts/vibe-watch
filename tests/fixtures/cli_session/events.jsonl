@@ -1,0 +1,11 @@
+{"type":"session.start","data":{"sessionId":"cli-session","context":{"cwd":"/repo"}},"timestamp":"2026-01-01T00:00:00.000Z"}
+{"type":"session.model_change","data":{"newModel":"gpt-5.5"},"timestamp":"2026-01-01T00:00:01.000Z"}
+{"type":"session.mode_changed","data":{"previousMode":"interactive","newMode":"plan"},"timestamp":"2026-01-01T00:00:01.500Z"}
+{"type":"user.message","data":{"agentMode":"plan","content":"Plan the work"},"timestamp":"2026-01-01T00:00:02.000Z"}
+{"type":"assistant.message","data":{"outputTokens":200,"toolRequests":[]},"timestamp":"2026-01-01T00:00:05.000Z"}
+{"type":"tool.execution_start","data":{"toolName":"shell","arguments":{"command":"ls -la"}},"timestamp":"2026-01-01T00:00:05.500Z"}
+{"type":"skill.invoked","data":{"name":"scope-guard","path":"/x/skills/scope-guard/SKILL.md"},"timestamp":"2026-01-01T00:00:05.800Z"}
+{"type":"user.message","data":{"agentMode":"interactive","content":"Do it"},"timestamp":"2026-01-01T00:00:10.000Z"}
+{"type":"assistant.message","data":{"outputTokens":600,"toolRequests":[]},"timestamp":"2026-01-01T00:00:12.000Z"}
+{"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"/repo/src/main.rs"}},"timestamp":"2026-01-01T00:00:13.000Z"}
+{"type":"session.shutdown","data":{"modelMetrics":{"gpt-5.5":{"requests":{"count":5,"cost":3},"usage":{"inputTokens":10000,"outputTokens":800,"cacheReadTokens":5000,"cacheWriteTokens":0,"reasoningTokens":100}}}},"timestamp":"2026-01-01T00:00:14.000Z"}

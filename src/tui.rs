@@ -80,7 +80,7 @@ fn event_loop(
 /// Draw the full dashboard into `frame`. Pure with respect to the terminal.
 pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState) {
     let rows = Layout::vertical([
-        Constraint::Length(5),
+        Constraint::Length(6),
         Constraint::Min(6),
         Constraint::Length(4),
         Constraint::Length(3),
@@ -123,6 +123,16 @@ fn render_header(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics) {
             Span::raw(
                 analytics
                     .session_id
+                    .as_deref()
+                    .unwrap_or("(unknown)")
+                    .to_string(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Repo    ", Style::new().fg(Color::DarkGray)),
+            Span::raw(
+                analytics
+                    .repository_path
                     .as_deref()
                     .unwrap_or("(unknown)")
                     .to_string(),

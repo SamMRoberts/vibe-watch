@@ -6,6 +6,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::analytics::SessionAnalytics;
+use crate::workspace::{resolve_repository_path, WorkspaceFormat};
 use crate::{chat_log, cli_log, output, tui};
 
 #[derive(Parser)]
@@ -106,19 +107,31 @@ fn load_analytics(path: &std::path::Path, format: Format) -> Result<SessionAnaly
         }
     };
 
+    let repository_path = resolve_repository_path(path, workspace_format(resolved))?;
+
     Ok(match resolved {
         DetectedFormat::Vscode => {
-            let session = chat_log::parse_str(&data)?;
+            let mut session = chat_log::parse_str(&data)?;
+            session.repository_path = repository_path;
             SessionAnalytics::from_chat(&session)
         }
         DetectedFormat::Cli => {
-            let session = cli_log::parse_str(&data)?;
+            let mut session = cli_log::parse_str(&data)?;
+            session.repository_path = repository_path;
             SessionAnalytics::from_cli(&session)
         }
     })
 }
 
+#[derive(Clone, Copy)]
 enum DetectedFormat {
     Vscode,
     Cli,
+}
+
+fn workspace_format(format: DetectedFormat) -> WorkspaceFormat {
+    match format {
+        DetectedFormat::Vscode => WorkspaceFormat::Vscode,
+        DetectedFormat::Cli => WorkspaceFormat::Cli,
+    }
 }
