@@ -23,7 +23,7 @@ use ratatui::widgets::{
     Block, Cell, Gauge, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
 };
 use ratatui::{Frame, Terminal};
-use tachyonfx::{fx, EffectManager, Interpolation, Motion};
+use tachyonfx::{fx, EffectManager, Interpolation};
 
 use crate::analytics::{CreditSource, RatesSource, SessionAnalytics, TurnMetrics};
 use crate::session_scan::{
@@ -329,15 +329,9 @@ impl BrowserEffects {
         }
 
         match event {
-            ScanEvent::Loaded(_) => self.body.add_unique_effect(
+            ScanEvent::Loaded(_) => self.progress.add_unique_effect(
                 "scan-loaded",
-                fx::sweep_in(
-                    Motion::LeftToRight,
-                    8,
-                    0,
-                    Color::DarkGray,
-                    (220, Interpolation::QuadOut),
-                ),
+                fx::fade_from_fg(Color::Green, (160, Interpolation::SineOut)),
             ),
             ScanEvent::Error(_) => self.progress.add_unique_effect(
                 "scan-error",
