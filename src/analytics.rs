@@ -128,6 +128,7 @@ impl SessionAnalytics {
         let (rates, rates_source) = resolve_rates(&session.model);
 
         let total_output_tokens: u64 = session.requests.iter().map(|r| r.completion_tokens).sum();
+        let total_input_tokens = sum_optional_u64(session.requests.iter().map(|r| r.prompt_tokens));
         let total_elapsed_ms: i64 = session.requests.iter().filter_map(|r| r.elapsed_ms).sum();
 
         let mut turns = Vec::with_capacity(session.requests.len());
@@ -165,7 +166,7 @@ impl SessionAnalytics {
                 mode: None,
                 timestamp_ms: request.timestamp_ms,
                 output_tokens: request.completion_tokens,
-                input_tokens: None,
+                input_tokens: request.prompt_tokens,
                 cached_tokens: None,
                 elapsed_ms: request.elapsed_ms,
                 first_progress_ms: request.first_progress_ms,
@@ -206,7 +207,7 @@ impl SessionAnalytics {
             credits_partial: !has_reported_credits,
             turn_count: session.requests.len(),
             total_output_tokens,
-            total_input_tokens: None,
+            total_input_tokens,
             total_cached_tokens: None,
             total_cache_read_tokens: None,
             total_cache_write_tokens: None,
@@ -465,6 +466,16 @@ fn percent_i64(part: i64, whole: i64) -> f64 {
 
 fn sum_optional(values: impl Iterator<Item = Option<f64>>) -> Option<f64> {
     let mut total = 0.0;
+    let mut saw_value = false;
+    for value in values.flatten() {
+        total += value;
+        saw_value = true;
+    }
+    saw_value.then_some(total)
+}
+
+fn sum_optional_u64(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    let mut total = 0u64;
     let mut saw_value = false;
     for value in values.flatten() {
         total += value;

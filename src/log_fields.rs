@@ -76,6 +76,7 @@ pub struct ChatModelFields {
 pub struct ChatRequestFields {
     pub request_id: String,
     pub timestamp: String,
+    pub prompt_tokens: String,
     pub completion_tokens: String,
     pub elapsed_ms: String,
     pub first_progress: String,

@@ -33,6 +33,7 @@
             "_comment": "Keys (and pointers) within a single request object in the `requests` array.",
             "request_id": "requestId",
             "timestamp": "timestamp",
+            "prompt_tokens": "promptTokens",
             "completion_tokens": "completionTokens",
             "elapsed_ms": "elapsedMs",
             "first_progress": "/result/timings/firstProgress",

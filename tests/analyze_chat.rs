@@ -19,7 +19,7 @@ fn totals_and_credits_match() {
     assert_eq!(analytics.rates_source, RatesSource::Embedded);
     assert_eq!(analytics.turn_count, 2);
     assert_eq!(analytics.total_output_tokens, 4000);
-    assert_eq!(analytics.total_input_tokens, None);
+    assert_eq!(analytics.total_input_tokens, Some(5000));
     assert_eq!(analytics.total_cached_tokens, None);
     assert_eq!(analytics.total_cache_read_tokens, None);
     assert_eq!(analytics.total_cache_write_tokens, None);
@@ -55,6 +55,7 @@ fn per_turn_metrics_match() {
     let analytics = load_fixture();
 
     let t0 = &analytics.turns[0];
+    assert_eq!(t0.input_tokens, Some(2000));
     assert_eq!(t0.output_tokens, 1000);
     assert!((t0.pct_output_tokens - 25.0).abs() < 1e-9);
     assert!((t0.pct_time - 25.0).abs() < 1e-9);
@@ -62,6 +63,7 @@ fn per_turn_metrics_match() {
     assert_eq!(t0.tools, vec!["copilot_applyPatch"]);
 
     let t1 = &analytics.turns[1];
+    assert_eq!(t1.input_tokens, Some(3000));
     assert_eq!(t1.output_tokens, 3000);
     assert!((t1.pct_output_tokens - 75.0).abs() < 1e-9);
     assert_eq!(t1.terminal_commands, vec!["cargo test"]);

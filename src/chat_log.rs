@@ -40,6 +40,8 @@ pub struct ChatModel {
 pub struct ChatRequest {
     pub request_id: Option<String>,
     pub timestamp_ms: Option<i64>,
+    /// Prompt/input token count for the turn, when VS Code records it.
+    pub prompt_tokens: Option<u64>,
     /// Final output (completion) token count for the turn.
     pub completion_tokens: u64,
     /// Credits reported by VS Code in `result.details`, when available.
@@ -207,6 +209,9 @@ fn extract_request(request: &Value) -> ChatRequest {
             .and_then(Value::as_str)
             .map(String::from),
         timestamp_ms: request.get(&f.request.timestamp).and_then(Value::as_i64),
+        prompt_tokens: request
+            .get(&f.request.prompt_tokens)
+            .and_then(Value::as_u64),
         completion_tokens: request
             .get(&f.request.completion_tokens)
             .and_then(Value::as_u64)

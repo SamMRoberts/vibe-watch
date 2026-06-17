@@ -70,7 +70,7 @@ fn renders_header_and_totals() {
     );
     assert!(text.contains("GPT-5.5"), "missing model:\n{text}");
     assert!(
-        text.contains("in n/a   out 4000   cached n/a"),
+        text.contains("in 5000   out 4000   cached n/a"),
         "missing total tokens:\n{text}"
     );
     assert!(
