@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository uses disciplined, maintainable, production-grade software engineering practices for a Go-based text MUD engine. These instructions apply to all work in this repository and override broader guidance when they are more specific.
+This repository uses disciplined, maintainable, production-grade software engineering practices. These instructions apply to all work in this repository and override broader guidance when they are more specific.
 
 The goal is to prevent low-quality generated code by requiring structured engineering workflow, architectural consistency, testability, scope control, security awareness, and long-term maintainability.
 
