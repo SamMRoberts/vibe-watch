@@ -196,6 +196,7 @@ fn push_activity_event(turn: &mut CliTurn, kind: &str, name: &str) {
     turn.activity_events.push(ActivityEvent {
         kind: kind.to_string(),
         name: name.to_string(),
+        details: Vec::new(),
     });
 }
 

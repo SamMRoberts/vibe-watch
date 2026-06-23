@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use serde_json::{Map, Value};
 
 use crate::analytics::ActivityEvent;
-use crate::log_fields::log_fields;
+use crate::log_fields::{log_fields, ChatFields};
 
 /// A reconstructed VS Code Copilot Chat session.
 #[derive(Debug, Clone)]
@@ -268,9 +268,10 @@ fn parse_reported_credits(details: &str) -> Option<f64> {
 
 fn collect_tool(item: &Value, turn: &mut ChatRequest) {
     let f = &log_fields().chat;
+    let file_details = extract_invocation_uris(item, f);
     if let Some(tool_id) = item.get(&f.response.tool_id).and_then(Value::as_str) {
         turn.tools.push(tool_id.to_string());
-        push_activity_event(turn, "tool", tool_id);
+        push_activity_event(turn, "tool", tool_id, file_details);
     }
     match item
         .pointer(&f.response.tool_specific_kind)
@@ -279,7 +280,7 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
         Some(kind) if kind == f.response.subagent_kind => {
             if let Some(name) = item.pointer(&f.response.agent_name).and_then(Value::as_str) {
                 turn.subagents.push(name.to_string());
-                push_activity_event(turn, "agent", name);
+                push_activity_event(turn, "agent", name, vec![]);
             }
         }
         Some(kind) if kind == f.response.terminal_kind => {
@@ -288,22 +289,43 @@ fn collect_tool(item: &Value, turn: &mut ChatRequest) {
                 .and_then(Value::as_str)
             {
                 turn.terminal_commands.push(command.to_string());
-                push_activity_event(turn, "cmd", command);
+                push_activity_event(turn, "cmd", command, vec![]);
             }
         }
         _ => {}
     }
     if let Some(skill) = detect_skill(item) {
-        push_activity_event(turn, "skill", &skill);
+        push_activity_event(turn, "skill", &skill, vec![]);
         turn.skills.push(skill);
     }
 }
 
-fn push_activity_event(turn: &mut ChatRequest, kind: &str, name: &str) {
+fn push_activity_event(turn: &mut ChatRequest, kind: &str, name: &str, details: Vec<String>) {
     turn.activity_events.push(ActivityEvent {
         kind: kind.to_string(),
         name: name.to_string(),
+        details,
     });
+}
+
+/// Extract `file:` URIs from a tool invocation's `invocationMessage.uris` map.
+///
+/// The URIs are the **keys** of the `uris` object; the `file://` scheme prefix is
+/// stripped so paths are shown relative to the filesystem root.
+fn extract_invocation_uris(item: &Value, f: &ChatFields) -> Vec<String> {
+    let Some(message) = item.get(&f.response.invocation_message) else {
+        return Vec::new();
+    };
+    let uris_obj = match message {
+        Value::Object(obj) => obj.get(&f.response.message_uris).and_then(Value::as_object),
+        _ => None,
+    };
+    let Some(uris) = uris_obj else {
+        return Vec::new();
+    };
+    uris.keys()
+        .map(|u| u.strip_prefix("file://").unwrap_or(u).to_string())
+        .collect()
 }
 
 /// Detect a `SKILL.md` read and return the skill folder name, if any.

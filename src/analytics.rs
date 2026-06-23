@@ -49,6 +49,9 @@ pub struct Aggregate {
 pub struct ActivityEvent {
     pub kind: String,
     pub name: String,
+    /// Optional additional details for this event: file URIs, tool arguments, etc.
+    #[serde(default)]
+    pub details: Vec<String>,
 }
 
 /// Usage associated with activity calls in their enclosing request or turn.

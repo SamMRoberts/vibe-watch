@@ -8,7 +8,7 @@ use vibe_watch::analytics::SessionAnalytics;
 use vibe_watch::chat_log;
 use vibe_watch::cli_log;
 use vibe_watch::session_scan::{LoadedSession, ScanProgress, SessionLoadError};
-use vibe_watch::tui::{render, render_browser, BrowserState, BrowserView, ViewState};
+use vibe_watch::tui::{render, render_browser, BrowserState, BrowserView, PanelFocus, ViewState};
 
 fn load_chat_analytics() -> SessionAnalytics {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chat_min.jsonl");
@@ -473,6 +473,50 @@ fn renders_wide_selected_turn_activity_columns() {
 }
 
 #[test]
+fn renders_activity_focus_shows_details_pane() {
+    let text = render_to_text(
+        160,
+        40,
+        &ViewState {
+            focus: PanelFocus::Activity,
+            ..ViewState::default()
+        },
+    );
+
+    // Details pane border should be visible.
+    assert!(text.contains("Detail"), "missing Detail pane title:\n{text}");
+    // Activity list should still show (focused with ◀ indicator).
+    assert!(
+        text.contains("Activity (source order) ◀"),
+        "missing focused Activity title:\n{text}"
+    );
+    // Footer should show Activity-focus hints.
+    assert!(
+        text.contains("Esc"),
+        "missing Esc hint in Activity focus:\n{text}"
+    );
+    // Turns border should NOT show the focus indicator.
+    assert!(
+        !text.contains("Turns ◀"),
+        "Turns should not show focus indicator when Activity has focus:\n{text}"
+    );
+}
+
+#[test]
+fn renders_turns_focus_shows_enter_hint() {
+    let text = render_to_text(120, 30, &ViewState::default());
+
+    assert!(
+        text.contains("Enter → activity"),
+        "missing Enter hint in Turns focus:\n{text}"
+    );
+    assert!(
+        !text.contains("Esc/← back"),
+        "should not show Activity Esc hint when in Turns focus:\n{text}"
+    );
+}
+
+#[test]
 fn renders_cli_subagent_activity_usage() {
     let analytics = load_cli_analytics();
     let text = render_analytics_to_text(
@@ -501,7 +545,8 @@ fn renders_cli_subagent_activity_usage() {
 fn renders_scrolled_activity_rows() {
     let state = ViewState {
         selected: 0,
-        activity_scroll: 999,
+        activity_selected: 999,
+        ..ViewState::default()
     };
     let text = render_to_text(120, 20, &state);
 
@@ -515,8 +560,8 @@ fn renders_scrolled_activity_rows() {
         "missing selected turn tool after scroll clamp:\n{text}"
     );
     assert!(
-        text.contains("activity PgUp/PgDn"),
-        "missing activity scroll help:\n{text}"
+        text.contains("Enter → activity"),
+        "missing activity navigation help:\n{text}"
     );
 }
 

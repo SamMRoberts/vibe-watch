@@ -21,6 +21,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, Cell, Gauge, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
+    Wrap,
 };
 use ratatui::{Frame, Terminal};
 use tachyonfx::{fx, EffectManager, Interpolation};
@@ -31,13 +32,26 @@ use crate::session_scan::{
     self, FormatFilter, LoadedSession, ScanEvent, ScanProgress, SessionLoadError,
 };
 
+/// Which panel has keyboard focus in the session detail view.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PanelFocus {
+    /// Focus is on the Turns list (default).
+    #[default]
+    Turns,
+    /// Focus is on the Activity list; ↑↓ navigates grouped rows.
+    Activity,
+}
+
 /// View state shared between the event loop and [`render`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ViewState {
     /// Index of the currently highlighted turn.
     pub selected: usize,
-    /// First visible row in the activity usage table.
-    pub activity_scroll: usize,
+    /// Position in the activity list — used as scroll offset (Turns focus)
+    /// and as the highlighted row index (Activity focus).
+    pub activity_selected: usize,
+    /// Which panel has keyboard focus.
+    pub focus: PanelFocus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +134,7 @@ impl BrowserState {
             }
             BrowserView::SessionDetail => {
                 self.detail.selected = 0;
-                self.detail.activity_scroll = 0;
+                self.detail.activity_selected = 0;
             }
         }
     }
@@ -146,7 +160,7 @@ impl BrowserState {
                 if let Some(session) = self.selected_loaded_session() {
                     if !session.analytics.turns.is_empty() {
                         self.detail.selected = session.analytics.turns.len() - 1;
-                        self.detail.activity_scroll = 0;
+                        self.detail.activity_selected = 0;
                     }
                 }
             }
@@ -190,7 +204,7 @@ impl BrowserState {
                 let next = self.detail.selected.saturating_sub(1);
                 if next != self.detail.selected {
                     self.detail.selected = next;
-                    self.detail.activity_scroll = 0;
+                    self.detail.activity_selected = 0;
                 }
             }
         }
@@ -240,7 +254,7 @@ impl BrowserState {
         let next = (self.detail.selected + 1).min(turn_count - 1);
         if next != self.detail.selected {
             self.detail.selected = next;
-            self.detail.activity_scroll = 0;
+            self.detail.activity_selected = 0;
         }
     }
 
@@ -451,35 +465,73 @@ fn event_loop(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Down | KeyCode::Char('j') if turn_count > 0 => {
+            match (key.code, state.focus) {
+                // Always quit on 'q'.
+                (KeyCode::Char('q'), _) => break,
+
+                // Esc: exit Activity focus back to Turns, or quit from Turns.
+                (KeyCode::Esc, PanelFocus::Activity) => {
+                    state.focus = PanelFocus::Turns;
+                }
+                (KeyCode::Esc, PanelFocus::Turns) => break,
+
+                // Enter / Right: move focus from Turns to Activity.
+                (KeyCode::Enter | KeyCode::Right, PanelFocus::Turns) => {
+                    state.focus = PanelFocus::Activity;
+                }
+                // Left / Backspace: return to Turns from Activity.
+                (KeyCode::Left | KeyCode::Backspace, PanelFocus::Activity) => {
+                    state.focus = PanelFocus::Turns;
+                }
+
+                // ↑/↓ in Turns: navigate turns, reset Activity position.
+                (KeyCode::Down | KeyCode::Char('j'), PanelFocus::Turns) if turn_count > 0 => {
                     let next = (state.selected + 1).min(turn_count - 1);
                     if next != state.selected {
                         state.selected = next;
-                        state.activity_scroll = 0;
+                        state.activity_selected = 0;
                     }
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                (KeyCode::Up | KeyCode::Char('k'), PanelFocus::Turns) => {
                     let next = state.selected.saturating_sub(1);
                     if next != state.selected {
                         state.selected = next;
-                        state.activity_scroll = 0;
+                        state.activity_selected = 0;
                     }
                 }
-                KeyCode::PageDown | KeyCode::Char(']') => {
-                    state.activity_scroll = state.activity_scroll.saturating_add(3);
+
+                // ↑/↓ in Activity: navigate grouped activity rows.
+                (KeyCode::Down | KeyCode::Char('j'), PanelFocus::Activity) => {
+                    let row_count =
+                        activity_rows(analytics.turns.get(state.selected)).len();
+                    state.activity_selected =
+                        (state.activity_selected + 1).min(row_count.saturating_sub(1));
                 }
-                KeyCode::PageUp | KeyCode::Char('[') => {
-                    state.activity_scroll = state.activity_scroll.saturating_sub(3);
+                (KeyCode::Up | KeyCode::Char('k'), PanelFocus::Activity) => {
+                    state.activity_selected = state.activity_selected.saturating_sub(1);
                 }
-                KeyCode::Home => {
+
+                // PgDn / PgUp: page through Activity in either focus.
+                (KeyCode::PageDown | KeyCode::Char(']'), _) => {
+                    let row_count =
+                        activity_rows(analytics.turns.get(state.selected)).len();
+                    state.activity_selected = (state.activity_selected + 5)
+                        .min(row_count.saturating_sub(1));
+                }
+                (KeyCode::PageUp | KeyCode::Char('['), _) => {
+                    state.activity_selected = state.activity_selected.saturating_sub(5);
+                }
+
+                // Home / End: jump to first / last turn.
+                (KeyCode::Home, _) => {
                     state.selected = 0;
-                    state.activity_scroll = 0;
+                    state.activity_selected = 0;
+                    state.focus = PanelFocus::Turns;
                 }
-                KeyCode::End if turn_count > 0 => {
+                (KeyCode::End, _) if turn_count > 0 => {
                     state.selected = turn_count - 1;
-                    state.activity_scroll = 0;
+                    state.activity_selected = 0;
+                    state.focus = PanelFocus::Turns;
                 }
                 _ => {}
             }
@@ -586,12 +638,12 @@ fn browser_event_loop(
                 KeyCode::PageDown | KeyCode::Char(']')
                     if state.view == BrowserView::SessionDetail =>
                 {
-                    state.detail.activity_scroll = state.detail.activity_scroll.saturating_add(3);
+                    state.detail.activity_selected = state.detail.activity_selected.saturating_add(3);
                 }
                 KeyCode::PageUp | KeyCode::Char('[')
                     if state.view == BrowserView::SessionDetail =>
                 {
-                    state.detail.activity_scroll = state.detail.activity_scroll.saturating_sub(3);
+                    state.detail.activity_selected = state.detail.activity_selected.saturating_sub(3);
                 }
                 _ => {}
             }
@@ -1053,9 +1105,19 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
         "output share",
     ])
     .style(Style::new().add_modifier(Modifier::BOLD));
+    let turns_title = if state.focus == PanelFocus::Turns {
+        " Turns ◀"
+    } else {
+        " Turns "
+    };
+    let turns_border_style = if state.focus == PanelFocus::Turns {
+        Style::new().fg(Color::Cyan)
+    } else {
+        Style::new()
+    };
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::bordered().title(" Turns "));
+        .block(Block::bordered().title(turns_title).border_style(turns_border_style));
     frame.render_widget(table, area);
 
     if visible_rows > 0 && analytics.turns.len() > visible_rows {
@@ -1105,18 +1167,53 @@ fn render_aggregates(
     state: &ViewState,
 ) {
     let rows = activity_rows(analytics.turns.get(state.selected));
+    if state.focus == PanelFocus::Activity {
+        let cols = Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(area);
+        render_activity_list(frame, cols[0], analytics, state, &rows);
+        render_activity_details(frame, cols[1], analytics, state, &rows);
+    } else {
+        render_activity_list(frame, area, analytics, state, &rows);
+    }
+}
+
+fn render_activity_list(
+    frame: &mut Frame,
+    area: Rect,
+    _analytics: &SessionAnalytics,
+    state: &ViewState,
+    rows: &[ActivityRow],
+) {
     let inner_height = area.height.saturating_sub(2);
     let visible_rows = usize::from(inner_height.saturating_sub(1));
-    let (start, end) = activity_window(rows.len(), visible_rows, state.activity_scroll);
+    let selected = state
+        .activity_selected
+        .min(rows.len().saturating_sub(1));
+    let start = visible_window_start(rows.len(), selected, visible_rows);
+    let end = (start + visible_rows).min(rows.len());
     let wide = area.width >= 60;
-    let visible = rows[start..end]
-        .iter()
-        .map(|row| activity_table_row(row, wide));
 
+    let in_activity_focus = state.focus == PanelFocus::Activity;
+    let visible = rows[start..end].iter().enumerate().map(|(offset, row)| {
+        let abs_index = start + offset;
+        let highlighted = in_activity_focus && abs_index == selected;
+        activity_table_row(row, wide, highlighted)
+    });
+
+    let title = if in_activity_focus {
+        " Activity (source order) ◀"
+    } else {
+        " Activity (source order) "
+    };
+    let border_style = if in_activity_focus {
+        Style::new().fg(Color::Cyan)
+    } else {
+        Style::new()
+    };
     let table = Table::new(visible, activity_widths(wide))
         .header(activity_header(wide))
         .column_spacing(1)
-        .block(Block::bordered().title(" Activity (source order) "));
+        .block(Block::bordered().title(title).border_style(border_style));
     frame.render_widget(table, area);
 
     if visible_rows > 0 && rows.len() > visible_rows {
@@ -1139,6 +1236,84 @@ fn render_aggregates(
     }
 }
 
+fn render_activity_details(
+    frame: &mut Frame,
+    area: Rect,
+    analytics: &SessionAnalytics,
+    state: &ViewState,
+    rows: &[ActivityRow],
+) {
+    let turn = analytics.turns.get(state.selected);
+    let selected = state
+        .activity_selected
+        .min(rows.len().saturating_sub(1));
+
+    let content_lines = match rows.get(selected) {
+        Some(ActivityRow::Event {
+            kind,
+            activity,
+            event_range,
+            count,
+            ..
+        }) => {
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled(kind.clone(), activity_style(kind)),
+                    Span::raw(": "),
+                    Span::styled(activity.clone(), Style::new().add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(Span::styled(
+                    format!("{count}× occurrence(s)"),
+                    Style::new().fg(Color::DarkGray),
+                )),
+                Line::raw(""),
+            ];
+
+            if let Some(t) = turn {
+                let events = &t.activity_events[event_range.clone()];
+                for (i, event) in events.iter().enumerate() {
+                    lines.push(Line::from(Span::styled(
+                        format!("{}.", i + 1),
+                        Style::new().fg(Color::DarkGray),
+                    )));
+                    if event.details.is_empty() {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {}", event.name),
+                            Style::new().fg(Color::Gray),
+                        )));
+                    } else {
+                        for detail in &event.details {
+                            lines.push(Line::from(Span::styled(
+                                format!("  {}", shorten_path(detail)),
+                                Style::new().fg(Color::Gray),
+                            )));
+                        }
+                    }
+                }
+            }
+            lines
+        }
+        None => vec![Line::raw("no selection")],
+    };
+
+    let block = Block::bordered()
+        .title(" Detail ")
+        .border_style(Style::new().fg(Color::Cyan));
+    frame.render_widget(
+        Paragraph::new(content_lines).block(block).wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+/// Shorten an absolute path by keeping only the last 3 components.
+fn shorten_path(path: &str) -> String {
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() <= 3 {
+        return path.to_string();
+    }
+    format!("…/{}", parts[parts.len() - 3..].join("/"))
+}
+
 #[derive(Debug, Clone)]
 enum ActivityRow {
     Event {
@@ -1146,8 +1321,10 @@ enum ActivityRow {
         kind: String,
         count: String,
         activity: String,
-        /// AIC credit value for the enclosing turn (same for all activities in a turn).
+        /// AIC credit estimate for this group within the enclosing turn.
         credits: String,
+        /// Indices into `TurnMetrics::activity_events` that belong to this group.
+        event_range: std::ops::Range<usize>,
     },
 }
 
@@ -1159,6 +1336,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             count: "-".to_string(),
             activity: "no selected turn".to_string(),
             credits: "-".to_string(),
+            event_range: 0..0,
         }];
     };
 
@@ -1169,6 +1347,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             count: "0".to_string(),
             activity: "none recorded".to_string(),
             credits: turn.credit_display(),
+            event_range: 0..0,
         }];
     }
 
@@ -1179,17 +1358,19 @@ fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
     let total = turn.activity_events.len();
 
     // First pass: group consecutive same-kind+name events so we know each
-    // group's final count before computing its proportional credit share.
-    let mut groups: Vec<(String, String, String, usize)> = Vec::new(); // (seq, kind, name, count)
+    // group's final count and event range before computing credit shares.
+    // groups: (seq_label, kind, name, start_idx, count)
+    let mut groups: Vec<(String, String, String, usize, usize)> = Vec::new();
     for (index, event) in turn.activity_events.iter().enumerate() {
         match groups.last_mut() {
-            Some((_, kind, name, count)) if kind == &event.kind && name == &event.name => {
+            Some((_, kind, name, _, count)) if kind == &event.kind && name == &event.name => {
                 *count += 1;
             }
             _ => groups.push((
                 (index + 1).to_string(),
                 event.kind.clone(),
                 event.name.clone(),
+                index,
                 1,
             )),
         }
@@ -1198,12 +1379,13 @@ fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
     // Second pass: build rows with the credit share computed from the final count.
     groups
         .into_iter()
-        .map(|(seq, kind, activity, count)| ActivityRow::Event {
+        .map(|(seq, kind, activity, start, count)| ActivityRow::Event {
             seq,
             kind: kind.clone(),
             count: count.to_string(),
             credits: activity_share_display(count, total, turn),
             activity,
+            event_range: start..(start + count),
         })
         .collect()
 }
@@ -1227,14 +1409,15 @@ fn activity_share_display(count: usize, total: usize, turn: &TurnMetrics) -> Str
     }
 }
 
-fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
-    match row {
+fn activity_table_row(row: &ActivityRow, wide: bool, highlighted: bool) -> Row<'static> {
+    let base = match row {
         ActivityRow::Event {
             seq,
             kind,
             count,
             activity,
             credits,
+            ..
         } if wide => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
@@ -1256,6 +1439,11 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
             Cell::from(activity.clone()),
         ])
         .style(activity_style(kind)),
+    };
+    if highlighted {
+        base.style(Style::new().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+    } else {
+        base
     }
 }
 
@@ -1297,19 +1485,6 @@ fn activity_style(kind: &str) -> Style {
     }
 }
 
-fn activity_window(
-    total_rows: usize,
-    visible_rows: usize,
-    requested_scroll: usize,
-) -> (usize, usize) {
-    if total_rows == 0 || visible_rows == 0 {
-        return (0, 0);
-    }
-    let max_start = total_rows.saturating_sub(visible_rows);
-    let start = requested_scroll.min(max_start);
-    let end = (start + visible_rows).min(total_rows);
-    (start, end)
-}
 
 fn turn_palette_color(index: usize) -> Color {
     const PALETTE: [Color; 8] = [
@@ -1355,12 +1530,13 @@ fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, st
         Some(turn) => turn_detail(turn),
         None => "no turns".to_string(),
     };
+    let hint = match state.focus {
+        PanelFocus::Turns => "↑/↓ select turn   Enter → activity   PgUp/PgDn or [/] scroll   q quit",
+        PanelFocus::Activity => "↑/↓ select activity   Esc/← back to turns   PgUp/PgDn or [/] page   q quit",
+    };
     let lines = vec![
         Line::from(Span::styled(detail, Style::new().fg(Color::Gray))),
-        Line::from(Span::styled(
-            "↑/↓ select turn   activity PgUp/PgDn or [/]   q quit",
-            Style::new().fg(Color::DarkGray),
-        )),
+        Line::from(Span::styled(hint, Style::new().fg(Color::DarkGray))),
     ];
     frame.render_widget(Paragraph::new(lines).block(Block::bordered()), area);
 }
@@ -1709,6 +1885,7 @@ mod tests {
         crate::analytics::ActivityEvent {
             kind: kind.to_string(),
             name: name.to_string(),
+            details: Vec::new(),
         }
     }
 
