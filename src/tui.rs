@@ -611,6 +611,77 @@ fn browser_event_loop(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
+            // When inside a session detail, route keys through the focus model.
+            if state.view == BrowserView::SessionDetail {
+                match (key.code, state.detail.focus) {
+                    (KeyCode::Char('q'), _) => break,
+
+                    // Esc / Left: if Activity has focus, return focus to Turns;
+                    // if Turns has focus, navigate back to the session list.
+                    (KeyCode::Esc | KeyCode::Left | KeyCode::Backspace, PanelFocus::Activity) => {
+                        state.detail.focus = PanelFocus::Turns;
+                        effects.on_navigation();
+                    }
+                    (KeyCode::Esc | KeyCode::Left | KeyCode::Backspace, PanelFocus::Turns) => {
+                        if state.go_back() {
+                            effects.on_navigation();
+                        }
+                    }
+
+                    // Enter / Right: switch focus from Turns to Activity.
+                    (KeyCode::Enter | KeyCode::Right, PanelFocus::Turns) => {
+                        state.detail.focus = PanelFocus::Activity;
+                        effects.on_navigation();
+                    }
+                    (KeyCode::Enter | KeyCode::Right, PanelFocus::Activity) => {}
+
+                    // ↑/↓ in Turns focus: navigate turns.
+                    (KeyCode::Down | KeyCode::Char('j'), PanelFocus::Turns) => {
+                        state.select_next_turn();
+                    }
+                    (KeyCode::Up | KeyCode::Char('k'), PanelFocus::Turns) => {
+                        state.select_previous();
+                    }
+                    (KeyCode::Home, _) => state.select_first(),
+                    (KeyCode::End, _) => state.select_last(),
+
+                    // ↑/↓ in Activity focus: navigate grouped activity rows.
+                    (KeyCode::Down | KeyCode::Char('j'), PanelFocus::Activity) => {
+                        if let Some(session) = state.selected_loaded_session() {
+                            let row_count =
+                                activity_rows(session.analytics.turns.get(state.detail.selected))
+                                    .len();
+                            state.detail.activity_selected = (state.detail.activity_selected + 1)
+                                .min(row_count.saturating_sub(1));
+                        }
+                    }
+                    (KeyCode::Up | KeyCode::Char('k'), PanelFocus::Activity) => {
+                        state.detail.activity_selected =
+                            state.detail.activity_selected.saturating_sub(1);
+                    }
+
+                    // PgDn/PgUp: page through activity in either focus.
+                    (KeyCode::PageDown | KeyCode::Char(']'), _) => {
+                        let row_count = state
+                            .selected_loaded_session()
+                            .map(|s| {
+                                activity_rows(s.analytics.turns.get(state.detail.selected)).len()
+                            })
+                            .unwrap_or(0);
+                        state.detail.activity_selected = (state.detail.activity_selected + 5)
+                            .min(row_count.saturating_sub(1));
+                    }
+                    (KeyCode::PageUp | KeyCode::Char('['), _) => {
+                        state.detail.activity_selected =
+                            state.detail.activity_selected.saturating_sub(5);
+                    }
+
+                    _ => {}
+                }
+                continue;
+            }
+
+            // Non-SessionDetail: original browser navigation.
             match key.code {
                 KeyCode::Char('q') => break,
                 KeyCode::Esc => {
@@ -634,16 +705,6 @@ fn browser_event_loop(
                     if state.go_back() {
                         effects.on_navigation();
                     }
-                }
-                KeyCode::PageDown | KeyCode::Char(']')
-                    if state.view == BrowserView::SessionDetail =>
-                {
-                    state.detail.activity_selected = state.detail.activity_selected.saturating_add(3);
-                }
-                KeyCode::PageUp | KeyCode::Char('[')
-                    if state.view == BrowserView::SessionDetail =>
-                {
-                    state.detail.activity_selected = state.detail.activity_selected.saturating_sub(3);
                 }
                 _ => {}
             }
