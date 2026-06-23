@@ -614,7 +614,7 @@ pub fn render(frame: &mut Frame, analytics: &SessionAnalytics, state: &ViewState
     render_header(frame, rows[0], analytics);
 
     let body =
-        Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).split(rows[1]);
+        Layout::vertical([Constraint::Percentage(35), Constraint::Min(4)]).split(rows[1]);
     render_turns(frame, body[0], analytics, state);
     render_aggregates(frame, body[1], analytics, state);
 
@@ -1108,7 +1108,7 @@ fn render_aggregates(
     let inner_height = area.height.saturating_sub(2);
     let visible_rows = usize::from(inner_height.saturating_sub(1));
     let (start, end) = activity_window(rows.len(), visible_rows, state.activity_scroll);
-    let wide = area.width >= 86;
+    let wide = area.width >= 60;
     let visible = rows[start..end]
         .iter()
         .map(|row| activity_table_row(row, wide));

@@ -548,7 +548,7 @@ fn renders_long_turn_list_with_selected_turn_visible() {
     let text = render_analytics_to_text(
         &analytics,
         120,
-        20,
+        30,
         &ViewState {
             selected: 25,
             ..ViewState::default()
