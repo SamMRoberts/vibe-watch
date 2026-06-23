@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::analytics::{
-    ActivityUsage, Aggregate, CreditSource, ModelUsage, RatesSource, SessionAnalytics,
+    ActivityUsage, Aggregate, CreditSource, ModelUsage, RatesSource, SessionAnalytics, TurnMetrics,
 };
 
 /// Print analytics as a compact, aligned text report.
@@ -48,17 +48,18 @@ pub fn print_table(analytics: &SessionAnalytics) {
     println!();
 
     println!(
-        "{:>3}  {:<12} {:>10} {:>7} {:>10} {:>7} {:>6}  skills/subagents",
-        "#", "request", "out_tok", "%tok", "time", "%time", "tools"
+        "{:>3}  {:<12} {:>10} {:>7} {:>7} {:>10} {:>7} {:>6}  skills/subagents",
+        "#", "request", "out_tok", "%tok", "AIC", "time", "%time", "tools"
     );
     for turn in &analytics.turns {
         let extras = format_extras(turn);
         println!(
-            "{:>3}  {:<12} {:>10} {:>6.1}% {:>9.1}s {:>6.1}% {:>6}  {}",
+            "{:>3}  {:<12} {:>10} {:>6.1}% {:>7} {:>9.1}s {:>6.1}% {:>6}  {}",
             turn.index,
             short_id(turn.request_id.as_deref()),
             turn.output_tokens,
             turn.pct_output_tokens,
+            turn.credit_display(),
             turn.elapsed_ms.unwrap_or(0) as f64 / 1000.0,
             turn.pct_time,
             turn.tools.len(),
@@ -136,7 +137,7 @@ fn model_credit_text(model: &ModelUsage) -> String {
     }
 }
 
-fn format_extras(turn: &crate::analytics::TurnMetrics) -> String {
+fn format_extras(turn: &TurnMetrics) -> String {
     let mut parts = Vec::new();
     if let Some(mode) = &turn.mode {
         parts.push(format!("mode: {mode}"));

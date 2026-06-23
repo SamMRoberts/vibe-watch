@@ -112,6 +112,27 @@ pub struct TurnMetrics {
     pub had_reasoning: bool,
 }
 
+impl TurnMetrics {
+    /// Best available credit value for this turn.
+    ///
+    /// Prefers full credits (input + output + cache) when available; falls back
+    /// to output-only credits when rates are known but full data is not.
+    pub fn credit_value(&self) -> Option<f64> {
+        self.credits.or(if self.output_credits > 0.0 {
+            Some(self.output_credits)
+        } else {
+            None
+        })
+    }
+
+    /// Human-readable AIC string for display (e.g. `"3.5"` or `"n/a"`).
+    pub fn credit_display(&self) -> String {
+        self.credit_value()
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "n/a".to_string())
+    }
+}
+
 /// Aggregated analytics for an entire session.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SessionAnalytics {

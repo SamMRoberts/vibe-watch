@@ -1005,21 +1005,6 @@ fn credit_summary(analytics: &SessionAnalytics) -> String {
     }
 }
 
-fn turn_credit_value(turn: &TurnMetrics) -> Option<f64> {
-    turn.credits.or({
-        if turn.output_credits > 0.0 {
-            Some(turn.output_credits)
-        } else {
-            None
-        }
-    })
-}
-
-fn turn_credit_cell(turn: &TurnMetrics) -> String {
-    turn_credit_value(turn)
-        .map(|value| format!("{value:.1}"))
-        .unwrap_or_else(|| "n/a".to_string())
-}
 
 fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, state: &ViewState) {
     let max_tokens = analytics
@@ -1042,7 +1027,7 @@ fn render_turns(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, sta
             Cell::from(short_id(turn.request_id.as_deref())),
             Cell::from(token_value(turn.input_tokens)),
             Cell::from(turn.output_tokens.to_string()),
-            Cell::from(turn_credit_cell(turn)),
+            Cell::from(turn.credit_display()),
             Cell::from(format!("{:.1}%", turn.pct_output_tokens)),
             Cell::from(Span::styled(bar, Style::new().fg(Color::Green))),
         ])
@@ -1161,7 +1146,8 @@ enum ActivityRow {
         kind: String,
         count: String,
         activity: String,
-        output_tokens: String,
+        /// AIC credit value for the enclosing turn (same for all activities in a turn).
+        credits: String,
     },
 }
 
@@ -1172,7 +1158,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             kind: "status".to_string(),
             count: "-".to_string(),
             activity: "no selected turn".to_string(),
-            output_tokens: "-".to_string(),
+            credits: "-".to_string(),
         }];
     };
 
@@ -1182,7 +1168,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
             kind: "activity".to_string(),
             count: "0".to_string(),
             activity: "none recorded".to_string(),
-            output_tokens: turn.output_tokens.to_string(),
+            credits: turn.credit_display(),
         }];
     }
 
@@ -1190,6 +1176,7 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
 }
 
 fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
+    let credits = turn.credit_display();
     let mut rows = Vec::new();
     for (index, event) in turn.activity_events.iter().enumerate() {
         match rows.last_mut() {
@@ -1207,7 +1194,7 @@ fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
                 kind: event.kind.clone(),
                 count: "1".to_string(),
                 activity: event.name.clone(),
-                output_tokens: turn.output_tokens.to_string(),
+                credits: credits.clone(),
             }),
         }
     }
@@ -1221,13 +1208,13 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
             kind,
             count,
             activity,
-            output_tokens,
+            credits,
         } if wide => Row::new(vec![
             Cell::from(seq.clone()),
             Cell::from(kind.clone()),
             Cell::from(count.clone()),
             Cell::from(activity.clone()),
-            Cell::from(output_tokens.clone()),
+            Cell::from(credits.clone()),
         ])
         .style(activity_style(kind)),
         ActivityRow::Event {
@@ -1248,7 +1235,7 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec!["#", "kind", "cnt", "activity", "out"]
+        vec!["#", "kind", "cnt", "activity", "AIC"]
     } else {
         vec!["#", "kind", "cnt", "activity"]
     };
@@ -1357,6 +1344,7 @@ fn turn_detail(turn: &TurnMetrics) -> String {
         format!("turn {}", turn.index),
         format!("{} in tok", token_value(turn.input_tokens)),
         format!("{} out tok", turn.output_tokens),
+        format!("{} AIC", turn.credit_display()),
         format!("{:.1}% tok", turn.pct_output_tokens),
         format!("{:.0}s", turn.elapsed_ms.unwrap_or(0) as f64 / 1000.0),
         format!("{} tools", turn.tools.len()),
