@@ -208,6 +208,7 @@ fn push_activity_event(turn: &mut CliTurn, kind: &str, name: &str, details: Vec<
 /// - the value is an absolute path (starts with `/` or `~/`).
 ///
 /// Values longer than 200 chars are truncated to avoid surfacing patch blobs.
+/// Uses `safe_truncate` to avoid slicing inside multi-byte UTF-8 characters.
 fn extract_tool_details(data: &Value) -> Vec<String> {
     let Some(args) = data.get("arguments") else {
         return Vec::new();
@@ -229,7 +230,7 @@ fn extract_tool_details(data: &Value) -> Vec<String> {
             Value::String(s) => {
                 let looks_like_path = s.starts_with('/') || s.starts_with("~/");
                 if is_path_key || looks_like_path {
-                    let display = if s.len() > 200 { &s[..200] } else { s.as_str() };
+                    let display = safe_truncate(s, 200);
                     if seen.insert(display.to_string()) {
                         out.push(display.to_string());
                     }
@@ -240,7 +241,7 @@ fn extract_tool_details(data: &Value) -> Vec<String> {
                 if is_path_key {
                     for item in arr {
                         if let Value::String(s) = item {
-                            let display = if s.len() > 200 { &s[..200] } else { s.as_str() };
+                            let display = safe_truncate(s, 200);
                             if seen.insert(display.to_string()) {
                                 out.push(display.to_string());
                             }
@@ -252,6 +253,18 @@ fn extract_tool_details(data: &Value) -> Vec<String> {
         }
     }
     out
+}
+
+/// Truncate `s` to at most `max_bytes` bytes, always on a UTF-8 char boundary.
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 fn bump_end(turn: &mut CliTurn, ts: Option<i64>) {
@@ -430,6 +443,22 @@ mod tests {
         // No arguments key → empty
         let data4: Value = serde_json::json!({ "toolName": "report_intent" });
         assert!(extract_tool_details(&data4).is_empty());
+    }
+
+    #[test]
+    fn safe_truncate_handles_multibyte_boundary() {
+        // '—' (em dash) is 3 UTF-8 bytes (0xe2 0x80 0x94).
+        // Build a string of 199 ASCII bytes followed by '—'.
+        let s = "a".repeat(199) + "—extra";
+        assert!(s.len() > 200);
+
+        let result = safe_truncate(&s, 200);
+        // Must not panic and must end on a valid char boundary.
+        assert!(s.is_char_boundary(result.len()), "not a char boundary");
+        // Must be <= 200 bytes.
+        assert!(result.len() <= 200);
+        // The ASCII prefix must be intact.
+        assert!(result.starts_with(&"a".repeat(199)));
     }
 
     #[test]
