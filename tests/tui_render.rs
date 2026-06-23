@@ -276,6 +276,31 @@ fn browser_progress_reports_finished_empty_scan() {
 }
 
 #[test]
+fn browser_reset_for_scan_clears_sessions_and_shows_scanning() {
+    // Start with a loaded state.
+    let mut state = browser_state_with_sessions();
+    assert!(
+        state.repository_count() > 0,
+        "pre-condition: repositories should have data"
+    );
+
+    // Reset simulates pressing 'r' to refresh.
+    state.reset_for_scan();
+
+    assert_eq!(state.repository_count(), 0, "repositories should be cleared");
+    assert!(state.is_scanning(), "progress should be in scanning state");
+    assert_eq!(state.view, BrowserView::Repositories);
+    assert_eq!(state.selected_repo, 0);
+
+    // The UI should show the "r refresh" hint.
+    let text = render_browser_to_text(&state, 120, 24);
+    assert!(
+        text.contains("r refresh"),
+        "header should show refresh hint:\n{text}"
+    );
+}
+
+#[test]
 fn browser_dashboard_uses_unknown_label_for_blank_repository_path() {
     let mut state = BrowserState::new(ScanProgress {
         processed: 1,

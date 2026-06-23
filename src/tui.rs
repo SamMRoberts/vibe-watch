@@ -110,6 +110,26 @@ impl BrowserState {
         self.progress = progress;
     }
 
+    /// Number of repository groups currently loaded.
+    pub fn repository_count(&self) -> usize {
+        self.repositories.len()
+    }
+
+    /// `true` while a scan is still in progress (progress not marked finished).
+    pub fn is_scanning(&self) -> bool {
+        !self.progress.finished
+    }
+
+    /// Reset all session data and progress so a fresh scan can populate the state.
+    pub fn reset_for_scan(&mut self) {
+        self.repositories.clear();
+        self.progress = ScanProgress::default();
+        self.view = BrowserView::Repositories;
+        self.selected_repo = 0;
+        self.selected_session = 0;
+        self.detail = ViewState::default();
+    }
+
     pub fn apply_scan_event(&mut self, event: ScanEvent) {
         match event {
             ScanEvent::Progress(progress) => self.set_progress(progress),
@@ -540,15 +560,27 @@ fn event_loop(
     Ok(())
 }
 
-fn browser_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+/// Spawn a background scan thread and return the receiver for its events.
+///
+/// The scan opens its own [`SessionCache`] from `cache_config` (if enabled) so
+/// the cache connection stays thread-local and the caller can safely call this
+/// multiple times (e.g. on refresh).  Pass the pre-opened `initial_cache` on
+/// the first call to reuse an already-open SQLite handle.
+fn spawn_scan(
     path: Option<PathBuf>,
     filter: FormatFilter,
     cache_config: CacheConfig,
-    mut cache: Option<SessionCache>,
-) -> Result<()> {
+    initial_cache: Option<SessionCache>,
+) -> mpsc::Receiver<ScanEvent> {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
+        let mut cache = initial_cache.or_else(|| {
+            if cache_config.enabled {
+                SessionCache::open(&cache_config).ok().flatten()
+            } else {
+                None
+            }
+        });
         let result = session_scan::discover_sessions(path.as_deref(), filter);
         match result {
             Ok(candidates) => {
@@ -581,6 +613,19 @@ fn browser_event_loop(
             }
         }
     });
+    receiver
+}
+
+fn browser_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    path: Option<PathBuf>,
+    filter: FormatFilter,
+    cache_config: CacheConfig,
+    cache: Option<SessionCache>,
+) -> Result<()> {
+    // The initial cache is passed in from the caller; subsequent scans open
+    // their own connection via `spawn_scan`.  Drop it here after the first spawn.
+    let mut receiver = spawn_scan(path.clone(), filter, cache_config.clone(), cache);
 
     let mut state = BrowserState::new(ScanProgress::default());
     let mut effects = BrowserEffects::new();
@@ -676,6 +721,13 @@ fn browser_event_loop(
                             state.detail.activity_selected.saturating_sub(5);
                     }
 
+                    // r: re-scan from any depth.
+                    (KeyCode::Char('r'), _) => {
+                        state.reset_for_scan();
+                        receiver = spawn_scan(path.clone(), filter, cache_config.clone(), None);
+                        effects.on_navigation();
+                    }
+
                     _ => {}
                 }
                 continue;
@@ -705,6 +757,12 @@ fn browser_event_loop(
                     if state.go_back() {
                         effects.on_navigation();
                     }
+                }
+                // r: re-scan for new/updated sessions.
+                KeyCode::Char('r') => {
+                    state.reset_for_scan();
+                    receiver = spawn_scan(path.clone(), filter, cache_config.clone(), None);
+                    effects.on_navigation();
                 }
                 _ => {}
             }
@@ -778,7 +836,7 @@ fn render_browser_header(frame: &mut Frame, area: Rect, state: &BrowserState) {
             Span::raw(format!("   errors {}", state.error_count())),
         ]),
         Line::from(Span::styled(
-            "Enter/Right drill in   Left/Backspace back   q quit",
+            "Enter/Right drill in   Left/Backspace back   r refresh   q quit",
             Style::new().fg(Color::DarkGray),
         )),
     ];
@@ -1592,8 +1650,8 @@ fn render_footer(frame: &mut Frame, area: Rect, analytics: &SessionAnalytics, st
         None => "no turns".to_string(),
     };
     let hint = match state.focus {
-        PanelFocus::Turns => "↑/↓ select turn   Enter → activity   PgUp/PgDn or [/] scroll   q quit",
-        PanelFocus::Activity => "↑/↓ select activity   Esc/← back to turns   PgUp/PgDn or [/] page   q quit",
+        PanelFocus::Turns => "↑/↓ select turn   Enter → activity   PgUp/PgDn or [/] scroll   r refresh   q quit",
+        PanelFocus::Activity => "↑/↓ select activity   Esc/← back to turns   PgUp/PgDn or [/] page   r refresh   q quit",
     };
     let lines = vec![
         Line::from(Span::styled(detail, Style::new().fg(Color::Gray))),
