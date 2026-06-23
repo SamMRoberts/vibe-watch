@@ -310,8 +310,9 @@ fn push_activity_event(turn: &mut ChatRequest, kind: &str, name: &str, details: 
 
 /// Extract `file:` URIs from a tool invocation's `invocationMessage.uris` map.
 ///
-/// The URIs are the **keys** of the `uris` object; the `file://` scheme prefix is
-/// stripped so paths are shown relative to the filesystem root.
+/// The URIs are the **keys** of the `uris` object. We prefer the structured
+/// `path` field inside each URI value (which is always a clean filesystem path)
+/// over the key itself, which may contain a query string or URL encoding.
 fn extract_invocation_uris(item: &Value, f: &ChatFields) -> Vec<String> {
     let Some(message) = item.get(&f.response.invocation_message) else {
         return Vec::new();
@@ -323,8 +324,20 @@ fn extract_invocation_uris(item: &Value, f: &ChatFields) -> Vec<String> {
     let Some(uris) = uris_obj else {
         return Vec::new();
     };
-    uris.keys()
-        .map(|u| u.strip_prefix("file://").unwrap_or(u).to_string())
+    uris.iter()
+        .map(|(key, val)| {
+            // Prefer the structured `path` field (no query string, no encoding).
+            val.get("path")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    // Fallback: strip file:// scheme prefix from the URI key.
+                    key.strip_prefix("file://")
+                        .and_then(|s| s.split_once('?').map(|(p, _)| p).or(Some(s)))
+                        .unwrap_or(key)
+                        .to_string()
+                })
+        })
         .collect()
 }
 

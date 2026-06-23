@@ -105,6 +105,17 @@ fn per_turn_metrics_match() {
             ("skill", "demo-skill"),
         ]
     );
+    // Verify file path is extracted from the structured URI `path` field.
+    let read_event = t1
+        .activity_events
+        .iter()
+        .find(|e| e.name == "copilot_readFile")
+        .expect("copilot_readFile event");
+    assert_eq!(
+        read_event.details,
+        vec!["/x/skills/demo-skill/SKILL.md"],
+        "expected clean path from uri.path field, not raw URI key"
+    );
 }
 
 #[test]

@@ -13,7 +13,10 @@ use crate::analytics::SessionAnalytics;
 use crate::session_scan::DetectedFormat;
 
 pub const CACHE_SCHEMA_VERSION: i64 = 1;
-pub const CACHE_COMPAT_VERSION: &str = "session-cache-v1";
+// v2: ActivityEvent gained a `details` field; old cached rows have details: []
+// Bump this string whenever the parsed analytics schema changes in a way that
+// would cause stale cached data to be visually incorrect.
+pub const CACHE_COMPAT_VERSION: &str = "session-cache-v2";
 const PRICING_CONFIG_JSON: &str = include_str!("../config/model_pricing.json");
 const LOG_FIELDS_CONFIG_JSON: &str = include_str!("../config/log_fields.json");
 

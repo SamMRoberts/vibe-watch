@@ -9,4 +9,4 @@
 {"kind":1,"k":["requests",1,"completionTokens"],"v":3000}
 {"kind":1,"k":["requests",1,"elapsedMs"],"v":6000}
 {"kind":1,"k":["requests",1,"result"],"v":{"details":"GPT-5.5 • 7.5 credits","metadata":{"promptTokens":3000}}}
-{"kind":2,"k":["requests",1,"response"],"v":[{"kind":"toolInvocationSerialized","toolId":"run_in_terminal","toolSpecificData":{"kind":"terminal","commandLine":{"original":"cargo test"}}},{"kind":"toolInvocationSerialized","toolId":"copilot_readFile","invocationMessage":{"value":"Read skill","uris":{"file:///x/skills/demo-skill/SKILL.md":{}}}}]}
+{"kind":2,"k":["requests",1,"response"],"v":[{"kind":"toolInvocationSerialized","toolId":"run_in_terminal","toolSpecificData":{"kind":"terminal","commandLine":{"original":"cargo test"}}},{"kind":"toolInvocationSerialized","toolId":"copilot_readFile","invocationMessage":{"value":"Read skill","uris":{"file:///x/skills/demo-skill/SKILL.md?vscodeLinkType=skill":{"$mid":1,"path":"/x/skills/demo-skill/SKILL.md","scheme":"file","query":"vscodeLinkType=skill"}}}}]}
