@@ -146,20 +146,21 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
             t if t == f.types.tool_execution_start => {
                 if let Some(turn) = session.turns.last_mut() {
                     if let Some(name) = data.get(&f.data.tool_name).and_then(Value::as_str) {
+                        let details = extract_tool_details(&data);
                         turn.tools.push(name.to_string());
-                        push_activity_event(turn, "tool", name);
+                        push_activity_event(turn, "tool", name, details);
                         if is_subagent(name) {
                             let agent = data
                                 .pointer(&f.data.agent_name)
                                 .and_then(Value::as_str)
                                 .unwrap_or(name);
                             turn.subagents.push(agent.to_string());
-                            push_activity_event(turn, "agent", agent);
+                            push_activity_event(turn, "agent", agent, Vec::new());
                         }
                     }
                     if let Some(command) = data.pointer(&f.data.command).and_then(Value::as_str) {
                         turn.terminal_commands.push(command.to_string());
-                        push_activity_event(turn, "cmd", command);
+                        push_activity_event(turn, "cmd", command, Vec::new());
                     }
                     bump_end(turn, ts);
                 }
@@ -168,7 +169,7 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
                 if let Some(turn) = session.turns.last_mut() {
                     if let Some(name) = data.get(&f.data.skill_name).and_then(Value::as_str) {
                         turn.skills.push(name.to_string());
-                        push_activity_event(turn, "skill", name);
+                        push_activity_event(turn, "skill", name, Vec::new());
                     }
                     bump_end(turn, ts);
                 }
@@ -192,12 +193,65 @@ pub fn parse_str(data: &str) -> Result<CliSession> {
     Ok(session)
 }
 
-fn push_activity_event(turn: &mut CliTurn, kind: &str, name: &str) {
+fn push_activity_event(turn: &mut CliTurn, kind: &str, name: &str, details: Vec<String>) {
     turn.activity_events.push(ActivityEvent {
         kind: kind.to_string(),
         name: name.to_string(),
-        details: Vec::new(),
+        details,
     });
+}
+
+/// Extract human-readable detail strings from a tool event's `arguments`.
+///
+/// Collects string values where:
+/// - the key name contains "path", "file", "dir", or "pattern"; or
+/// - the value is an absolute path (starts with `/` or `~/`).
+///
+/// Values longer than 200 chars are truncated to avoid surfacing patch blobs.
+fn extract_tool_details(data: &Value) -> Vec<String> {
+    let Some(args) = data.get("arguments") else {
+        return Vec::new();
+    };
+    // `apply_patch` stores arguments as a raw string — skip it.
+    let Some(obj) = args.as_object() else {
+        return Vec::new();
+    };
+
+    let path_keys = ["path", "file", "dir", "pattern", "paths"];
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+
+    for (key, val) in obj {
+        let key_lower = key.to_lowercase();
+        let is_path_key = path_keys.iter().any(|k| key_lower.contains(k));
+
+        match val {
+            Value::String(s) => {
+                let looks_like_path = s.starts_with('/') || s.starts_with("~/");
+                if is_path_key || looks_like_path {
+                    let display = if s.len() > 200 { &s[..200] } else { s.as_str() };
+                    if seen.insert(display.to_string()) {
+                        out.push(display.to_string());
+                    }
+                }
+            }
+            Value::Array(arr) => {
+                // e.g. `paths: ["/repo/a", "/repo/b"]`
+                if is_path_key {
+                    for item in arr {
+                        if let Value::String(s) = item {
+                            let display = if s.len() > 200 { &s[..200] } else { s.as_str() };
+                            if seen.insert(display.to_string()) {
+                                out.push(display.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn bump_end(turn: &mut CliTurn, ts: Option<i64>) {
@@ -344,5 +398,54 @@ mod tests {
         assert_eq!(session.model_usage.len(), 1);
         assert_eq!(session.model_usage[0].input_tokens, 1000);
         assert_eq!(session.model_usage[0].reasoning_tokens, 20);
+    }
+
+    #[test]
+    fn extracts_tool_details_from_path_args() {
+        // view tool: "path" key → captured
+        let data: Value = serde_json::json!({
+            "toolName": "view",
+            "arguments": { "path": "/repo/src/main.rs", "view_range": [1, 50] }
+        });
+        let details = extract_tool_details(&data);
+        assert_eq!(details, vec!["/repo/src/main.rs"]);
+
+        // rg: "paths" key → captured, "pattern" key → also captured
+        let data2: Value = serde_json::json!({
+            "toolName": "rg",
+            "arguments": { "pattern": "fn main", "paths": "/repo" }
+        });
+        let d2 = extract_tool_details(&data2);
+        assert!(d2.contains(&"fn main".to_string()) || d2.contains(&"/repo".to_string()),
+            "expected path or pattern captured, got {d2:?}");
+        assert!(d2.contains(&"/repo".to_string()));
+
+        // apply_patch: arguments is a raw string → empty details
+        let data3: Value = serde_json::json!({
+            "toolName": "apply_patch",
+            "arguments": "*** Begin Patch\n*** End Patch\n"
+        });
+        assert!(extract_tool_details(&data3).is_empty());
+
+        // No arguments key → empty
+        let data4: Value = serde_json::json!({ "toolName": "report_intent" });
+        assert!(extract_tool_details(&data4).is_empty());
+    }
+
+    #[test]
+    fn activity_events_carry_file_details() {
+        let data = concat!(
+            r#"{"type":"session.start","data":{"sessionId":"s2"},"timestamp":"2026-01-01T00:00:00Z"}"#,
+            "\n",
+            r#"{"type":"user.message","data":{},"timestamp":"2026-01-01T00:00:01Z"}"#,
+            "\n",
+            r#"{"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"/repo/src/lib.rs","view_range":[1,10]}},"timestamp":"2026-01-01T00:00:02Z"}"#,
+            "\n",
+        );
+        let session = parse_str(data).unwrap();
+        let events = &session.turns[0].activity_events;
+        let tool_event = events.iter().find(|e| e.kind == "tool").unwrap();
+        assert_eq!(tool_event.name, "view");
+        assert_eq!(tool_event.details, vec!["/repo/src/lib.rs"]);
     }
 }
