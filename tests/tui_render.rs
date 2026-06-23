@@ -443,17 +443,20 @@ fn renders_wide_selected_turn_activity_columns() {
         text.contains("activity"),
         "missing activity column:\n{text}"
     );
-    // Wide mode: the activity panel header shows "AIC" (was "out" before).
-    // Both turns table and activity panel show AIC, so it appears multiple times.
-    let aic_count = text.matches("AIC").count();
+    // Wide mode: activity panel shows "~share" column header with proportional estimates.
     assert!(
-        aic_count >= 2,
-        "Expected AIC in both turns header and activity header, got {aic_count}:\n{text}"
+        text.contains("~share"),
+        "missing ~share column header in wide mode:\n{text}"
     );
-    // The selected turn's AIC value (4.5) appears in both the turns table and activity rows.
+    // Turn 0 has a single tool activity, so its share is ~100% of the turn's 4.5 AIC.
+    assert!(
+        text.contains("~100%"),
+        "expected ~100% share for the only activity in turn 0:\n{text}"
+    );
+    // The estimated AIC (4.5) should appear in the activity row alongside the percentage.
     assert!(
         text.matches("4.5").count() >= 2,
-        "Expected turn 0 AIC (4.5) in turns table and activity rows:\n{text}"
+        "Expected 4.5 in turns table and activity share estimate:\n{text}"
     );
     assert!(
         !activity_pane_text(&text).contains("assoc"),

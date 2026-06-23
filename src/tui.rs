@@ -1176,29 +1176,55 @@ fn activity_rows(turn: Option<&TurnMetrics>) -> Vec<ActivityRow> {
 }
 
 fn grouped_activity_rows(turn: &TurnMetrics) -> Vec<ActivityRow> {
-    let credits = turn.credit_display();
-    let mut rows = Vec::new();
+    let total = turn.activity_events.len();
+
+    // First pass: group consecutive same-kind+name events so we know each
+    // group's final count before computing its proportional credit share.
+    let mut groups: Vec<(String, String, String, usize)> = Vec::new(); // (seq, kind, name, count)
     for (index, event) in turn.activity_events.iter().enumerate() {
-        match rows.last_mut() {
-            Some(ActivityRow::Event {
-                kind,
-                count,
-                activity,
-                ..
-            }) if kind == &event.kind && activity == &event.name => {
-                let next_count = count.parse::<usize>().unwrap_or(1) + 1;
-                *count = next_count.to_string();
+        match groups.last_mut() {
+            Some((_, kind, name, count)) if kind == &event.kind && name == &event.name => {
+                *count += 1;
             }
-            _ => rows.push(ActivityRow::Event {
-                seq: (index + 1).to_string(),
-                kind: event.kind.clone(),
-                count: "1".to_string(),
-                activity: event.name.clone(),
-                credits: credits.clone(),
-            }),
+            _ => groups.push((
+                (index + 1).to_string(),
+                event.kind.clone(),
+                event.name.clone(),
+                1,
+            )),
         }
     }
-    rows
+
+    // Second pass: build rows with the credit share computed from the final count.
+    groups
+        .into_iter()
+        .map(|(seq, kind, activity, count)| ActivityRow::Event {
+            seq,
+            kind: kind.clone(),
+            count: count.to_string(),
+            credits: activity_share_display(count, total, turn),
+            activity,
+        })
+        .collect()
+}
+
+/// Proportional credit estimate for a single activity group.
+///
+/// Assumes each activity event in the turn consumes an equal share of the
+/// total credits — the best available heuristic when per-event data is absent.
+/// The `~` prefix signals that this is an estimate, not a measured value.
+fn activity_share_display(count: usize, total: usize, turn: &TurnMetrics) -> String {
+    if total == 0 {
+        return "-".to_string();
+    }
+    let pct = (count as f64 / total as f64 * 100.0).round() as u32;
+    match turn.credit_value() {
+        Some(total_credits) => {
+            let est = total_credits * count as f64 / total as f64;
+            format!("~{pct}% {est:.1}")
+        }
+        None => format!("~{pct}%"),
+    }
 }
 
 fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
@@ -1235,7 +1261,7 @@ fn activity_table_row(row: &ActivityRow, wide: bool) -> Row<'static> {
 
 fn activity_header(wide: bool) -> Row<'static> {
     let cells = if wide {
-        vec!["#", "kind", "cnt", "activity", "AIC"]
+        vec!["#", "kind", "cnt", "activity", "~share"]
     } else {
         vec!["#", "kind", "cnt", "activity"]
     };
@@ -1249,7 +1275,7 @@ fn activity_widths(wide: bool) -> Vec<Constraint> {
             Constraint::Length(7),
             Constraint::Length(3),
             Constraint::Min(18),
-            Constraint::Length(7),
+            Constraint::Length(12),
         ]
     } else {
         vec![
